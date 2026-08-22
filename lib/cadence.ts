@@ -122,9 +122,17 @@ export async function processDueSends(campaignId: string): Promise<ProcessResult
       continue;
     }
 
+    // A personalized message for this contact+step wins over the shared template.
+    const personalized = await db.personalizedMessage.findUnique({
+      where: { campaignId_contactId_stepKey: { campaignId, contactId: contact.id, stepKey: send.stepKey } },
+    });
+
     const mergeOpts = { firstName: contact.name.split(' ')[0] || contact.name, company: contact.account, topic: campaign.name, link: campaign.registrationLink ?? '' };
-    const subject = template.subject ? renderMergeFields(template.subject, mergeOpts) : campaign.name;
-    const body = renderMergeFields(template.body, mergeOpts);
+    // Personalized copy is rendered too: the model is told not to leave merge
+    // tokens behind, but rendering anyway means a stray one resolves instead of
+    // shipping raw to a real inbox.
+    const subject = renderMergeFields(personalized?.subject ?? template.subject ?? campaign.name, mergeOpts);
+    const body = renderMergeFields(personalized ? personalized.body : template.body, mergeOpts);
 
     try {
       // Resolve the recipient first: this throws for an inferred-but-unverified
@@ -152,7 +160,7 @@ export async function processDueSends(campaignId: string): Promise<ProcessResult
       await db.activityLogEntry.create({
         data: {
           campaignId,
-          text: `Sent "${template.label}" to ${contact.name}${sandboxed ? ' (sandboxed → allowlisted test lead)' : ''}`,
+          text: `Sent "${template.label}" to ${contact.name}${personalized ? ' (personalized)' : ''}${sandboxed ? ' (sandboxed → allowlisted test lead)' : ''}`,
           dot: 'var(--success-500)',
         },
       });

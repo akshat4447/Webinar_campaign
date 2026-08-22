@@ -9,7 +9,8 @@
     "lint": "eslint",
     "db:seed": "tsx prisma/seed.ts",
     "demo:reset": "tsx scripts/demo-reset.ts",
-    "cadence:tick": "tsx scripts/cadence-tick.ts"
+    "cadence:tick": "tsx scripts/cadence-tick.ts",
+    "demo:tidy": "tsx scripts/demo-tidy.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

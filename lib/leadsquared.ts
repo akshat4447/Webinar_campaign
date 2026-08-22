@@ -1,6 +1,9 @@
 // Server-only. Never import this from a 'use client' component — it reads
-// LSQ_ACCESS_KEY / LSQ_SECRET_KEY from the environment and must not ship to the browser.
-// Endpoints verified against https://apidocs.leadsquared.com/ (see the build plan).
+// LSQ_ACCESS_KEY / LSQ_SECRET_KEY / LSQ_HOST from the environment (and, if saved
+// on the Integrations page, from the DB — see resolveLsqConfig) and must not
+// ship to the browser. Endpoints verified against https://apidocs.leadsquared.com/.
+
+import { resolveIntegrationField } from '@/lib/integrationConfig';
 
 export class LeadSquaredError extends Error {
   constructor(
@@ -13,29 +16,38 @@ export class LeadSquaredError extends Error {
   }
 }
 
-function baseUrl() {
-  const raw = process.env.LSQ_HOST;
-  if (!raw) throw new Error('LSQ_HOST is not set — add it to .env.local');
-  // Accept either a bare host ("api-in21.leadsquared.com") or a full base URL
-  // ("https://api-in21.leadsquared.com/v2/") — only the hostname is used.
-  const host = raw.includes('://') ? new URL(raw).host : raw.replace(/\/.*$/, '');
-  return `https://${host}/v2`;
+export interface LsqConfigOverride {
+  accessKey?: string;
+  secretKey?: string;
+  host?: string;
 }
 
-function authQuery(): string {
-  const accessKey = process.env.LSQ_ACCESS_KEY;
-  const secretKey = process.env.LSQ_SECRET_KEY;
-  if (!accessKey || !secretKey) throw new Error('LSQ_ACCESS_KEY / LSQ_SECRET_KEY are not set — add them to .env.local');
-  return `accessKey=${encodeURIComponent(accessKey)}&secretKey=${encodeURIComponent(secretKey)}`;
+// DB (Integrations page) wins over .env.local; an explicit override (the
+// Integrations page's "Test connection", trying a value before it's saved)
+// wins over both. Every real call path goes through this — save a new key
+// from the UI and it takes effect everywhere immediately.
+async function resolveLsqConfig(override?: LsqConfigOverride) {
+  const accessKey = override?.accessKey || (await resolveIntegrationField('lsq', 'accessKey'));
+  const secretKey = override?.secretKey || (await resolveIntegrationField('lsq', 'secretKey'));
+  const rawHost = override?.host || (await resolveIntegrationField('lsq', 'host'));
+  if (!accessKey || !secretKey) throw new Error('LeadSquared Access Key / Secret Key are not set — add them on the Integrations page or in .env.local');
+  if (!rawHost) throw new Error('LeadSquared host is not set — add it on the Integrations page or in .env.local');
+  // Accept either a bare host ("api-in21.leadsquared.com") or a full base URL
+  // ("https://api-in21.leadsquared.com/v2/") — only the hostname is used.
+  const host = rawHost.includes('://') ? new URL(rawHost).host : rawHost.replace(/\/.*$/, '');
+  return { accessKey, secretKey, baseUrl: `https://${host}/v2` };
 }
 
 async function lsqFetch<T>(
   path: string,
-  opts: { method?: 'GET' | 'POST' | 'PUT'; query?: Record<string, string>; body?: unknown } = {}
+  opts: { method?: 'GET' | 'POST' | 'PUT'; query?: Record<string, string>; body?: unknown } = {},
+  override?: LsqConfigOverride
 ): Promise<T> {
   const { method = 'GET', query, body } = opts;
+  const cfg = await resolveLsqConfig(override);
+  const authQuery = `accessKey=${encodeURIComponent(cfg.accessKey)}&secretKey=${encodeURIComponent(cfg.secretKey)}`;
   const qs = new URLSearchParams(query).toString();
-  const url = `${baseUrl()}${path}?${authQuery()}${qs ? `&${qs}` : ''}`;
+  const url = `${cfg.baseUrl}${path}?${authQuery}${qs ? `&${qs}` : ''}`;
 
   const res = await fetch(url, {
     method,
@@ -60,8 +72,8 @@ async function lsqFetch<T>(
 
 // --- connectivity check -----------------------------------------------------
 
-export async function getLeadsMetadata() {
-  return lsqFetch<Array<{ SchemaName: string; DisplayName: string; DataType: string }>>('/LeadManagement.svc/LeadsMetaData.Get');
+export async function getLeadsMetadata(override?: LsqConfigOverride) {
+  return lsqFetch<Array<{ SchemaName: string; DisplayName: string; DataType: string }>>('/LeadManagement.svc/LeadsMetaData.Get', {}, override);
 }
 
 // --- leads -------------------------------------------------------------------
@@ -223,7 +235,7 @@ export async function sendEmailToLead(params: SendEmailParams): Promise<{ ID: st
   // accounts and 500s at the delivery layer even though the API call itself
   // validates fine. LSQ_SENDER_EMAIL (a real LeadSquared user's email in this
   // tenant) opts into "UserEmailAddress" instead, which has a real mailbox.
-  const senderEmail = process.env.LSQ_SENDER_EMAIL;
+  const senderEmail = await resolveIntegrationField('lsq', 'senderEmail');
   return lsqFetch('/EmailMarketing.svc/SendEmailToLead', {
     method: 'POST',
     body: {

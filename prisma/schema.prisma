@@ -16,6 +16,10 @@ model Campaign {
   date           String
   scheduledAt    DateTime?
   status         String   @default("draft") // draft | live | completed
+  // Independent of status: hides a campaign from the main landing grid without
+  // deleting it. A live or completed campaign can be archived and unarchived
+  // freely; its status is untouched either way.
+  archived       Boolean  @default(false)
   description    String?
   zoomLink       String?
   registrationLink String?
@@ -29,6 +33,12 @@ model Campaign {
   scoringPrompt    String @default("Score each contact 0–100 on how relevant they are to this webinar's topic, weighting title seniority, functional fit, and account vertical match.")
   scoringCriteria  String @default("VP/Director+ in Marketing, Ops, or Admissions; account vertical matches webinar topic; verified email available.")
   scoringThreshold Int    @default(70)
+  // Tone/emphasis instructions for per-recipient personalization — editable from the
+  // Personalize tab. Correctness guardrails (keep the link, no invented facts, no
+  // leftover merge tokens, channel format limits) live in code and are never overridden
+  // by this field. Keep the default text in sync with DEFAULT_PERSONALIZATION_PROMPT
+  // in lib/personalization.ts.
+  personalizationPrompt String @default("Lead with the operational problem their role actually owns — don't open by praising the company or telling the reader how impressive their work is. Vary the angle by seniority: executives care about outcome and risk, directors and heads about process and their team's throughput, managers and individual contributors about the day-to-day mechanics. Vary by function too — a marketing lead and an operations lead should not receive the same framing.")
   cadenceStatus  String   @default("not_started") // not_started | running | paused | stopped
   linkedinMode   String   @default("assisted") // assisted (manual) | automated (simulated bot)
   simulatedNow   DateTime?
@@ -44,6 +54,7 @@ model Campaign {
   activityLog    ActivityLogEntry[]
   attentionItems AttentionItem[]
   chatMessages   ChatMessage[]
+  personalized   PersonalizedMessage[]
 }
 
 model Contact {
@@ -84,11 +95,42 @@ model Contact {
   createdAt   DateTime @default(now())
 
   cadenceSends CadenceSend[]
+  personalized PersonalizedMessage[]
 }
 
 model AppSetting {
   key   String @id
   value String
+}
+
+/// One AI-written message for one contact at one cadence step. Derived from that
+/// step's Template (which owns the offer, the link and the compliance copy) —
+/// personalization only reshapes the framing. The send path prefers a row here
+/// over the shared template, so editing one changes what actually goes out.
+model PersonalizedMessage {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contactId  String
+  contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  stepKey   String // matches Template.key
+  channel   String // email | linkedin
+  subject   String?
+  body      String
+  rationale String? // one line on why this angle was chosen for this person
+
+  // The registration link inlined at generation time. Kept so that changing the
+  // campaign's link later can be repaired exactly, without a regeneration.
+  linkUsed String?
+
+  status      String   @default("draft") // draft | edited | reviewed
+  generatedAt DateTime @default(now())
+  editedAt    DateTime?
+  reviewedAt  DateTime?
+
+  @@unique([campaignId, contactId, stepKey])
+  @@index([campaignId, stepKey])
 }
 
 model Template {

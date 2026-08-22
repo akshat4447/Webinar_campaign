@@ -4,14 +4,22 @@ import { db } from '@/lib/db';
 import { statusMeta, personaLearning } from '@/lib/demo-data';
 import { getCampaignCardStats } from '@/lib/campaignCardStats';
 import { NewCampaignButton } from './NewCampaignButton';
+import { CampaignCardMenu } from './CampaignCardMenu';
 
-export default async function LandingPage() {
-  const campaigns = await db.campaign.findMany({ orderBy: { createdAt: 'asc' } });
+export default async function LandingPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
+  const { view } = await searchParams;
+  const archivedView = view === 'archived';
+
+  const [campaigns, activeCount, archivedCount] = await Promise.all([
+    db.campaign.findMany({ where: { archived: archivedView }, orderBy: { createdAt: 'asc' } }),
+    db.campaign.count({ where: { archived: false } }),
+    db.campaign.count({ where: { archived: true } }),
+  ]);
   const cards = await Promise.all(campaigns.map(async (c) => ({ campaign: c, stats: await getCampaignCardStats(c) })));
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '32px 40px 48px 40px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, gap: 16, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 16, flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--n90)', letterSpacing: '-0.01em' }}>Webinars</div>
           <div style={{ fontSize: 13, color: 'var(--n60)', marginTop: 3 }}>Every campaign the agent is running, drafting, or has already closed out</div>
@@ -19,11 +27,49 @@ export default async function LandingPage() {
         <NewCampaignButton />
       </div>
 
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+        <Link
+          href="/"
+          style={{
+            padding: '7px 14px',
+            borderRadius: 'var(--radius-md)',
+            fontSize: 12.5,
+            fontWeight: 600,
+            textDecoration: 'none',
+            background: !archivedView ? 'var(--accent-50)' : 'transparent',
+            color: !archivedView ? 'var(--accent-700)' : 'var(--n60)',
+          }}
+        >
+          All webinars ({activeCount})
+        </Link>
+        <Link
+          href="/?view=archived"
+          style={{
+            padding: '7px 14px',
+            borderRadius: 'var(--radius-md)',
+            fontSize: 12.5,
+            fontWeight: 600,
+            textDecoration: 'none',
+            background: archivedView ? 'var(--accent-50)' : 'transparent',
+            color: archivedView ? 'var(--accent-700)' : 'var(--n60)',
+          }}
+        >
+          Archived ({archivedCount})
+        </Link>
+      </div>
+
+      {cards.length === 0 && (
+        <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '32px 24px', textAlign: 'center', fontSize: 13, color: 'var(--n60)', marginBottom: 24 }}>
+          {archivedView ? 'No archived webinars.' : 'No webinars yet — create one to get started.'}
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(268px, 1fr))', gap: 16 }}>
         {cards.map(({ campaign: c, stats }) => {
           const meta = statusMeta[c.status as keyof typeof statusMeta] ?? statusMeta.draft;
           return (
-            <Link key={c.id} href={`/campaigns/${c.id}/${c.status === 'completed' ? 'dashboard' : 'setup'}`} style={{ textDecoration: 'none' }}>
+            <Link key={c.id} href={`/campaigns/${c.id}/${c.status === 'completed' ? 'dashboard' : 'setup'}`} style={{ textDecoration: 'none', position: 'relative', display: 'block' }}>
+              <CampaignCardMenu campaignId={c.id} campaignName={c.name} archived={c.archived} />
               <div
                 style={{
                   background: '#fff',

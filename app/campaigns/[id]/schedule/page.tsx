@@ -7,6 +7,7 @@ import { AUTOMATED_STEP_KEYS, renderMergeFields } from '@/lib/cadence';
 import { sendModeLabel } from '@/lib/sendGuard';
 import { getLinkedInProgressAction } from '@/lib/actions/linkedin';
 import { getServerNow } from '@/lib/actions/clock';
+import { normalizeLinkedInSlug, peopleSearchUrl } from '@/lib/linkedinUrl';
 
 export default async function SchedulePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -17,21 +18,32 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
     db.cadenceSend.groupBy({ by: ['stepKey', 'status'], where: { campaignId: id }, _count: true }),
     db.template.findUnique({ where: { campaignId_key: { campaignId: id, key: 'linkedin' } } }),
   ]);
+  // Personalized LinkedIn drafts win over the shared template, same as email.
+  const personalizedLinkedIn = await db.personalizedMessage.findMany({
+    where: { campaignId: id, stepKey: 'linkedin' },
+    select: { contactId: true, body: true },
+  });
+  const personalizedByContact = new Map(personalizedLinkedIn.map((p) => [p.contactId, p.body]));
   const approvedCount = await db.contact.count({ where: { campaignId: id, approved: true } });
   const linkedinProgress = await getLinkedInProgressAction(id);
   const serverNow = await getServerNow();
 
-  // Every approved contact gets a LinkedIn touch — the profile link is a name+company
-  // people-search, not a direct profile URL, so it works even without a known LinkedIn id.
+  // Every approved contact gets a LinkedIn touch. `slug` is their real profile
+  // when one is on file (from the CSV's LinkedIn column or pasted in the queue);
+  // `url` stays a name+company people-search so the flow still works without one.
   const linkedinQueue = approvedContacts.map((c) => ({
     id: c.id,
     name: c.name,
     title: c.title,
     account: c.account,
-    url: `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${c.name} ${c.account}`)}`,
-    message: linkedinTemplate
-      ? renderMergeFields(linkedinTemplate.body, { firstName: c.name.split(' ')[0] || c.name, company: c.account, topic: campaign.name, link: campaign.registrationLink ?? '' })
-      : `Hi ${c.name.split(' ')[0]} — noticed ${c.account}'s work in this space. We're running ${campaign.name} and thought it'd be relevant.`,
+    url: peopleSearchUrl(c.name, c.account),
+    slug: normalizeLinkedInSlug(c.linkedinId),
+    personalized: personalizedByContact.has(c.id),
+    message:
+      personalizedByContact.get(c.id) ??
+      (linkedinTemplate
+        ? renderMergeFields(linkedinTemplate.body, { firstName: c.name.split(' ')[0] || c.name, company: c.account, topic: campaign.name, link: campaign.registrationLink ?? '' })
+        : `Hi ${c.name.split(' ')[0]} — noticed ${c.account}'s work in this space. We're running ${campaign.name} and thought it'd be relevant.`),
   }));
 
   const countsByStep: Record<string, { sent: number; queued: number; failed: number }> = {};

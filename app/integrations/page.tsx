@@ -1,7 +1,10 @@
 import { IntegrationCard } from './IntegrationCard';
 import { integrationsData } from '@/lib/demo-data';
+import { getTestResult } from '@/lib/integrationConfig';
 
-export default function IntegrationsPage() {
+export default async function IntegrationsPage() {
+  const cards = await Promise.all(integrationsData.map(async (ig) => ({ ig, testResult: await getTestResult(ig.id) })));
+
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '32px 40px 48px 40px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, gap: 16, flexWrap: 'wrap' }}>
@@ -12,8 +15,8 @@ export default function IntegrationsPage() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(288px, 1fr))', gap: 16 }}>
-        {integrationsData.map((ig) => (
-          <IntegrationCard key={ig.id} ig={ig} />
+        {cards.map(({ ig, testResult }) => (
+          <IntegrationCard key={ig.id} ig={ig} testResult={testResult} />
         ))}
       </div>
 

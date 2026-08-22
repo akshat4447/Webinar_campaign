@@ -6,7 +6,8 @@
  *   npm run demo:reset -- c3      # resets another campaign by id
  *
  * Keeps the imported contacts and re-seeds them from the demo CSV, then clears
- * everything downstream: enrichment, scores, approvals, sends, logs, attention.
+ * everything downstream: enrichment, scores, approvals, personalized copy,
+ * sends, logs, attention.
  */
 import { readFile } from 'fs/promises';
 import path from 'path';
@@ -73,7 +74,9 @@ async function main() {
     });
   });
 
-  // Clear everything downstream of import.
+  // Clear everything downstream of import. PersonalizedMessage also cascades
+  // from Contact, but it is dropped explicitly so the intent is visible here.
+  await db.personalizedMessage.deleteMany({ where: { campaignId } });
   await db.cadenceSend.deleteMany({ where: { campaignId } });
   await db.contact.deleteMany({ where: { campaignId } });
   await db.activityLogEntry.deleteMany({ where: { campaignId } });
@@ -114,7 +117,7 @@ async function main() {
   const missing = contacts.filter((c) => c.missingInfo).length;
   console.log(`Reset "${campaign.name}" (${campaignId}) to freshly-imported:`);
   console.log(`  ${contacts.length} contacts · ${missing} missing an email · nothing enriched, scored, or sent`);
-  console.log(`  Ready to demo: Setup → Run enrichment → Scoring → Run audience scoring`);
+  console.log('  Ready to demo: Setup → enrichment → Scoring → approve → Templates → Personalize → Schedule');
 }
 
 main()

@@ -3,6 +3,14 @@
 import { getLeadsMetadata } from '@/lib/leadsquared';
 import { db } from '@/lib/db';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  getIntegrationConfigMasked,
+  saveIntegrationConfig,
+  saveTestResult,
+  getTestResult,
+  resolveIntegrationField,
+} from '@/lib/integrationConfig';
+import { INTEGRATION_FIELDS } from '@/lib/integrationFields';
 
 const LOG_KEYWORDS: Record<string, string[]> = {
   lsq: ['LeadSquared'],
@@ -24,26 +32,86 @@ export async function getIntegrationLogAction(integrationId: string) {
   return entries.map((e) => ({ campaign: e.campaign.name, text: e.text, time: e.createdAt.toISOString() }));
 }
 
-export async function testIntegrationAction(id: string): Promise<{ ok: boolean; detail: string }> {
+export async function getIntegrationConfigMaskedAction(id: string) {
+  return getIntegrationConfigMasked(id);
+}
+
+export async function getIntegrationStatusAction(id: string) {
+  return getTestResult(id);
+}
+
+/** Saves only the fields the user actually typed — a blank field leaves its stored value untouched. */
+export async function saveIntegrationConfigAction(id: string, fields: Record<string, string>) {
+  await saveIntegrationConfig(id, fields);
+  return { savedAt: new Date().toISOString() };
+}
+
+const TESTABLE = ['lsq', 'claude', 'apollo', 'apify'];
+
+/**
+ * Resolves typed → saved (DB) → env for each field this connector has, so
+ * "Test connection" works whether or not anything's been saved yet — hitting
+ * Test with every field blank tests whatever is already in effect (env or a
+ * prior save), exactly like the real production call paths do.
+ */
+async function resolveTestFields(id: string, typed: Record<string, string>): Promise<Record<string, string>> {
+  const schema = INTEGRATION_FIELDS[id] ?? [];
+  const out: Record<string, string> = {};
+  for (const f of schema) {
+    const v = typed[f.key] || (await resolveIntegrationField(id, f.key));
+    if (v) out[f.key] = v;
+  }
+  return out;
+}
+
+export async function testIntegrationAction(id: string, typedFields: Record<string, string> = {}): Promise<{ ok: boolean; detail: string }> {
   const started = Date.now();
+  let result: { ok: boolean; detail: string };
   try {
     if (id === 'lsq') {
-      const fields = await getLeadsMetadata();
-      return { ok: true, detail: `200 · ${fields.length} lead fields · ${Date.now() - started}ms` };
-    }
-    if (id === 'claude') {
-      const client = new Anthropic();
+      const f = await resolveTestFields('lsq', typedFields);
+      if (!f.accessKey || !f.secretKey || !f.host) throw new Error('Access Key, Secret Key, and Host are all required.');
+      const fields = await getLeadsMetadata({ accessKey: f.accessKey, secretKey: f.secretKey, host: f.host });
+      result = { ok: true, detail: `200 · ${fields.length} lead fields · ${Date.now() - started}ms` };
+    } else if (id === 'claude') {
+      const f = await resolveTestFields('claude', typedFields);
+      if (!f.apiKey) throw new Error('An API key is required.');
+      const client = new Anthropic({ apiKey: f.apiKey });
       const res = await client.messages.create({ model: 'claude-opus-5', max_tokens: 16, messages: [{ role: 'user', content: 'Reply with just: ok' }] });
       const text = res.content.find((b) => b.type === 'text');
-      return { ok: true, detail: `200 · model responded "${text && 'text' in text ? text.text.trim() : ''}" · ${Date.now() - started}ms` };
+      result = { ok: true, detail: `200 · model responded "${text && 'text' in text ? text.text.trim() : ''}" · ${Date.now() - started}ms` };
+    } else if (id === 'apollo') {
+      const f = await resolveTestFields('apollo', typedFields);
+      if (!f.apiKey) throw new Error('An API key is required.');
+      const res = await fetch('https://api.apollo.io/api/v1/auth/health', {
+        headers: { 'x-api-key': f.apiKey, 'Content-Type': 'application/json' },
+        cache: 'no-store',
+      });
+      const body: { healthy?: boolean; is_logged_in?: boolean; error?: string; message?: string } = await res.json().catch(() => ({}));
+      // Apollo's own docs: "If both values in the response are true, you are
+      // ready to use the API" — `healthy` alone stays true even for a bad key
+      // (it's a basic reachability flag), so checking only that would report
+      // an invalid key as a successful connection.
+      if (!res.ok || !body.healthy || !body.is_logged_in) {
+        throw new Error(`${res.status} · ${body.message || body.error || `Apollo rejected this key (healthy: ${body.healthy}, logged in: ${body.is_logged_in}).`}`);
+      }
+      result = { ok: true, detail: `200 · healthy · logged in · ${Date.now() - started}ms` };
+    } else if (id === 'apify') {
+      const f = await resolveTestFields('apify', typedFields);
+      if (!f.apiToken) throw new Error('An API token is required.');
+      const res = await fetch('https://api.apify.com/v2/users/me', {
+        headers: { Authorization: `Bearer ${f.apiToken}` },
+        cache: 'no-store',
+      });
+      const body: { data?: { username?: string }; error?: { message?: string } } = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(`${res.status} · ${body.error?.message || 'Apify rejected this token.'}`);
+      result = { ok: true, detail: `200 · user "${body.data?.username ?? 'unknown'}" · ${Date.now() - started}ms` };
+    } else {
+      result = { ok: false, detail: 'This integration stays in demo mode for this build.' };
     }
-    if (id === 'apollo') {
-      // Simulated handshake — no Apollo key in this build. The enrichment it
-      // feeds is real Claude inference; the contact-detail lookup is stubbed.
-      return { ok: true, detail: `200 · /v1/people/match · ${180 + (Date.now() % 90)}ms (simulated)` };
-    }
-    return { ok: false, detail: 'This integration stays in demo mode for this build.' };
   } catch (err) {
-    return { ok: false, detail: String(err).slice(0, 200) };
+    result = { ok: false, detail: String(err instanceof Error ? err.message : err).slice(0, 300) };
   }
+  if (TESTABLE.includes(id)) await saveTestResult(id, result.ok, result.detail);
+  return result;
 }

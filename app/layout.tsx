@@ -11,10 +11,10 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: LayoutProps<'/'>) {
   const [totalCount, liveCount, draftCount, completedCount] = await Promise.all([
-    db.campaign.count(),
-    db.campaign.count({ where: { status: 'live' } }),
-    db.campaign.count({ where: { status: 'draft' } }),
-    db.campaign.count({ where: { status: 'completed' } }),
+    db.campaign.count({ where: { archived: false } }),
+    db.campaign.count({ where: { archived: false, status: 'live' } }),
+    db.campaign.count({ where: { archived: false, status: 'draft' } }),
+    db.campaign.count({ where: { archived: false, status: 'completed' } }),
   ]);
 
   return (

@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
-import { markLinkedInSendAction, setLinkedInModeAction } from '@/lib/actions/linkedin';
+import { markLinkedInSendAction, setLinkedInModeAction, setLinkedInProfileAction } from '@/lib/actions/linkedin';
+import { composeUrl, profileUrl, peopleSearchUrl } from '@/lib/linkedinUrl';
 
 export interface LinkedInQueueItem {
   id: string;
@@ -14,6 +15,8 @@ export interface LinkedInQueueItem {
   account: string;
   url: string;
   message: string;
+  personalized?: boolean;
+  slug?: string | null;
 }
 
 type Mode = 'assisted' | 'automated';
@@ -35,6 +38,9 @@ export function LinkedInPanel({
   const [progress, setProgress] = useState<Record<string, string>>(initialProgress);
   const [steps, setSteps] = useState<Record<string, { copied?: boolean; opened?: boolean }>>({});
   const [botRunning, setBotRunning] = useState(false);
+  const [profileDraft, setProfileDraft] = useState('');
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
   const router = useRouter();
 
   const sentCount = queue.filter((q) => progress[q.id] === 'sent').length;
@@ -46,6 +52,51 @@ export function LinkedInPanel({
   async function selectMode(next: Mode) {
     setMode(next);
     await setLinkedInModeAction(campaignId, next, queue.length);
+  }
+
+  /**
+   * Copies the draft and opens LinkedIn in one gesture.
+   *
+   * Ordering is load-bearing: the clipboard write is *started* before
+   * window.open but deliberately not awaited. Awaiting first makes the popup
+   * look un-initiated by the user and it gets blocked; opening first steals
+   * focus and the clipboard write then fails on an unfocused document. Firing
+   * both inside the same gesture avoids each failure mode.
+   */
+  function openInLinkedIn(item: LinkedInQueueItem) {
+    const writing = navigator.clipboard?.writeText(item.message);
+    const url = item.slug ? composeUrl(item.slug) : peopleSearchUrl(item.name, item.account);
+    window.open(url, '_blank', 'noopener');
+    setSteps((st) => ({ ...st, [item.id]: { ...st[item.id], copied: true, opened: true } }));
+
+    // Older/permission-denied paths: fall back to a hidden textarea so the
+    // message still reaches the clipboard rather than silently not copying.
+    writing?.catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = item.message;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+      } finally {
+        document.body.removeChild(ta);
+      }
+    });
+  }
+
+  async function saveProfile(contactId: string) {
+    setSavingProfile(true);
+    setProfileError(null);
+    const res = await setLinkedInProfileAction(campaignId, contactId, profileDraft);
+    setSavingProfile(false);
+    if (!res.ok) {
+      setProfileError(res.error);
+      return;
+    }
+    setProfileDraft('');
+    router.refresh();
   }
 
   async function mark(contactId: string, status: 'sent' | 'skipped', viaBot = false) {
@@ -82,7 +133,7 @@ export function LinkedInPanel({
           <ModeOption
             selected={mode === 'assisted'}
             title="Send manually"
-            detail="You copy each draft, open the profile, and send it yourself."
+            detail="One click copies the draft and opens LinkedIn — you paste, review, and press send."
             badge={{ color: 'success', text: 'Recommended' }}
             onSelect={() => selectMode('assisted')}
           />
@@ -167,70 +218,84 @@ export function LinkedInPanel({
                       Next
                     </Button>
                   </div>
+                  {current.personalized && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                      <Badge color="blue light" text="Personalized for this person" />
+                      <span style={{ fontSize: 11, color: 'var(--n50)' }}>Edit it on the Personalize tab.</span>
+                    </div>
+                  )}
                   <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: 14, fontSize: 13, color: 'var(--n80)', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: 14 }}>
                     {current.message}
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <StepRow
-                      done={!!curSteps.copied}
-                      label="1. Copy message"
-                      action={
-                        <Button
-                          hierarchy="secondary"
-                          size="sm"
-                          onClick={async () => {
-                            await navigator.clipboard.writeText(current.message);
-                            setSteps((s) => ({ ...s, [current.id]: { ...s[current.id], copied: true } }));
-                          }}
-                        >
-                          Copy
-                        </Button>
-                      }
-                    />
-                    <StepRow
-                      done={!!curSteps.opened}
-                      label="2. Open profile"
-                      action={
-                        <Button
-                          hierarchy="secondary"
-                          size="sm"
-                          onClick={() => {
-                            window.open(current.url, '_blank', 'noopener');
-                            setSteps((s) => ({ ...s, [current.id]: { ...s[current.id], opened: true } }));
-                          }}
-                        >
-                          Open profile
-                        </Button>
-                      }
-                    />
-                    <StepRow
-                      done={progress[current.id] === 'sent'}
-                      label="3. Mark as sent"
-                      action={
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <Button hierarchy="primary" size="md" fullWidth onClick={() => openInLinkedIn(current)}>
+                      Copy message &amp; open LinkedIn
+                    </Button>
+
+                    <div style={{ fontSize: 11.5, color: 'var(--n60)', lineHeight: 1.55 }}>
+                      {curSteps.opened
+                        ? 'Paste it into the message box (⌘V), read it over, and press Send in LinkedIn. Then confirm below.'
+                        : current.slug
+                        ? 'Opens their message composer with the text on your clipboard — paste, review, send.'
+                        : 'Opens a LinkedIn search for this person with the text on your clipboard. Add their profile URL below to jump straight to them next time.'}
+                    </div>
+
+                    {current.slug && (
+                      <button
+                        type="button"
+                        onClick={() => window.open(profileUrl(current.slug!), '_blank', 'noopener')}
+                        style={{ alignSelf: 'flex-start', background: 'none', border: 'none', padding: 0, fontSize: 11.5, fontWeight: 600, color: 'var(--accent-500)', cursor: 'pointer', textDecoration: 'underline' }}
+                      >
+                        Open their profile instead
+                      </button>
+                    )}
+
+                    {!current.slug && (
+                      <div>
                         <div style={{ display: 'flex', gap: 6 }}>
-                          <Button
-                            hierarchy="tertiary"
-                            size="sm"
-                            onClick={async () => {
-                              await mark(current.id, 'skipped');
-                              next();
-                            }}
-                          >
-                            Skip
-                          </Button>
-                          <Button
-                            hierarchy="primary"
-                            size="sm"
-                            onClick={async () => {
-                              await mark(current.id, 'sent');
-                              next();
-                            }}
-                          >
-                            Mark as sent
+                          <input
+                            className="lsq-input"
+                            type="text"
+                            value={profileDraft}
+                            onChange={(e) => setProfileDraft(e.target.value)}
+                            placeholder="linkedin.com/in/their-name"
+                            style={{ flex: 1, minWidth: 0 }}
+                          />
+                          <Button hierarchy="secondary" size="sm" onClick={() => saveProfile(current.id)} disabled={!profileDraft.trim() || savingProfile}>
+                            {savingProfile ? 'Saving…' : 'Save'}
                           </Button>
                         </div>
-                      }
-                    />
+                        {profileError && <div style={{ fontSize: 11.5, color: 'var(--danger-500)', marginTop: 6 }}>{profileError}</div>}
+                      </div>
+                    )}
+
+                    <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12 }}>
+                      <div style={{ fontSize: 11.5, color: 'var(--n50)', marginBottom: 8, lineHeight: 1.5 }}>
+                        LinkedIn doesn&apos;t tell us when a message actually goes out — confirm here and the queue moves on.
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Button
+                          hierarchy={curSteps.opened ? 'primary' : 'secondary'}
+                          size="sm"
+                          onClick={async () => {
+                            await mark(current.id, 'sent');
+                            next();
+                          }}
+                        >
+                          I sent it
+                        </Button>
+                        <Button
+                          hierarchy="tertiary"
+                          size="sm"
+                          onClick={async () => {
+                            await mark(current.id, 'skipped');
+                            next();
+                          }}
+                        >
+                          Skip
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -246,6 +311,7 @@ export function LinkedInPanel({
                     >
                       <span style={{ width: 18, fontSize: 11.5, color: 'var(--n50)', flexShrink: 0 }}>{i + 1}</span>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--n90)', overflowWrap: 'anywhere' }}>{q.name}</span>
+                      {q.personalized && <Badge color="blue light" text="Personalized" />}
                       <span style={{ fontSize: 11.5, color: 'var(--n60)' }}>{q.account}</span>
                       <Badge
                         color={progress[q.id] === 'sent' ? 'success' : progress[q.id] === 'skipped' ? 'gray' : 'blue'}
@@ -322,12 +388,3 @@ function ModeOption({
   );
 }
 
-function StepRow({ done, label, action }: { done: boolean; label: string; action: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: done ? 'var(--success-500)' : 'var(--n20)', flexShrink: 0 }} />
-      <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: done ? 'var(--success-700)' : 'var(--n60)' }}>{label}</span>
-      {action}
-    </div>
-  );
-}

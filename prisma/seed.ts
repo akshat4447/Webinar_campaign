@@ -8,6 +8,18 @@ import {
   needsAttention,
 } from '../lib/demo-data';
 
+/** A per-campaign registration slug, so every webinar links to its own landing page. */
+function registrationSlug(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .split('-')
+    .slice(0, 3)
+    .join('-');
+  return `lsq.co/w/${slug}-2026`;
+}
+
 async function main() {
   for (const c of demoCampaigns) {
     await db.campaign.upsert({
@@ -23,7 +35,7 @@ async function main() {
         registrations: c.registrations,
         attendance: c.attendance,
         demoRequests: c.demoRequests,
-        registrationLink: 'lsq.co/w/lending-ops-2608',
+        registrationLink: registrationSlug(c.name),
       },
     });
   }

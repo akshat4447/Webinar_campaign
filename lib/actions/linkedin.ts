@@ -2,6 +2,7 @@
 
 import { db } from '@/lib/db';
 import { revalidateCampaign } from '@/lib/revalidate';
+import { normalizeLinkedInSlug } from '@/lib/linkedinUrl';
 
 const STEP_KEY = 'linkedin';
 
@@ -38,6 +39,25 @@ export async function setLinkedInModeAction(campaignId: string, mode: 'assisted'
     },
   });
   revalidateCampaign(campaignId);
+}
+
+/**
+ * Saves a pasted LinkedIn profile URL so the next open lands on the person
+ * instead of a name search. Stores the normalized slug in Contact.linkedinId
+ * (the column already exists and is what the CSV importer fills).
+ */
+export async function setLinkedInProfileAction(
+  campaignId: string,
+  contactId: string,
+  raw: string
+): Promise<{ ok: true; slug: string } | { ok: false; error: string }> {
+  const slug = normalizeLinkedInSlug(raw);
+  if (!slug) {
+    return { ok: false, error: "That doesn't look like a profile URL — expected something like linkedin.com/in/their-name" };
+  }
+  await db.contact.update({ where: { id: contactId }, data: { linkedinId: slug } });
+  revalidateCampaign(campaignId);
+  return { ok: true, slug };
 }
 
 export async function getLinkedInProgressAction(campaignId: string) {

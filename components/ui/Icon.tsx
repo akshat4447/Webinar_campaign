@@ -10,7 +10,8 @@ type IconName =
   | 'info'
   | 'error'
   | 'plus'
-  | 'chat';
+  | 'chat'
+  | 'more';
 
 const paths: Record<IconName, React.ReactNode> = {
   document: (
@@ -60,6 +61,13 @@ const paths: Record<IconName, React.ReactNode> = {
   ),
   chat: (
     <path d="M4 4.5h16v12H12.5L8 20v-3.5H4v-12Z" />
+  ),
+  more: (
+    <>
+      <circle cx="12" cy="5.5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="18.5" r="1.2" fill="currentColor" stroke="none" />
+    </>
   ),
 };
 

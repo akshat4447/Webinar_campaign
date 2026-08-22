@@ -184,8 +184,12 @@ export function TemplatesEditor({
           </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <NavButton href={`/campaigns/${campaignId}/schedule`}>Continue to schedule</NavButton>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 12, color: 'var(--n60)', maxWidth: '52ch' }}>
+            This template goes to everyone as-is. To rewrite it per recipient — by seniority, function and industry — continue to
+            Personalize.
+          </div>
+          <NavButton href={`/campaigns/${campaignId}/personalize`}>Continue to personalize</NavButton>
         </div>
       </div>
     </div>
