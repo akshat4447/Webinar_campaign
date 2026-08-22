@@ -1,0 +1,12 @@
+:root{
+  --font-body:"Mulish",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+
+  --fw-regular:400;/* @kind font */--fw-medium:500;/* @kind font */--fw-semibold:600;/* @kind font */--fw-bold:700;/* @kind font */
+
+  /* Exact sizes from the file's type scale (px) */
+  --fs-heading-2:22px;--fs-heading-3:20px;--fs-heading-4:18px;
+  --fs-subheading:14px;--fs-button-1:16px;--fs-button-2:14px;
+  --fs-label-1:13px;--fs-label-2:11px;--fs-body:14px;--fs-caption:10px;
+
+  --lh-tight:1.2;/* @kind font */--lh-normal:1.4;/* @kind font */--lh-relaxed:1.5;/* @kind font */
+}

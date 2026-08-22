@@ -1,0 +1,38 @@
+/* Curated semantic palette — derived from the FinFlow/LeadSquared CRM Figma file.
+   Base values quote the file's 1440 (Default)/Light mode; see tokens/fig/fig-tokens.css
+   for the full raw Variable export (all modes, all 981 vars). */
+:root{
+  /* Neutrals (Main/Neutral scale) */
+  --n0:#ffffff;--n10:#f6f7f9;--n20:#eff2f5;--n30:#d9e0e8;--n40:#c6d0dc;--n50:#90a0b4;
+  --n60:#465972;--n70:#293442;--n80:#1d2530;--n90:#101419;--n-black:#101419;--n-white:#ffffff;
+
+  /* Brand accent (used for links, primary buttons, focus) */
+  --accent-50:#ebf1ff;--accent-500:#1463ff;--accent-600:#1463ff;--accent-700:#0e4bd1;
+  --accent-purple:#6c57d6;--accent-purple-stroke:#303db1;
+
+  /* Semantic status */
+  --success-100:#e6f9ee;--success-500:#46ca7b;--success-700:#1a8f4c;
+  --danger-100:#fde8e8;--danger-500:#dc2625;--danger-700:#b91c1c;
+  --warning-100:#fbebb4;--warning-700:#8a6a10;
+  --info-100:#f3f4fc;--info-500:#4659ea;
+
+  /* Surfaces */
+  --surface-page:var(--n20);--surface-card:var(--n0);--surface-subtle:var(--n10);
+  --surface-hover:var(--n10);--surface-overlay:rgba(16,20,25,0.45);
+
+  /* Text */
+  --text-primary:var(--n80);--text-secondary:var(--n60);--text-tertiary:var(--n50);
+  --text-disabled:var(--n40);--text-inverse:var(--n0);--text-link:var(--accent-500);
+  --text-danger:var(--danger-500);--text-success:var(--success-700);
+
+  /* Borders */
+  --border-default:var(--n30);--border-subtle:var(--n20);--border-strong:var(--n40);
+  --border-focus:var(--accent-500);
+
+  /* Shadows (exact values from the source file) */
+  --shadow-xs:0 1px 2px rgba(16,24,40,0.06);
+  --shadow-sm:0 1px 3px rgba(16,24,40,0.1),0 1px 2px rgba(16,24,40,0.06);
+  --shadow-card:0 1px 2px rgba(24,24,24,0.04);
+  --shadow-panel:0 4px 12px rgba(0,0,0,0.08);
+  --shadow-popover:0 2px 8px rgba(30,40,60,0.03);
+}

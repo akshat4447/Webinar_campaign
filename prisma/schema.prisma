@@ -1,0 +1,189 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Campaign {
+  id             String   @id @default(cuid())
+  name           String
+  vertical       String
+  // `date` is the human-readable display string shown across the app; `scheduledAt`
+  // is the real timestamp the picker writes and reminder offsets are computed from.
+  date           String
+  scheduledAt    DateTime?
+  status         String   @default("draft") // draft | live | completed
+  description    String?
+  zoomLink       String?
+  registrationLink String?
+  invites        Int?
+  registrations  Int?
+  attendance     String?
+  demoRequests   Int?
+  frequency      String   @default("balanced")
+  scheduleWindow String   @default("9:00 AM – 6:00 PM IST")
+  dailyLimit     Int      @default(500)
+  scoringPrompt    String @default("Score each contact 0–100 on how relevant they are to this webinar's topic, weighting title seniority, functional fit, and account vertical match.")
+  scoringCriteria  String @default("VP/Director+ in Marketing, Ops, or Admissions; account vertical matches webinar topic; verified email available.")
+  scoringThreshold Int    @default(70)
+  cadenceStatus  String   @default("not_started") // not_started | running | paused | stopped
+  linkedinMode   String   @default("assisted") // assisted (manual) | automated (simulated bot)
+  simulatedNow   DateTime?
+  attendanceImportedAt DateTime?
+  lsqListId      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  contacts       Contact[]
+  templates      Template[]
+  cadenceSteps   CadenceStep[]
+  cadenceSends   CadenceSend[]
+  activityLog    ActivityLogEntry[]
+  attentionItems AttentionItem[]
+  chatMessages   ChatMessage[]
+}
+
+model Contact {
+  id          String  @id @default(cuid())
+  campaignId  String
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  name        String
+  email       String?
+  account     String
+  vertical    String
+  title       String
+  function    String
+  seniority   String
+  linkedinId  String?
+  missingInfo Boolean @default(false)
+
+  score       Int?
+  explanation String?
+  source      String  @default("Apollo") // LinkedIn | LinkedIn+Apollo | Apollo
+  approved    Boolean @default(false)
+
+  lsqLeadId   String?
+
+  // Enrichment. `emailSimulated` marks an address that was *inferred* (Apollo-style
+  // pattern guess) rather than supplied by the source data — it may belong to a real
+  // person who never opted in, so the send path refuses it until a human sets
+  // `emailVerified`. See lib/sendGuard.ts.
+  enrichedAt       DateTime?
+  enrichmentSource String?
+  personaNote      String?
+  emailSimulated   Boolean @default(false)
+  emailVerified    Boolean @default(false)
+
+  attended     Boolean @default(false)
+  watchMinutes Int?
+
+  createdAt   DateTime @default(now())
+
+  cadenceSends CadenceSend[]
+}
+
+model AppSetting {
+  key   String @id
+  value String
+}
+
+model Template {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  key        String // invite | nudge | final | linkedin | attend | noshow | ...
+  label      String
+  channel    String
+  hasSubject Boolean @default(true)
+  subject    String?
+  body       String
+
+  savedSubject String?
+  savedBody    String?
+  savedAt      DateTime?
+
+  updatedAt  DateTime @updatedAt
+
+  @@unique([campaignId, key])
+}
+
+model CadenceStep {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  key         String
+  group       String
+  title       String
+  timing      String
+  channel     String
+  desc        String
+  toggleable  Boolean @default(true)
+  enabled     Boolean @default(true)
+  isRoadmap   Boolean @default(false)
+
+  // Editable schedule. The offset is signed and resolved against `anchor`:
+  //   launch  — relative to when the cadence is launched (pre-registration steps)
+  //   webinar — relative to campaign.scheduledAt (reminders, post-event follow-ups)
+  //   event   — fired by something happening (a registration), not a clock
+  offsetValue Int     @default(0)
+  offsetUnit  String  @default("days") // days | hours
+  anchor      String  @default("launch") // launch | webinar | event
+
+  @@unique([campaignId, key])
+}
+
+model CadenceSend {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contactId  String
+  contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  stepKey    String
+  dueAt      DateTime
+  status     String   @default("queued") // queued | sent | failed | skipped
+  sentAt     DateTime?
+  error      String?
+
+  createdAt  DateTime @default(now())
+}
+
+model ActivityLogEntry {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  text       String
+  dot        String   @default("var(--accent-500)")
+  createdAt  DateTime @default(now())
+}
+
+model AttentionItem {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  icon       String
+  color      String
+  title      String
+  detail     String
+  actionsCsv String // comma-separated: retry,skip,fix,view
+  resolvedAt DateTime?
+  createdAt  DateTime @default(now())
+}
+
+model ChatMessage {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  from       String // agent | user
+  text       String
+  createdAt  DateTime @default(now())
+}
