@@ -8,6 +8,7 @@ import { sendModeLabel } from '@/lib/sendGuard';
 import { getLinkedInProgressAction } from '@/lib/actions/linkedin';
 import { getServerNow } from '@/lib/actions/clock';
 import { normalizeLinkedInSlug, peopleSearchUrl } from '@/lib/linkedinUrl';
+import { validateRenderedMessage } from '@/lib/messageValidation';
 
 export default async function SchedulePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -31,20 +32,33 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
   // Every approved contact gets a LinkedIn touch. `slug` is their real profile
   // when one is on file (from the CSV's LinkedIn column or pasted in the queue);
   // `url` stays a name+company people-search so the flow still works without one.
-  const linkedinQueue = approvedContacts.map((c) => ({
-    id: c.id,
-    name: c.name,
-    title: c.title,
-    account: c.account,
-    url: peopleSearchUrl(c.name, c.account),
-    slug: normalizeLinkedInSlug(c.linkedinId),
-    personalized: personalizedByContact.has(c.id),
-    message:
-      personalizedByContact.get(c.id) ??
-      (linkedinTemplate
-        ? renderMergeFields(linkedinTemplate.body, { firstName: c.name.split(' ')[0] || c.name, company: c.account, topic: campaign.name, link: campaign.registrationLink ?? '' })
-        : `Hi ${c.name.split(' ')[0]} — noticed ${c.account}'s work in this space. We're running ${campaign.name} and thought it'd be relevant.`),
-  }));
+  const link = campaign.registrationLink ?? '';
+  const linkedinQueue = approvedContacts.map((c) => {
+    const personalizedBody = personalizedByContact.get(c.id);
+    // LinkedIn sends are human-reviewed (copy/paste, or a labeled bot
+    // simulation) rather than auto-sent like email, so this doesn't silently
+    // substitute the template the way lib/cadence.ts does for email — it just
+    // flags a broken personalized draft so the human doesn't ship it unaware.
+    const personalizedValid = personalizedBody ? validateRenderedMessage(null, personalizedBody, false, link).valid : true;
+    const fallback = linkedinTemplate
+      ? renderMergeFields(linkedinTemplate.body, { firstName: c.name.split(' ')[0] || c.name, company: c.account, topic: campaign.name, link })
+      : `Hi ${c.name.split(' ')[0]} — noticed ${c.account}'s work in this space. We're running ${campaign.name} and thought it'd be relevant.`;
+    return {
+      id: c.id,
+      name: c.name,
+      title: c.title,
+      account: c.account,
+      url: peopleSearchUrl(c.name, c.account),
+      slug: normalizeLinkedInSlug(c.linkedinId),
+      personalized: !!personalizedBody,
+      personalizedInvalid: !!personalizedBody && !personalizedValid,
+      // An invalid personalized draft is treated the same as "none exists" —
+      // the queue shows the safe template instead, matching what the email
+      // send path in lib/cadence.ts actually does, rather than surfacing a
+      // draft that's missing its link or has a leftover {{token}} in it.
+      message: personalizedBody && personalizedValid ? personalizedBody : fallback,
+    };
+  });
 
   const countsByStep: Record<string, { sent: number; queued: number; failed: number }> = {};
   for (const row of sendCounts) {

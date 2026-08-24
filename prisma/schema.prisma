@@ -76,6 +76,10 @@ model Contact {
   explanation String?
   source      String  @default("Apollo") // LinkedIn | LinkedIn+Apollo | Apollo
   approved    Boolean @default(false)
+  // Set the moment a human toggles approval directly (Scoring tab checkbox or bulk
+  // action) — re-scoring then leaves this contact's approval alone instead of
+  // silently overwriting a human decision with the AI's threshold verdict.
+  approvedManually Boolean @default(false)
 
   lsqLeadId   String?
 
@@ -96,6 +100,8 @@ model Contact {
 
   cadenceSends CadenceSend[]
   personalized PersonalizedMessage[]
+
+  @@index([campaignId, approved])
 }
 
 model AppSetting {
@@ -194,6 +200,12 @@ model CadenceSend {
   error      String?
 
   createdAt  DateTime @default(now())
+
+  // Prevents double-queuing the same step for the same contact if launch (or the
+  // attendance import) runs twice — the app-level dedupe check was a read-then-write
+  // race with no constraint backing it.
+  @@unique([campaignId, contactId, stepKey])
+  @@index([campaignId, status, dueAt])
 }
 
 model ActivityLogEntry {

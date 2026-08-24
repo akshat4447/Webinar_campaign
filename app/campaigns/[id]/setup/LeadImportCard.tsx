@@ -1,24 +1,44 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Icon } from '@/components/ui/Icon';
 import { Drawer, type DrawerContent } from '@/components/ui/Drawer';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { importCsvAction, fetchLsqListsAction, importFromLsqListAction, type CsvImportResult } from '@/lib/actions/setup';
 import type { LsqList } from '@/lib/leadsquared';
 
-export function LeadImportCard({ campaignId }: { campaignId: string }) {
+export function LeadImportCard({
+  campaignId,
+  existingContactCount,
+  existingScoredCount,
+}: {
+  campaignId: string;
+  existingContactCount: number;
+  existingScoredCount: number;
+}) {
   const [mode, setMode] = useState<'csv' | 'lsq'>('csv');
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CsvImportResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
 
   const [lists, setLists] = useState<LsqList[] | null>(null);
   const [listsError, setListsError] = useState<string | null>(null);
   const [selectedListId, setSelectedListId] = useState('');
   const [mappingOpen, setMappingOpen] = useState(false);
+
+  // A re-import replaces every contact for this campaign — including whatever's
+  // already been scored, approved, or personalized. That work only exists once,
+  // so a confirmation gates it instead of one misclick silently discarding it.
+  // Only the *first* import (no contacts yet) skips the prompt.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [confirmingCsv, setConfirmingCsv] = useState(false);
+  const [confirmingLsq, setConfirmingLsq] = useState(false);
+  const hasExisting = existingContactCount > 0;
 
   useEffect(() => {
     if (mode === 'lsq' && lists === null) {
@@ -31,7 +51,18 @@ export function LeadImportCard({ campaignId }: { campaignId: string }) {
     }
   }, [mode, lists]);
 
+  function requestFile(file: File) {
+    if (hasExisting) {
+      setPendingFile(file);
+      setConfirmingCsv(true);
+      return;
+    }
+    handleFile(file);
+  }
+
   async function handleFile(file: File) {
+    setConfirmingCsv(false);
+    setPendingFile(null);
     setBusy(true);
     setResult(null);
     const fd = new FormData();
@@ -39,16 +70,28 @@ export function LeadImportCard({ campaignId }: { campaignId: string }) {
     const res = await importCsvAction(campaignId, fd);
     setResult(res);
     setBusy(false);
+    router.refresh();
+  }
+
+  function requestFetchList() {
+    if (!selectedListId) return;
+    if (hasExisting) {
+      setConfirmingLsq(true);
+      return;
+    }
+    handleFetchList();
   }
 
   async function handleFetchList() {
     if (!selectedListId) return;
+    setConfirmingLsq(false);
     setBusy(true);
     setResult(null);
     const list = lists?.find((l) => l.ListId === selectedListId);
     const res = await importFromLsqListAction(campaignId, selectedListId, list?.ListName ?? selectedListId);
     setResult(res);
     setBusy(false);
+    router.refresh();
   }
 
   const tabBtn = (active: boolean): React.CSSProperties => ({
@@ -85,7 +128,7 @@ export function LeadImportCard({ campaignId }: { campaignId: string }) {
             style={{ display: 'none' }}
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) handleFile(f);
+              if (f) requestFile(f);
               e.target.value = '';
             }}
           />
@@ -95,7 +138,7 @@ export function LeadImportCard({ campaignId }: { campaignId: string }) {
               e.preventDefault();
               setDragging(false);
               const f = e.dataTransfer.files?.[0];
-              if (f) handleFile(f);
+              if (f) requestFile(f);
             }}
             onDragOver={(e) => {
               e.preventDefault();
@@ -166,7 +209,7 @@ export function LeadImportCard({ campaignId }: { campaignId: string }) {
               </select>
             )}
           </div>
-          <Button hierarchy="secondary" onClick={handleFetchList} disabled={busy || !selectedListId}>
+          <Button hierarchy="secondary" onClick={requestFetchList} disabled={busy || !selectedListId}>
             {busy ? 'Fetching…' : 'Fetch contacts'}
           </Button>
         </div>
@@ -186,8 +229,45 @@ export function LeadImportCard({ campaignId }: { campaignId: string }) {
       </div>
 
       <Drawer content={mappingOpen ? mappingDrawer(result) : null} onClose={() => setMappingOpen(false)} />
+
+      {confirmingCsv && pendingFile && (
+        <ConfirmDialog
+          title="Replace all imported contacts?"
+          message={reimportWarning(existingContactCount, existingScoredCount)}
+          confirmLabel="Replace contacts"
+          destructive
+          busy={busy}
+          onConfirm={() => handleFile(pendingFile)}
+          onClose={() => {
+            setConfirmingCsv(false);
+            setPendingFile(null);
+          }}
+        />
+      )}
+
+      {confirmingLsq && (
+        <ConfirmDialog
+          title="Replace all imported contacts?"
+          message={reimportWarning(existingContactCount, existingScoredCount)}
+          confirmLabel="Replace contacts"
+          destructive
+          busy={busy}
+          onConfirm={handleFetchList}
+          onClose={() => setConfirmingLsq(false)}
+        />
+      )}
     </div>
   );
+}
+
+function reimportWarning(contactCount: number, scoredCount: number): string {
+  const parts = [`This campaign already has ${contactCount} imported contact${contactCount === 1 ? '' : 's'}. Importing again replaces all of them —`];
+  parts.push(
+    scoredCount > 0
+      ? `including ${scoredCount} that ${scoredCount === 1 ? 'has' : 'have'} already been scored, along with any approvals and personalized copy tied to them.`
+      : 'along with any approvals or personalized copy tied to them.'
+  );
+  return parts.join(' ') + " This can't be undone.";
 }
 
 function mappingDrawer(result: CsvImportResult | null): DrawerContent | null {

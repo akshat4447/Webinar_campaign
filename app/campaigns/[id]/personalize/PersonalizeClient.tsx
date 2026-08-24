@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
+import { NavButton } from '@/components/ui/NavButton';
 import {
   generatePersonalizedAction,
   regeneratePersonalizedAction,
@@ -15,6 +16,7 @@ import {
   repairLinksAction,
 } from '@/lib/actions/personalize';
 import type { GenerateResult } from '@/lib/personalization';
+import { validateRenderedMessage, type ValidationResult } from '@/lib/messageValidation';
 import { PromptModal } from './PromptModal';
 
 interface MessageState {
@@ -104,6 +106,22 @@ export function PersonalizeClient({
 
   const selected = rows.find((r) => r.contactId === selectedId) ?? null;
   const generatedCount = rows.filter((r) => r.message).length;
+
+  // Personalize previously had zero content validation at all — a message
+  // missing the link or with a leftover {{token}} looked exactly as ready as a
+  // correct one. This computes a real pass/fail per recipient for this step,
+  // reusing the same check the actual send path in lib/cadence.ts applies —
+  // see validateRenderedMessage's docstring for why a leftover token there
+  // isn't just cosmetic.
+  const validationByContact = useMemo(() => {
+    const map = new Map<string, ValidationResult>();
+    for (const r of rows) {
+      if (r.message) map.set(r.contactId, validateRenderedMessage(r.message.subject, r.message.body, activeChannel === 'email', currentLink));
+    }
+    return map;
+  }, [rows, activeChannel, currentLink]);
+  const selectedValidation = selected?.message ? validationByContact.get(selected.contactId) ?? null : null;
+  const invalidCount = Array.from(validationByContact.values()).filter((v) => !v.valid).length;
   const unreviewed = rows.filter((r) => r.message && r.message.status !== 'reviewed').length;
   const staleLinkCount = rows.filter((r) => r.message?.linkStale).length;
   const base = selected?.message ? baseline[selected.message.id] : undefined;
@@ -367,14 +385,15 @@ export function PersonalizeClient({
           <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', overflow: 'hidden' }}>
             <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--n90)' }}>Recipients</span>
-              <span style={{ fontSize: 11.5, color: 'var(--n60)' }}>
-                {generatedCount} of {rows.length} written
+              <span style={{ fontSize: 11.5, color: invalidCount > 0 ? 'var(--danger-500)' : 'var(--n60)' }}>
+                {generatedCount} of {rows.length} written{invalidCount > 0 ? ` · ${invalidCount} invalid` : ''}
               </span>
             </div>
             <div style={{ maxHeight: 560, overflowY: 'auto' }}>
               {rows.map((r) => {
                 const active = r.contactId === selectedId;
                 const meta = r.message ? statusMeta[r.message.status] ?? statusMeta.draft : null;
+                const rowValidation = r.message ? validationByContact.get(r.contactId) : null;
                 return (
                   <div
                     key={r.contactId}
@@ -397,7 +416,9 @@ export function PersonalizeClient({
                         {r.seniority} · {r.account}
                       </div>
                     </div>
-                    {r.message?.linkStale ? (
+                    {rowValidation && !rowValidation.valid ? (
+                      <Badge color="error" text="Invalid" />
+                    ) : r.message?.linkStale ? (
                       <Badge color="warning" text="Old link" />
                     ) : meta ? (
                       <Badge color={meta.color} text={meta.label} />
@@ -425,7 +446,15 @@ export function PersonalizeClient({
                 <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)' }}>{selected.name}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)' }}>{selected.name}</div>
+                        {/* The one thing this tab was missing entirely: a real
+                            pass/fail signal on the actual rendered content, not
+                            just its draft/edited/reviewed workflow status. */}
+                        {selectedValidation && (
+                          <Badge color={selectedValidation.valid ? 'success' : 'error'} text={selectedValidation.valid ? 'Valid' : 'Invalid'} dot />
+                        )}
+                      </div>
                       <div style={{ fontSize: 12, color: 'var(--n60)' }}>
                         {selected.title} · {selected.account} · {selected.vertical}
                         {selected.score !== null ? ` · score ${selected.score}` : ''}
@@ -439,12 +468,32 @@ export function PersonalizeClient({
                         {saving ? 'Saving…' : dirty ? 'Save edit' : 'Saved'}
                       </Button>
                       {selected.message.status !== 'reviewed' && (
-                        <Button hierarchy={dirty ? 'secondary' : 'primary'} size="sm" onClick={review}>
+                        <Button
+                          hierarchy={dirty ? 'secondary' : 'primary'}
+                          size="sm"
+                          onClick={review}
+                          disabled={!!selectedValidation && !selectedValidation.valid}
+                        >
                           Mark reviewed
                         </Button>
                       )}
                     </div>
                   </div>
+
+                  {selectedValidation && !selectedValidation.valid && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: '10px 12px', marginBottom: 14 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--danger-500)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Fix before sending — {selected.name.split(' ')[0]}&apos;s message would send exactly as shown below, unresolved tokens and all
+                      </div>
+                      {selectedValidation.issues
+                        .filter((i) => i.severity === 'error')
+                        .map((issue, i) => (
+                          <div key={i} style={{ fontSize: 12, color: 'var(--n70)' }}>
+                            • {issue.message}
+                          </div>
+                        ))}
+                    </div>
+                  )}
 
                   {selected.message.rationale && (
                     <div style={{ display: 'flex', gap: 9, background: 'var(--accent-50)', borderRadius: 'var(--radius-md)', padding: '10px 12px', marginBottom: 14 }}>
@@ -495,6 +544,21 @@ export function PersonalizeClient({
           </div>
         </div>
       )}
+
+      {/* There was previously no way forward from this tab — every other stage
+          (Setup → Scoring, Scoring → Templates, Templates → Personalize) has a
+          "continue" action, but Personalize dead-ended here. Schedule reads
+          personalized copy per-step already (it falls back to the shared
+          template when none exists), so moving on doesn't require every step
+          to be personalized first. */}
+      <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 12, color: 'var(--n60)', maxWidth: '56ch' }}>
+          {generatedCount > 0
+            ? `${generatedCount} of ${rows.length} recipients have personalized copy for this step. Steps left on the shared template send that instead.`
+            : 'No personalized copy yet for this step — that\u2019s fine, it will send the shared template until you generate some.'}
+        </div>
+        <NavButton href={`/campaigns/${campaignId}/schedule`}>Continue to schedule</NavButton>
+      </div>
 
       {promptOpen && (
         <PromptModal

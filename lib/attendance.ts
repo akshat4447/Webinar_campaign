@@ -2,41 +2,11 @@ import { db } from '@/lib/db';
 import { pickCol } from '@/lib/importHeuristics';
 import { processDueSends } from '@/lib/cadence';
 import { pushEngagementActivities } from '@/lib/activityPush';
+import { parseCsvText } from '@/lib/csv';
 
 // Zoom's own "Participants Report" export often has a summary section before
-// the real header row — find the first row that looks like a header (contains
-// an "email" column) instead of assuming row 0.
-function parseCsvText(text: string): string[][] {
-  const rows: string[][] = [];
-  let cur: string[] = [];
-  let val = '';
-  let q = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (q) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') {
-          val += '"';
-          i++;
-        } else q = false;
-      } else val += ch;
-    } else if (ch === '"') q = true;
-    else if (ch === ',') {
-      cur.push(val);
-      val = '';
-    } else if (ch === '\n') {
-      cur.push(val);
-      rows.push(cur);
-      cur = [];
-      val = '';
-    } else if (ch !== '\r') val += ch;
-  }
-  if (val.length || cur.length) {
-    cur.push(val);
-    rows.push(cur);
-  }
-  return rows.filter((r) => r.some((c) => String(c).trim() !== ''));
-}
+// the real header row — importAttendanceCsv below finds the first row that
+// looks like a header (contains an "email" column) instead of assuming row 0.
 
 export interface AttendanceImportResult {
   ok: boolean;

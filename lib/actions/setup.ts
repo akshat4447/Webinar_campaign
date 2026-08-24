@@ -7,6 +7,7 @@ import { syncContactsToLeadSquared } from '@/lib/leadSync';
 import { upsertAttentionItem } from '@/lib/attentionItems';
 import { formatWebinarDate } from '@/lib/campaignDate';
 import { revalidateCampaign } from '@/lib/revalidate';
+import { parseCsvText } from '@/lib/csv';
 
 export async function updateCampaignName(campaignId: string, name: string) {
   await db.campaign.update({ where: { id: campaignId }, data: { name } });
@@ -48,7 +49,36 @@ export async function updateCampaignZoomLink(campaignId: string, zoomLink: strin
   return { ok: true as const, kind: ZOOM_HOSTS.test(parsed.hostname) ? ('zoom' as const) : ('other' as const), host: parsed.hostname };
 }
 
-/** Takes a datetime-local value ("2026-08-28T15:00") and stores both forms. */
+/**
+ * The registration link input on Setup was rendered `readOnly` with no save
+ * handler at all — there was no code path that could ever write a pasted
+ * value back to the campaign. This is the actual handler for that field.
+ * Loosely validated (bot-led sign-up appends its own query params, and teams
+ * may use a bare "lsq.co/w/slug" short-link rather than a full URL), so this
+ * only rejects empty/whitespace input, not anything that isn't a strict URL.
+ */
+export async function updateCampaignRegistrationLink(campaignId: string, link: string) {
+  const trimmed = link.trim();
+  if (!trimmed) return { ok: false as const, error: 'The registration link cannot be empty — contacts need somewhere to sign up.' };
+
+  await db.campaign.update({ where: { id: campaignId }, data: { registrationLink: trimmed } });
+  await db.activityLogEntry.create({
+    data: { campaignId, text: `Registration link updated to ${trimmed}`, dot: 'var(--accent-500)' },
+  });
+  revalidateCampaign(campaignId);
+  return { ok: true as const };
+}
+
+/**
+ * Takes a datetime-local value ("2026-08-28T15:00") and stores both forms.
+ * This is the *only* place `scheduledAt` is ever written — keep it that way.
+ * `date` (display string) and `scheduledAt` (real timestamp) only stay in sync
+ * because every write happens here, together, in one call; a second write site
+ * for `scheduledAt` that forgot to also set `date` would silently desync them.
+ * Historical/seeded campaigns (see prisma/seed.ts) predate this picker and can
+ * hold a `date` string with no `scheduledAt` at all — that's expected for them,
+ * not drift.
+ */
 export async function updateCampaignSchedule(campaignId: string, dateTimeLocal: string) {
   if (!dateTimeLocal) {
     await db.campaign.update({ where: { id: campaignId }, data: { scheduledAt: null, date: 'Not scheduled yet' } });
@@ -88,37 +118,6 @@ async function replaceContacts(campaignId: string, rows: (ReturnType<typeof clas
   });
 }
 
-function parseCsvText(text: string): string[][] {
-  const rows: string[][] = [];
-  let cur: string[] = [];
-  let val = '';
-  let q = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (q) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') {
-          val += '"';
-          i++;
-        } else q = false;
-      } else val += ch;
-    } else if (ch === '"') q = true;
-    else if (ch === ',' || ch === '\t') {
-      cur.push(val);
-      val = '';
-    } else if (ch === '\n') {
-      cur.push(val);
-      rows.push(cur);
-      cur = [];
-      val = '';
-    } else if (ch !== '\r') val += ch;
-  }
-  if (val.length || cur.length) {
-    cur.push(val);
-    rows.push(cur);
-  }
-  return rows.filter((r) => r.some((c) => String(c).trim() !== ''));
-}
 
 export interface CsvImportResult {
   ok: boolean;

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Icon } from './ui/Icon';
-import { chatReplyAction } from '@/lib/actions/chat';
+import { chatReplyAction, getChatHistoryAction } from '@/lib/actions/chat';
 
 interface Message {
   id: number;
@@ -11,18 +11,36 @@ interface Message {
   text: string;
 }
 
-const initialMessages: Message[] = [
-  { id: 1, from: 'agent', text: "Hi! I'm your campaign agent. Ask me about registrations, attendance, cadence steps, scoring, or what needs attention." },
-];
+const GREETING: Message = { id: 1, from: 'agent', text: "Hi! I'm your campaign agent. Ask me about registrations, attendance, cadence steps, scoring, or what needs attention." };
 
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [messages, setMessages] = useState<Message[]>([GREETING]);
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
   const pathname = usePathname();
   const campaignMatch = pathname.match(/^\/campaigns\/([^/]+)/);
   const campaignId = campaignMatch ? campaignMatch[1] : null;
+
+  // History used to live only in this component's state, so switching tabs
+  // (a full navigation, not a client-side toggle) wiped the conversation.
+  // Messages are now persisted per-campaign server-side (see chatReplyAction) —
+  // reload them whenever the active campaign changes.
+  useEffect(() => {
+    let cancelled = false;
+    // Route both branches through a resolved promise so setState only ever
+    // happens inside a callback, never synchronously in the effect body —
+    // matches the "no direct setState in an effect" lint rule while still
+    // reloading history (or resetting to the greeting) on every campaign switch.
+    const load = campaignId ? getChatHistoryAction(campaignId) : Promise.resolve([]);
+    load.then((history) => {
+      if (cancelled) return;
+      setMessages(history.length > 0 ? history.map((m, i) => ({ id: i, ...m })) : [GREETING]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [campaignId]);
 
   async function send() {
     const text = input.trim();

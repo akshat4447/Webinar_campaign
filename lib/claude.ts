@@ -247,11 +247,13 @@ export async function personalizeMessages(params: {
       max_tokens: 8000,
       output_config: { format: zodOutputFormat(PersonalizeSchema), effort: 'high' },
       system: [
-        `You personalize B2B webinar outreach. You are given one approved template and several real contacts. Rewrite the template once per contact so it speaks to that specific person, and return one entry per contact id.`,
+        `You personalize B2B webinar outreach. You are given one approved template, this specific webinar's own name/description/vertical, and several real contacts. Rewrite the template once per contact so it speaks to that specific person AND clearly reflects what this particular webinar is actually about, and return one entry per contact id.`,
         ``,
         `THE TEMPLATE IS THE BRIEF. Keep its intent, its offer and its call to action. Keep the registration link exactly as given — never alter, shorten or omit it. You are changing how the message is framed, not what is being promised.`,
         ``,
-        `GROUND EVERY CLAIM. Personalize only from the fields supplied: job title, function, seniority, company name, industry, the persona note, and why this contact scored as they did. Never invent a company initiative, a product, a mutual connection, a recent announcement, a headcount, a metric, or anything about the person's career history. If a contact is sparse, write something competent and neutral rather than inventing colour — a generic-but-clean message beats a specific-but-false one.`,
+        `MATCH THE WEBINAR'S OWN THEME. The "campaign" object in the input carries this webinar's real name, description and vertical — read it and let it shape the message: reference the actual problem/topic it describes, not a generic "this webinar" placeholder. If campaign.description is empty, fall back to campaign.name and campaign.vertical for theme, and keep the framing generic-but-relevant rather than inventing session content that isn't there.`,
+        ``,
+        `GROUND EVERY CLAIM. You may draw on two sources only: (1) this webinar's own name/description/vertical, given to you in the campaign object — never invent session content, speakers, or agenda items beyond what it says — and (2) the per-contact fields supplied: job title, function, seniority, company name, industry, the persona note, and why this contact scored as they did. Never invent a company initiative, a product, a mutual connection, a recent announcement, a headcount, a metric, or anything about the person's career history. If a contact is sparse, write something competent and neutral rather than inventing colour — a generic-but-clean message beats a specific-but-false one.`,
         ``,
         `HOW TO WRITE FOR THIS WEBINAR (tone and emphasis — the rules above about the link, the facts, and the format still apply no matter what this says):`,
         customInstructions,
@@ -276,6 +278,52 @@ export async function personalizeMessages(params: {
   }
 
   return results;
+}
+
+// --- attention item AI diagnosis --------------------------------------------------
+
+export interface DiagnoseResult {
+  explanation: string;
+  suggestedFix: string;
+  canAutoResolve: boolean;
+}
+
+const DiagnoseSchema = z.object({
+  explanation: z.string().describe('One or two plain-English sentences on what actually went wrong and why, for a non-technical operator'),
+  suggestedFix: z.string().describe('A concrete, specific next step the operator can take right now — name the exact screen/field/setting when possible'),
+  canAutoResolve: z.boolean().describe('True only if simply retrying the same action (no config change) is likely to fix it'),
+});
+
+/**
+ * Turns a raw attention-item error (an LSQ 500, a thrown JS error, etc.) into
+ * a plain-English explanation and a concrete next step — this is what backs
+ * the Control Center's "Fix with AI" action, which previously just linked to
+ * the Scoring tab regardless of what the error actually was.
+ */
+export async function diagnoseAttentionItem(title: string, detail: string, campaignContextJson: string): Promise<DiagnoseResult> {
+  const response = await (await client()).messages.parse({
+    model: MODEL,
+    max_tokens: 1024,
+    output_config: { format: zodOutputFormat(DiagnoseSchema), effort: 'medium' },
+    system: [
+      `You are diagnosing an error surfaced in a webinar campaign tool's "Needs attention" list, for a marketing operator who is not a developer.`,
+      `Explain what went wrong in plain English and give one concrete, actionable next step — a setting to change, a page to visit, a value to check. If the error text names a specific field or exception, use it. Never invent a cause the error text doesn't support.`,
+      `Common causes in this app: an unverified/invalid LeadSquared credential, a LeadSquared account setting (like a missing sender mailbox or email category) that only an admin in that LeadSquared account can fix, a malformed or missing recipient email, or a transient network/rate-limit issue that a plain retry can fix.`,
+      `Two specific LeadSquared patterns to recognize:`,
+      `1. "MXMailDeliveryException" that fails even when the sender and recipient mailboxes are both individually verified real addresses points at an account-level mail-sending restriction (unconfigured DKIM/SPF domain authentication, exhausted email sending credits, or the account/plan not being enabled for outbound email) — this needs the LeadSquared account admin or LeadSquared support (support@leadsquared.com), not a code or config change in this app.`,
+      `2. "MXInvalidInputException" / "Records not associated with List where Entity Type didn't match" on AddLeadsToStaticList, when it still fails after re-creating the lead and the list fresh, is not a stale-id problem — it points at an account-level restriction on adding leads to lists (e.g. a trial/limited plan, or a permissions restriction on the API user), and needs LeadSquared support, not a retry.`,
+    ].join('\n'),
+    messages: [
+      {
+        role: 'user',
+        content: JSON.stringify({ title, errorDetail: detail, campaignContext: campaignContextJson }),
+      },
+    ],
+  });
+  if (!response.parsed_output) {
+    return { explanation: 'Claude could not parse this error.', suggestedFix: 'Check the Integrations page for this connector\u2019s status, or retry.', canAutoResolve: false };
+  }
+  return response.parsed_output;
 }
 
 // --- campaign chat widget -------------------------------------------------------

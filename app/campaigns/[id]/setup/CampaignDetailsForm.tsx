@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { updateCampaignName, updateCampaignSchedule, updateCampaignDescription, updateCampaignZoomLink } from '@/lib/actions/setup';
+import { updateCampaignName, updateCampaignSchedule, updateCampaignDescription, updateCampaignZoomLink, updateCampaignRegistrationLink } from '@/lib/actions/setup';
 import { improveDescriptionAction } from '@/lib/actions/description';
 import { toDateTimeLocal, parseLegacyWebinarDate, reminderDates } from '@/lib/campaignDate';
 import type { Campaign } from '@/lib/generated/prisma/client';
@@ -24,6 +24,8 @@ export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaig
   const [autosave, setAutosave] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [improving, setImproving] = useState(false);
   const [improveError, setImproveError] = useState<string | null>(null);
+  const [registrationLink, setRegistrationLink] = useState(campaign.registrationLink ?? '');
+  const [regLinkError, setRegLinkError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   function save(fn: () => Promise<unknown>) {
@@ -49,6 +51,20 @@ export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaig
     startTransition(async () => {
       const res = await updateCampaignZoomLink(campaign.id, zoomLink);
       setLinkState(res.ok ? { kind: res.kind, host: 'host' in res ? res.host : undefined } : { error: res.error });
+      setAutosave('saved');
+    });
+  }
+
+  // Was previously a readOnly input with no save handler at all — pasting a
+  // new link here had no effect. Any personalized copy that inlined the old
+  // link is flagged stale on the Personalize tab (isLinkStale) and repaired
+  // there with "Update links", rather than silently rewritten here.
+  function saveRegistrationLink() {
+    setRegLinkError(null);
+    setAutosave('saving');
+    startTransition(async () => {
+      const res = await updateCampaignRegistrationLink(campaign.id, registrationLink);
+      if (!res.ok) setRegLinkError(res.error);
       setAutosave('saved');
     });
   }
@@ -176,7 +192,28 @@ export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaig
 
         <div>
           <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>Registration link (bot-led sign-up)</div>
-          <input className="lsq-input" type="text" defaultValue={campaign.registrationLink ?? ''} readOnly style={{ background: 'var(--n10)', color: 'var(--n60)' }} />
+          <input
+            className="lsq-input"
+            type="text"
+            value={registrationLink}
+            onChange={(e) => setRegistrationLink(e.target.value)}
+            onPaste={(e) => {
+              // onChange alone should catch a paste too, but some browsers/extensions
+              // intercept paste in ways that skip the synthetic change event — reading
+              // clipboardData directly here means a paste can never silently no-op.
+              const pasted = e.clipboardData.getData('text');
+              if (pasted) {
+                e.preventDefault();
+                setRegistrationLink(pasted);
+              }
+            }}
+            onBlur={saveRegistrationLink}
+            placeholder="lsq.co/w/your-webinar-slug"
+          />
+          {regLinkError && <div style={{ fontSize: 11.5, color: 'var(--danger-500)', marginTop: 6 }}>{regLinkError}</div>}
+          <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 6 }}>
+            Sent in every invite/nudge/reminder. Changing it flags any already-personalized copy as using an old link — repair it from the Personalize tab.
+          </div>
         </div>
       </div>
     </Card>

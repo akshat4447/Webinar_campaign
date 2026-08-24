@@ -16,6 +16,23 @@ export default async function CampaignLayout({
   const campaign = await db.campaign.findUnique({ where: { id } });
   if (!campaign) notFound();
 
+  // Every tab used to render identically regardless of progress — a brand-new
+  // campaign with zero contacts looked exactly as "ready" as one about to launch,
+  // and nothing signalled which stages were actually done. These are best-effort,
+  // unambiguous completion signals per stage (not every stage has one — templates,
+  // personalize, and control center don't have a single clear "done" condition,
+  // so they're left unmarked rather than guessed at).
+  const [contactCount, scoredCount] = await Promise.all([
+    db.contact.count({ where: { campaignId: id } }),
+    db.contact.count({ where: { campaignId: id, score: { not: null } } }),
+  ]);
+  const completedTabs: Record<string, boolean> = {
+    setup: contactCount > 0,
+    scoring: scoredCount > 0,
+    schedule: campaign.cadenceStatus !== 'not_started',
+    dashboard: !!campaign.attendanceImportedAt,
+  };
+
   return (
     <>
       <header
@@ -40,7 +57,7 @@ export default async function CampaignLayout({
         <StageBadge />
       </header>
 
-      <WorkspaceTabs campaignId={id} />
+      <WorkspaceTabs campaignId={id} completedTabs={completedTabs} />
 
       {children}
     </>

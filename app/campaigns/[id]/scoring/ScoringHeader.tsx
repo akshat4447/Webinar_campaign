@@ -12,6 +12,7 @@ export function ScoringHeader({ campaign }: { campaign: Campaign }) {
   const [criteria, setCriteria] = useState(campaign.scoringCriteria);
   const [threshold, setThreshold] = useState(campaign.scoringThreshold);
   const [rescoring, setRescoring] = useState(false);
+  const [rescoreNotice, setRescoreNotice] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const router = useRouter();
 
@@ -21,8 +22,21 @@ export function ScoringHeader({ campaign }: { campaign: Campaign }) {
 
   async function rescore() {
     setRescoring(true);
-    await runScoringAction(campaign.id);
+    setRescoreNotice(null);
+    const res = await runScoringAction(campaign.id);
     setRescoring(false);
+    if (res.ok) {
+      // Re-scoring never overwrites a contact whose approval a human already
+      // set by hand (Scoring tab checkbox / bulk action) — surface that so it
+      // doesn't look like the re-score silently did nothing to those rows.
+      setRescoreNotice(
+        res.preservedManualApprovals
+          ? `Re-scored ${res.scoredCount} contacts — kept ${res.preservedManualApprovals} manually-set approval${res.preservedManualApprovals === 1 ? '' : 's'} as-is.`
+          : `Re-scored ${res.scoredCount} contacts.`
+      );
+    } else {
+      setRescoreNotice(res.error ?? 'Re-scoring failed.');
+    }
     router.refresh();
   }
 
@@ -47,6 +61,7 @@ export function ScoringHeader({ campaign }: { campaign: Campaign }) {
           </Button>
         </div>
       </div>
+      {rescoreNotice && <div style={{ fontSize: 12, color: 'var(--n70)', marginTop: 10 }}>{rescoreNotice}</div>}
       {open && (
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>

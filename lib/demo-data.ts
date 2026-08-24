@@ -158,6 +158,15 @@ export const templatesData: Template[] = [
   { id: 'linkedin', label: 'LinkedIn touch', channel: 'LinkedIn', channelColor: 'gray blue', hasSubject: false, body: "Hi {{firstName}} — noticed {{company}}'s work in this space. We're running {{topic}} and thought it'd be relevant. Link if useful: {{link}}" },
   { id: 'attend', label: 'Attendee follow-up', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: 'Thanks for joining {{topic}}', body: "Hi {{firstName}},\n\nThanks for attending {{topic}}. Here's the recording plus a quick next step for {{company}}: {{link}}" },
   { id: 'noshow', label: 'No-show follow-up', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: 'Sorry we missed you at {{topic}}', body: "Hi {{firstName}},\n\nSorry we missed you at {{topic}}. Here's the recording so {{company}} doesn't miss out: {{link}}" },
+  // t3/t1d/t1h are in AUTOMATED_STEP_KEYS (lib/cadence.ts) and get a CadenceStep
+  // row from provisionCampaignDefaults — but until now had no Template row to
+  // go with them. Every send for these three steps therefore permanently
+  // failed with "Missing template or contact email" (see processSingleSend in
+  // lib/cadence.ts), and no amount of retrying could ever succeed, because the
+  // underlying cause was a missing template, not a transient send failure.
+  { id: 't3', label: 'T-3 day reminder', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: "3 days to go: {{topic}}", body: "Hi {{firstName}},\n\n{{topic}} is coming up in 3 days. Save the time and get ready to join {{company}}'s peers.\n\nJoin link: {{link}}" },
+  { id: 't1d', label: 'T-1 day reminder', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: "Tomorrow: {{topic}}", body: "Hi {{firstName}},\n\nJust a reminder — {{topic}} is tomorrow. We'll see you there.\n\nJoin link: {{link}}" },
+  { id: 't1h', label: 'T-1 hour reminder', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: "Starting soon: {{topic}}", body: "Hi {{firstName}},\n\n{{topic}} starts in about an hour. Here's your join link so you don't lose it: {{link}}" },
 ];
 
 export const discoveryStats = [

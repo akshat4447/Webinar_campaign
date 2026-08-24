@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { bulkCreateOrUpdateLeads, createEmptyList, addLeadsToStaticList, getLists, type LeadField } from '@/lib/leadsquared';
+import { bulkCreateOrUpdateLeads, createEmptyList, addLeadsToStaticList, getLists, LeadSquaredError, type LeadField } from '@/lib/leadsquared';
 
 export interface LeadSyncResult {
   listId: string | null;
@@ -8,6 +8,22 @@ export interface LeadSyncResult {
   leadsFailed: number;
   error?: string;
 }
+
+function leadFieldsFor(c: { email: string | null; name: string; account: string; title: string }): LeadField[] {
+  return [
+    { Attribute: 'EmailAddress', Value: c.email! },
+    { Attribute: 'FirstName', Value: c.name.split(' ')[0] || c.name },
+    { Attribute: 'LastName', Value: c.name.split(' ').slice(1).join(' ') },
+    { Attribute: 'Company', Value: c.account },
+    { Attribute: 'JobTitle', Value: c.title },
+  ];
+}
+
+// LSQ rejects AddLeadsToStaticList with this when a leadId in the payload
+// doesn't correspond to a real, current lead — exactly what a stale, locally-
+// cached lsqLeadId produces (see the "self-heal" pass below for why that
+// happens and how it's repaired).
+const STALE_LEAD_ERROR = /Records not associated with List/i;
 
 // Pushes every contact with an email (that doesn't already have an lsqLeadId)
 // to LeadSquared as a real Lead, then adds every synced contact's lead to a
@@ -25,14 +41,7 @@ export async function syncContactsToLeadSquared(campaignId: string): Promise<Lea
   const rowErrors: string[] = [];
   try {
     if (toCreate.length > 0) {
-      const leadFields: LeadField[][] = toCreate.map((c) => [
-        { Attribute: 'EmailAddress', Value: c.email! },
-        { Attribute: 'FirstName', Value: c.name.split(' ')[0] || c.name },
-        { Attribute: 'LastName', Value: c.name.split(' ').slice(1).join(' ') },
-        { Attribute: 'Company', Value: c.account },
-        { Attribute: 'JobTitle', Value: c.title },
-      ]);
-      const results = await bulkCreateOrUpdateLeads(leadFields);
+      const results = await bulkCreateOrUpdateLeads(toCreate.map(leadFieldsFor));
       // Per-row failures come back inline (empty LeadId + an ExceptionType),
       // not as a thrown error — only write lsqLeadId for rows that actually got one.
       const succeeded = results.filter((r) => r.LeadId);
@@ -56,9 +65,35 @@ export async function syncContactsToLeadSquared(campaignId: string): Promise<Lea
       await db.campaign.update({ where: { id: campaignId }, data: { lsqListId: listId } });
     }
 
-    const synced = await db.contact.findMany({ where: { campaignId, lsqLeadId: { not: null } }, select: { lsqLeadId: true } });
-    const leadIds = synced.map((c) => c.lsqLeadId).filter((id): id is string => !!id);
-    if (leadIds.length > 0) await addLeadsToStaticList(listId, leadIds);
+    let synced = await db.contact.findMany({ where: { campaignId, lsqLeadId: { not: null }, email: { not: null } } });
+    let leadIds = synced.map((c) => c.lsqLeadId).filter((id): id is string => !!id);
+
+    if (leadIds.length > 0) {
+      try {
+        await addLeadsToStaticList(listId, leadIds);
+      } catch (err) {
+        // A locally-stored lsqLeadId can go stale — the record it pointed to was
+        // deleted or purged on the LSQ side (trial-account cleanup, manual
+        // dedup, GDPR delete) independent of anything this app did, so the id
+        // this app has cached is no longer a real lead. LSQ correctly refuses
+        // to add a non-existent lead to a list. Since Lead.CreateOrUpdate is
+        // keyed on email (not on our stored id) and upserts, re-running it for
+        // every already-"synced" contact gets back a valid current id — for an
+        // untouched lead that's the same id as before; for a stale one it's a
+        // freshly (re)created lead. One retry, not an infinite loop.
+        if (err instanceof LeadSquaredError && STALE_LEAD_ERROR.test(String(err.body))) {
+          const refreshed = await bulkCreateOrUpdateLeads(synced.map(leadFieldsFor));
+          const succeeded = refreshed.filter((r) => r.LeadId);
+          await db.$transaction(succeeded.map((r) => db.contact.update({ where: { id: synced[r.RowNumber].id }, data: { lsqLeadId: r.LeadId } })));
+          synced = await db.contact.findMany({ where: { campaignId, lsqLeadId: { not: null }, email: { not: null } } });
+          leadIds = synced.map((c) => c.lsqLeadId).filter((id): id is string => !!id);
+          await addLeadsToStaticList(listId, leadIds);
+          rowErrors.unshift(`${succeeded.length} stale LeadSquared record(s) were re-created after their ids went stale`);
+        } else {
+          throw err;
+        }
+      }
+    }
 
     return { listId, leadsCreated, leadsUpdated, leadsFailed, error: rowErrors.length > 0 ? rowErrors.slice(0, 3).join('; ') : undefined };
   } catch (err) {

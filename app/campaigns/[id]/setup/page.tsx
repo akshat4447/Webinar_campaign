@@ -9,11 +9,13 @@ import { getServerNow } from '@/lib/actions/clock';
 
 export default async function SetupPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [campaign, activityLog, enrichmentStats, serverNow] = await Promise.all([
+  const [campaign, activityLog, enrichmentStats, serverNow, contactCount, scoredCount] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id } }),
     db.activityLogEntry.findMany({ where: { campaignId: id }, orderBy: { createdAt: 'desc' }, take: 20 }),
     getEnrichmentStats(id),
     getServerNow(),
+    db.contact.count({ where: { campaignId: id } }),
+    db.contact.count({ where: { campaignId: id, score: { not: null } } }),
   ]);
 
   return (
@@ -21,7 +23,7 @@ export default async function SetupPage({ params }: { params: Promise<{ id: stri
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <CampaignDetailsForm campaign={campaign} serverNow={serverNow} />
-          <LeadImportCard campaignId={id} />
+          <LeadImportCard campaignId={id} existingContactCount={contactCount} existingScoredCount={scoredCount} />
           <EnrichmentCard campaignId={id} stats={enrichmentStats} />
         </div>
 

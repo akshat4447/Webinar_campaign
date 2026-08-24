@@ -3,6 +3,8 @@ import { createOrUpdateLead, sendEmailToLead, LeadSquaredError } from '@/lib/lea
 import { resolveRecipient, sendModeLabel } from '@/lib/sendGuard';
 import { upsertAttentionItem } from '@/lib/attentionItems';
 import { resolveStepDate } from '@/lib/stepSchedule';
+import { isWithinSendWindow } from '@/lib/sendWindow';
+import { validateRenderedMessage } from '@/lib/messageValidation';
 
 // Steps that get queued automatically when the cadence launches. Each one's
 // send time comes from its own editable offset (see lib/stepSchedule.ts), so
@@ -67,67 +69,191 @@ export async function launchCadence(campaignId: string) {
     }))
   );
 
-  // Avoid duplicate queued/sent rows for the same contact+step if launched twice.
-  const existing = await db.cadenceSend.findMany({ where: { campaignId, stepKey: { in: [...AUTOMATED_STEP_KEYS] } }, select: { contactId: true, stepKey: true } });
-  const existingKey = new Set(existing.map((e) => `${e.contactId}:${e.stepKey}`));
-  const toCreate = rows.filter((r) => !existingKey.has(`${r.contactId}:${r.stepKey}`));
-
-  if (toCreate.length > 0) await db.cadenceSend.createMany({ data: toCreate });
-
-  await db.campaign.update({ where: { id: campaignId }, data: { cadenceStatus: 'running', status: 'live' } });
-
   const skips = [
     withoutEmail ? `${withoutEmail} with no email on file` : null,
     unverified ? `${unverified} with an unverified inferred email` : null,
     unschedulable ? `${unschedulable} step(s) with no resolvable date — set the webinar date on Setup` : null,
   ].filter(Boolean);
 
-  await db.activityLogEntry.create({
-    data: {
-      campaignId,
-      text: `Launched cadence for ${sendable.length} approved contacts across ${scheduled.length} scheduled steps (SEND_MODE=${sendModeLabel()})${skips.length ? ` — skipped ${skips.join('; ')}` : ''}`,
-      dot: 'var(--success-500)',
-    },
+  // SQLite's createMany doesn't support skipDuplicates, so the app-level filter
+  // below (not the DB) is what avoids re-queuing a duplicate row on a repeat,
+  // non-racing launch — the @@unique([campaignId, contactId, stepKey]) constraint
+  // on CadenceSend is the backstop for the genuine race (two launches at once),
+  // not the primary mechanism. All writes are one transaction: a crash partway
+  // through used to be able to leave sends queued while the campaign still read
+  // as not_started.
+  const { queued } = await db.$transaction(async (tx) => {
+    const existing = await tx.cadenceSend.findMany({ where: { campaignId, stepKey: { in: [...AUTOMATED_STEP_KEYS] } }, select: { contactId: true, stepKey: true } });
+    const existingKey = new Set(existing.map((e) => `${e.contactId}:${e.stepKey}`));
+    const toCreate = rows.filter((r) => !existingKey.has(`${r.contactId}:${r.stepKey}`));
+
+    if (toCreate.length > 0) await tx.cadenceSend.createMany({ data: toCreate });
+    await tx.campaign.update({ where: { id: campaignId }, data: { cadenceStatus: 'running', status: 'live' } });
+    await tx.activityLogEntry.create({
+      data: {
+        campaignId,
+        text: `Launched cadence for ${sendable.length} approved contacts across ${scheduled.length} scheduled steps (SEND_MODE=${sendModeLabel()})${skips.length ? ` — skipped ${skips.join('; ')}` : ''}`,
+        dot: 'var(--success-500)',
+      },
+    });
+
+    return { queued: toCreate.length };
   });
 
-  return { queued: toCreate.length, skippedNoEmail: withoutEmail, skippedUnverified: unverified };
+  return { queued, skippedNoEmail: withoutEmail, skippedUnverified: unverified };
+}
+
+/**
+ * Undoes a stopped cadence back to "never launched" so Schedule can offer
+ * Launch again. Stopping was already documented as a deliberate, irreversible
+ * decision — this doesn't reverse *that* decision, it starts an entirely new
+ * cadence run from scratch. Every send left over from the stopped run is
+ * marked `skipped` (not deleted — they stay in the log as a record of what was
+ * abandoned) so a fresh `launchCadence` call queues a clean new set of sends
+ * without the @@unique([campaignId, contactId, stepKey]) constraint blocking
+ * them as duplicates of the old, abandoned ones.
+ */
+export async function restartCadence(campaignId: string): Promise<{ skipped: number }> {
+  const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId } });
+  if (campaign.cadenceStatus !== 'stopped') {
+    throw new Error('Only a stopped cadence can be restarted.');
+  }
+
+  const { skipped } = await db.$transaction(async (tx) => {
+    const result = await tx.cadenceSend.updateMany({
+      where: { campaignId, status: 'queued' },
+      data: { status: 'skipped', error: 'Abandoned — cadence was stopped and later restarted' },
+    });
+    await tx.campaign.update({ where: { id: campaignId }, data: { cadenceStatus: 'not_started' } });
+    await tx.activityLogEntry.create({
+      data: {
+        campaignId,
+        text: `Cadence reset for a fresh launch — ${result.count} send(s) left over from the stopped run marked skipped`,
+        dot: 'var(--warning-700)',
+      },
+    });
+    return { skipped: result.count };
+  });
+
+  return { skipped };
 }
 
 interface ProcessResult {
   processed: number;
   sent: number;
   failed: number;
+  // How many due sends were left unprocessed after this call — either because
+  // campaign.dailyLimit was hit, the send window is currently closed, or
+  // (shouldn't normally happen, since this loops to exhaustion otherwise) the
+  // batch cap below was reached. Non-zero means there's more work waiting for
+  // the next tick.
+  remaining: number;
+  dailyLimitReached: boolean;
+  outsideSendWindow: boolean;
 }
+
+// Bounds how many sends a single call processes, independent of dailyLimit —
+// protects one cadence-tick invocation (or one click of "Run due sends now")
+// from running unbounded if a huge backlog piles up. Anything left over is
+// picked up by the next tick; nothing is silently dropped.
+const MAX_PER_CALL = 2000;
+const BATCH_SIZE = 100;
 
 export async function processDueSends(campaignId: string): Promise<ProcessResult> {
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId } });
-  if (campaign.cadenceStatus !== 'running') return { processed: 0, sent: 0, failed: 0 };
+  if (campaign.cadenceStatus !== 'running') return { processed: 0, sent: 0, failed: 0, remaining: 0, dailyLimitReached: false, outsideSendWindow: false };
 
   const now = campaign.simulatedNow ?? new Date();
-  const due = await db.cadenceSend.findMany({
-    where: { campaignId, status: 'queued', dueAt: { lte: now } },
-    include: { contact: true },
-    take: 100,
-  });
+
+  // Quiet-hours guard: `scheduleWindow` used to be a free-text label nothing
+  // read. Now a send whose dueAt has arrived still waits for the next tick
+  // inside the configured window — it stays `queued`, nothing is marked failed.
+  if (!isWithinSendWindow(now, campaign.scheduleWindow)) {
+    const remaining = await db.cadenceSend.count({ where: { campaignId, status: 'queued', dueAt: { lte: now } } });
+    return { processed: 0, sent: 0, failed: 0, remaining, dailyLimitReached: false, outsideSendWindow: remaining > 0 };
+  }
+
+  // dailyLimit counts against the simulated/real "now", not wall-clock UTC —
+  // consistent with every other time-based decision in this file.
+  const startOfDay = new Date(now);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(startOfDay);
+  endOfDay.setDate(endOfDay.getDate() + 1);
+  const sentToday = await db.cadenceSend.count({ where: { campaignId, status: 'sent', sentAt: { gte: startOfDay, lt: endOfDay } } });
+  let remainingBudget = Math.max(0, campaign.dailyLimit - sentToday);
 
   let sent = 0;
   let failed = 0;
+  let processed = 0;
+  let dailyLimitReached = remainingBudget === 0;
 
-  for (const send of due) {
+  while (processed < MAX_PER_CALL && remainingBudget > 0) {
+    const due = await db.cadenceSend.findMany({
+      where: { campaignId, status: 'queued', dueAt: { lte: now } },
+      include: { contact: true },
+      take: Math.min(BATCH_SIZE, remainingBudget, MAX_PER_CALL - processed),
+    });
+    if (due.length === 0) break;
+
+    for (const send of due) {
+      const result = await processSingleSend(campaignId, campaign, send);
+      // Sends that fail outright (missing template/email, or a thrown error)
+      // don't count against the daily budget — the budget limits real outbound
+      // mail, not bookkeeping failures.
+      if (result === 'sent') {
+        sent++;
+        remainingBudget--;
+      } else {
+        failed++;
+      }
+      processed++;
+    }
+  }
+
+  if (remainingBudget === 0) dailyLimitReached = true;
+
+  const remaining = await db.cadenceSend.count({ where: { campaignId, status: 'queued', dueAt: { lte: now } } });
+  return { processed, sent, failed, remaining, dailyLimitReached, outsideSendWindow: false };
+}
+
+type DueSendWithContact = Awaited<ReturnType<typeof db.cadenceSend.findMany<{ include: { contact: true } }>>>[number];
+
+async function processSingleSend(
+  campaignId: string,
+  campaign: Awaited<ReturnType<typeof db.campaign.findUniqueOrThrow>>,
+  send: DueSendWithContact
+): Promise<'sent' | 'failed'> {
     const template = await db.template.findUnique({ where: { campaignId_key: { campaignId, key: send.stepKey } } });
     const contact = send.contact;
     if (!template || !contact.email) {
       await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', error: 'Missing template or contact email' } });
-      failed++;
-      continue;
+      return 'failed';
     }
 
-    // A personalized message for this contact+step wins over the shared template.
-    const personalized = await db.personalizedMessage.findUnique({
+    // A personalized message for this contact+step wins over the shared template
+    // — but only if it actually passes content validation. Previously "exists"
+    // was the only bar: a personalized draft with a leftover {{token}} or a
+    // dropped registration link would still be used as-is over the safe,
+    // known-good template. Now an invalid personalized message is treated the
+    // same as "none exists" — the campaign's plain template goes out instead,
+    // and the reason is recorded so it's visible on Control Center.
+    const personalizedRaw = await db.personalizedMessage.findUnique({
       where: { campaignId_contactId_stepKey: { campaignId, contactId: contact.id, stepKey: send.stepKey } },
     });
+    const link = campaign.registrationLink ?? '';
+    const personalizedValidation = personalizedRaw ? validateRenderedMessage(personalizedRaw.subject, personalizedRaw.body, send.stepKey !== 'linkedin', link) : null;
+    const personalized = personalizedValidation?.valid ? personalizedRaw : null;
+    if (personalizedRaw && !personalizedValidation?.valid) {
+      await upsertAttentionItem(campaignId, {
+        icon: 'ErrorProperty1Outline',
+        color: 'warning',
+        title: `Personalized copy for ${contact.name} skipped — sent the template instead`,
+        detail: (personalizedValidation?.issues ?? []).map((i) => i.message).join('; ').slice(0, 300),
+        actionsCsv: 'view',
+      });
+    }
 
-    const mergeOpts = { firstName: contact.name.split(' ')[0] || contact.name, company: contact.account, topic: campaign.name, link: campaign.registrationLink ?? '' };
+    const mergeOpts = { firstName: contact.name.split(' ')[0] || contact.name, company: contact.account, topic: campaign.name, link };
     // Personalized copy is rendered too: the model is told not to leave merge
     // tokens behind, but rendering anyway means a stray one resolves instead of
     // shipping raw to a real inbox.
@@ -164,7 +290,7 @@ export async function processDueSends(campaignId: string): Promise<ProcessResult
           dot: 'var(--success-500)',
         },
       });
-      sent++;
+      return 'sent';
     } catch (err) {
       const message = err instanceof LeadSquaredError ? err.message : String(err);
       await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', error: message } });
@@ -175,11 +301,8 @@ export async function processDueSends(campaignId: string): Promise<ProcessResult
         detail: message.slice(0, 300),
         actionsCsv: 'retry',
       });
-      failed++;
+      return 'failed';
     }
-  }
-
-  return { processed: due.length, sent, failed };
 }
 
 export async function advanceSimulatedClock(campaignId: string, days: number) {

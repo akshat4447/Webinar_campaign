@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { db } from '@/lib/db';
-import { statusMeta, personaLearning } from '@/lib/demo-data';
+import { statusMeta } from '@/lib/demo-data';
 import { getCampaignCardStats } from '@/lib/campaignCardStats';
+import { getPersonaLearning } from '@/lib/personaLearning';
 import { NewCampaignButton } from './NewCampaignButton';
 import { CampaignCardMenu } from './CampaignCardMenu';
 
@@ -10,10 +11,11 @@ export default async function LandingPage({ searchParams }: { searchParams: Prom
   const { view } = await searchParams;
   const archivedView = view === 'archived';
 
-  const [campaigns, activeCount, archivedCount] = await Promise.all([
+  const [campaigns, activeCount, archivedCount, personaLearning] = await Promise.all([
     db.campaign.findMany({ where: { archived: archivedView }, orderBy: { createdAt: 'asc' } }),
     db.campaign.count({ where: { archived: false } }),
     db.campaign.count({ where: { archived: true } }),
+    getPersonaLearning(),
   ]);
   const cards = await Promise.all(campaigns.map(async (c) => ({ campaign: c, stats: await getCampaignCardStats(c) })));
 
@@ -105,21 +107,28 @@ export default async function LandingPage({ searchParams }: { searchParams: Prom
       </div>
 
       <div style={{ marginTop: 24, background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Campaign-over-campaign learning</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Approval rate by persona</div>
         <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 14 }}>
-          Registration rate by persona, across all webinars to date — weighting feeds forward into the next scoring run
+          Share of scored contacts approved, by seniority and function, across every webinar with at least {3} scored contacts in
+          that persona — a track record to inform scoring criteria by hand, not an automatic feedback loop.
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {personaLearning.map((row) => (
-            <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 170, fontSize: 12.5, color: 'var(--n70)', flexShrink: 0 }}>{row.label}</div>
-              <div style={{ flex: 1, background: 'var(--n20)', borderRadius: 'var(--radius-full)', height: 8, overflow: 'hidden' }}>
-                <div style={{ width: `${row.pct}%`, height: '100%', background: 'var(--accent-500)', borderRadius: 'var(--radius-full)' }} />
+        {personaLearning.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--n60)' }}>Not enough scored contacts yet — run scoring on a campaign to see persona trends here.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {personaLearning.map((row) => (
+              <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 200, fontSize: 12.5, color: 'var(--n70)', flexShrink: 0, overflowWrap: 'anywhere' }}>
+                  {row.label} <span style={{ color: 'var(--n50)' }}>({row.sampleSize})</span>
+                </div>
+                <div style={{ flex: 1, background: 'var(--n20)', borderRadius: 'var(--radius-full)', height: 8, overflow: 'hidden' }}>
+                  <div style={{ width: `${row.pct}%`, height: '100%', background: 'var(--accent-500)', borderRadius: 'var(--radius-full)' }} />
+                </div>
+                <div style={{ width: 40, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--n90)' }}>{row.pct}%</div>
               </div>
-              <div style={{ width: 40, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--n90)' }}>{row.pct}%</div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </main>
   );

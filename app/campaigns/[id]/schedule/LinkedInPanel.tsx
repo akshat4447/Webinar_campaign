@@ -16,6 +16,11 @@ export interface LinkedInQueueItem {
   url: string;
   message: string;
   personalized?: boolean;
+  /** True when the personalized draft failed validation (missing link, leftover
+   *  {{token}}) — the queue falls back to the message shown, but a human still
+   *  needs to know their "personalized" draft for this recipient was actually
+   *  rejected rather than intentionally generic. */
+  personalizedInvalid?: boolean;
   slug?: string | null;
 }
 
@@ -219,8 +224,12 @@ export function LinkedInPanel({
                     </Button>
                   </div>
                   {current.personalized && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                      <Badge color="blue light" text="Personalized for this person" />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                      {current.personalizedInvalid ? (
+                        <Badge color="error" text="Personalized draft invalid — showing the template instead" />
+                      ) : (
+                        <Badge color="blue light" text="Personalized for this person" />
+                      )}
                       <span style={{ fontSize: 11, color: 'var(--n50)' }}>Edit it on the Personalize tab.</span>
                     </div>
                   )}
@@ -311,7 +320,7 @@ export function LinkedInPanel({
                     >
                       <span style={{ width: 18, fontSize: 11.5, color: 'var(--n50)', flexShrink: 0 }}>{i + 1}</span>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--n90)', overflowWrap: 'anywhere' }}>{q.name}</span>
-                      {q.personalized && <Badge color="blue light" text="Personalized" />}
+                      {q.personalized && (q.personalizedInvalid ? <Badge color="error" text="Invalid" /> : <Badge color="blue light" text="Personalized" />)}
                       <span style={{ fontSize: 11.5, color: 'var(--n60)' }}>{q.account}</span>
                       <Badge
                         color={progress[q.id] === 'sent' ? 'success' : progress[q.id] === 'skipped' ? 'gray' : 'blue'}

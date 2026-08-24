@@ -14,36 +14,9 @@ import path from 'path';
 import { db } from '../lib/db';
 import { provisionCampaignDefaults } from '../lib/campaignDefaults';
 import { classifyContact, pickCol } from '../lib/importHeuristics';
+import { parseCsvText as parseCsv } from '../lib/csv';
 
 const campaignId = process.argv[2] ?? 'c2';
-
-function parseCsv(text: string): string[][] {
-  return text
-    .split('\n')
-    .map((line) => {
-      const cells: string[] = [];
-      let val = '';
-      let q = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (q) {
-          if (ch === '"') {
-            if (line[i + 1] === '"') {
-              val += '"';
-              i++;
-            } else q = false;
-          } else val += ch;
-        } else if (ch === '"') q = true;
-        else if (ch === ',') {
-          cells.push(val);
-          val = '';
-        } else val += ch;
-      }
-      cells.push(val);
-      return cells;
-    })
-    .filter((r) => r.some((c) => c.trim() !== ''));
-}
 
 async function main() {
   const campaign = await db.campaign.findUnique({ where: { id: campaignId } });

@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { NavButton } from '@/components/ui/NavButton';
 import { saveTemplateAction, rewriteTemplateAction, duplicateTemplateAction } from '@/lib/actions/templates';
+import { validateTemplateContent } from '@/lib/messageValidation';
 import type { Template } from '@/lib/generated/prisma/client';
 
 const knownVars = ['firstName', 'lastName', 'company', 'topic', 'link', 'date'];
@@ -19,28 +20,6 @@ function fillTemplate(str: string, campaignName: string, sample: { name: string;
     .replace(/\{\{\s*company\s*\}\}/g, sample.account)
     .replace(/\{\{\s*topic\s*\}\}/g, campaignName)
     .replace(/\{\{\s*link\s*\}\}/g, link);
-}
-
-function validateTemplate(subject: string | null | undefined, body: string, hasSubject: boolean) {
-  const text = (hasSubject ? `${subject ?? ''} ` : '') + body;
-  const used = (text.match(/\{\{\s*[\w.]+\s*\}\}/g) ?? []).map((m) => m.replace(/[{}\s]/g, ''));
-  const unknown = Array.from(new Set(used.filter((v) => !knownVars.includes(v))));
-  const resolved = Array.from(new Set(used.filter((v) => knownVars.includes(v))));
-  const hasLink = /\{\{\s*link\s*\}\}/.test(text) || /https?:\/\/|lsq\.co/.test(text);
-  const bodyLen = body.length;
-  const spam = ['free', 'guaranteed', 'act now', 'limited time', 'click here', 'risk-free'].filter((w) => text.toLowerCase().includes(w));
-
-  const badges: { color: string; text: string }[] = [];
-  badges.push(
-    unknown.length
-      ? { color: 'error', text: `${unknown.length} unknown variable${unknown.length > 1 ? 's' : ''}: ${unknown.map((u) => `{{${u}}}`).join(', ')}` }
-      : { color: 'success', text: resolved.length ? `${resolved.length} variables resolved` : 'No variables used' }
-  );
-  badges.push(hasLink ? { color: 'success', text: 'Registration link present' } : { color: 'error', text: 'No registration link' });
-  badges.push(bodyLen > 900 ? { color: 'warning', text: `Body long — ${bodyLen} chars` } : { color: 'success', text: `Length ${bodyLen} chars` });
-  if (spam.length) badges.push({ color: 'warning', text: `Spam-trigger words: ${spam.join(', ')}` });
-  if (hasSubject && (subject ?? '').length > 60) badges.push({ color: 'warning', text: `Subject ${subject!.length} chars — may truncate` });
-  return badges;
 }
 
 export function TemplatesEditor({
@@ -65,7 +44,7 @@ export function TemplatesEditor({
   const selected = templates.find((t) => t.id === selectedId)!;
   const dirty = selected.savedBody === null ? true : selected.subject !== selected.savedSubject || selected.body !== selected.savedBody;
 
-  const badges = useMemo(() => validateTemplate(selected.subject, selected.body, selected.hasSubject), [selected]);
+  const validation = useMemo(() => validateTemplateContent(selected.subject, selected.body, selected.hasSubject, knownVars), [selected]);
 
   function updateSelected(patch: Partial<Template>) {
     setTemplates((ts) => ts.map((t) => (t.id === selectedId ? { ...t, ...patch } : t)));
@@ -134,6 +113,15 @@ export function TemplatesEditor({
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: dirty ? 'var(--warning-700)' : 'var(--success-500)', flexShrink: 0 }} />
                 {dirty ? 'Unsaved changes' : selected.savedAt ? `Saved ${new Date(selected.savedAt).toLocaleTimeString('en-GB', { hour12: false })}` : 'Not yet saved'}
               </div>
+              {/* Previously there was no single pass/fail signal here — only a row
+                  of individual badges with no summary, so an invalid template
+                  (missing link, unknown variable) looked no more urgent than a
+                  fine one. This is the first thing an operator sees. */}
+              <Badge
+                color={validation.valid ? 'success' : 'error'}
+                text={validation.valid ? 'Valid' : `${validation.issues.filter((i) => i.severity === 'error').length} issue${validation.issues.filter((i) => i.severity === 'error').length === 1 ? '' : 's'}`}
+                dot
+              />
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {dirty && selected.savedBody !== null && (
@@ -171,9 +159,11 @@ export function TemplatesEditor({
               Message preview — sample contact: {sampleContact.name}, {sampleContact.account}
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {badges.map((b, i) => (
-                <Badge key={i} color={b.color} text={b.text} />
-              ))}
+              {validation.issues.length === 0 ? (
+                <Badge color="success" text="No issues found" />
+              ) : (
+                validation.issues.map((issue, i) => <Badge key={i} color={issue.severity === 'error' ? 'error' : 'warning'} text={issue.message} />)
+              )}
             </div>
           </div>
           <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: 16 }}>

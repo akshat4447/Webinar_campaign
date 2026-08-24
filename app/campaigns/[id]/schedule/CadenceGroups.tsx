@@ -41,6 +41,7 @@ export function CadenceGroups({
   const [steps, setSteps] = useState(initialSteps);
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [patchError, setPatchError] = useState<string | null>(null);
 
   const launchAt = new Date(launchAtIso);
   const webinarAt = webinarAtIso ? new Date(webinarAtIso) : null;
@@ -53,7 +54,15 @@ export function CadenceGroups({
 
   async function patch(step: CadenceStep, next: Partial<Pick<CadenceStep, 'offsetValue' | 'offsetUnit' | 'anchor'>>) {
     setSteps((ss) => ss.map((s) => (s.id === step.id ? { ...s, ...next } : s)));
-    await updateStepScheduleAction(campaignId, step.key, next);
+    const res = await updateStepScheduleAction(campaignId, step.key, next);
+    if (!res.ok) {
+      // The server rejected this (e.g. a NaN offset) — revert the optimistic
+      // update so the UI doesn't keep showing a value that was never saved.
+      setSteps((ss) => ss.map((s) => (s.id === step.id ? step : s)));
+      setPatchError(res.error);
+    } else {
+      setPatchError(null);
+    }
   }
 
   async function resetAll() {
@@ -82,6 +91,12 @@ export function CadenceGroups({
       {!webinarAt && (
         <div style={{ background: 'var(--warning-100)', borderRadius: 'var(--radius-md)', padding: '11px 14px', fontSize: 12.5, color: 'var(--warning-700)' }}>
           No webinar date set yet — reminder and post-webinar steps can&apos;t resolve to a real time until you set one on Setup.
+        </div>
+      )}
+
+      {patchError && (
+        <div style={{ background: 'var(--danger-50, #fef2f2)', borderRadius: 'var(--radius-md)', padding: '10px 14px', fontSize: 12.5, color: 'var(--danger-500)' }}>
+          {patchError}
         </div>
       )}
 

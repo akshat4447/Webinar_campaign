@@ -15,7 +15,10 @@ export function SimulateClockCard({ campaignId, simulatedNow }: { campaignId: st
     setBusy(true);
     const res = await advanceSimulatedClockAction(campaignId, days);
     setBusy(false);
-    setLastResult(`Now: ${new Date(res.simulatedNow).toLocaleDateString()} — ${res.sent} sent, ${res.failed} failed this tick.`);
+    setLastResult(
+      `Now: ${new Date(res.simulatedNow).toLocaleDateString()} — ${res.sent} sent, ${res.failed} failed this tick.` +
+        (res.dailyLimitReached ? ` Daily send limit reached — ${res.remaining} more queued for tomorrow.` : '')
+    );
     router.refresh();
   }
 

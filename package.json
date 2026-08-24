@@ -7,13 +7,16 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
     "db:seed": "tsx prisma/seed.ts",
     "demo:reset": "tsx scripts/demo-reset.ts",
     "cadence:tick": "tsx scripts/cadence-tick.ts",
+    "backfill:templates": "tsx scripts/backfill-templates.ts",
     "demo:tidy": "tsx scripts/demo-tidy.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
+    "@next/env": "16.3.1",
     "@prisma/adapter-better-sqlite3": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "better-sqlite3": "^13.0.3",
@@ -33,6 +36,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
     "tsx": "^4.23.12",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   }
 }

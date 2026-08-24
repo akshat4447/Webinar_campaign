@@ -62,3 +62,16 @@ export const ANCHOR_LABEL: Record<string, string> = {
   webinar: 'from webinar start',
   event: 'when triggered',
 };
+
+/**
+ * Day-offsets the "Cadence preset" selector on the Schedule tab claims for
+ * nudge/final-call ("invite, +4d nudge, +7d final call" etc. — see the gapLabel
+ * text in ScheduleConfig.tsx, which these numbers must stay in sync with).
+ * Previously picking a preset only changed that description string; it now
+ * actually rewrites the two steps' offsets to match what it says.
+ */
+export const FREQUENCY_PRESETS: Record<string, { nudge: number; final: number }> = {
+  aggressive: { nudge: 2, final: 4 },
+  balanced: { nudge: 4, final: 7 },
+  relaxed: { nudge: 6, final: 10 },
+};
