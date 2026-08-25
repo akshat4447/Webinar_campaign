@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { NavButton } from '@/components/ui/NavButton';
+import { Icon } from '@/components/ui/Icon';
 import { saveTemplateAction, rewriteTemplateAction, duplicateTemplateAction, createCustomTemplateAction, deleteTemplateAction, toggleTemplateHiddenAction } from '@/lib/actions/templates';
 import { BUILT_IN_TEMPLATE_IDS } from '@/lib/demo-data';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -79,7 +80,13 @@ export function TemplatesEditor({
   }
 
   async function hideToggle(tpl: Template) {
-    await toggleTemplateHiddenAction(campaignId, tpl.id, !tpl.hidden);
+    const nextHidden = !tpl.hidden;
+    // Optimistic local update first: router.refresh() re-renders the server
+    // component but does NOT reseed this client component's useState, so without
+    // this the eye icon and row opacity would not change until a full reload.
+    setTemplates((ts) => ts.map((t) => (t.id === tpl.id ? { ...t, hidden: nextHidden } : t)));
+    if (tpl.id === selectedId) updateSelected({ hidden: nextHidden });
+    await toggleTemplateHiddenAction(campaignId, tpl.id, nextHidden);
     router.refresh();
   }
 
@@ -176,30 +183,53 @@ export function TemplatesEditor({
             <span style={{ fontSize: 13, fontWeight: 600, color: tpl.hidden ? 'var(--n50)' : tpl.id === selectedId ? 'var(--accent-700)' : 'var(--n80)', overflowWrap: 'anywhere' }}>
               {tpl.label}
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <Badge color={channelColor(tpl.channel)} text={tpl.channel} />
+              {/* Icon buttons must stopPropagation (row selects) AND update local
+                  state optimistically — router.refresh() alone leaves this
+                  client component's list stale until a full reload. */}
               <span
-                aria-label={tpl.hidden ? 'Show this step' : 'Hide this step'}
+                role="button"
+                aria-label={tpl.hidden ? `Show ${tpl.label}` : `Hide ${tpl.label}`}
                 title={tpl.hidden ? 'Show in Personalize & Schedule' : 'Hide from Personalize & Schedule'}
                 onClick={(e) => {
                   e.stopPropagation();
                   hideToggle(tpl);
                 }}
-                style={{ cursor: 'pointer', fontSize: 12, opacity: 0.7 }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 24,
+                  height: 24,
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  color: tpl.hidden ? 'var(--n50)' : 'var(--n70)',
+                }}
               >
-                {tpl.hidden ? '🚫' : '👁'}
+                <Icon name={tpl.hidden ? 'eye-off' : 'eye'} size={15} />
               </span>
               {isCustom(tpl) && (
                 <span
-                  aria-label="Delete custom step"
+                  role="button"
+                  aria-label={`Delete ${tpl.label}`}
                   title="Delete this custom step"
                   onClick={(e) => {
                     e.stopPropagation();
                     setConfirmDelete({ id: tpl.id, label: tpl.label });
                   }}
-                  style={{ cursor: 'pointer', fontSize: 12, opacity: 0.7 }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 24,
+                    height: 24,
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                    color: 'var(--danger-500)',
+                  }}
                 >
-                  🗑
+                  <Icon name="trash" size={14} />
                 </span>
               )}
             </span>

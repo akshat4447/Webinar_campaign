@@ -11,7 +11,10 @@ type IconName =
   | 'error'
   | 'plus'
   | 'chat'
-  | 'more';
+  | 'more'
+  | 'eye'
+  | 'eye-off'
+  | 'trash';
 
 const paths: Record<IconName, React.ReactNode> = {
   document: (
@@ -67,6 +70,25 @@ const paths: Record<IconName, React.ReactNode> = {
       <circle cx="12" cy="5.5" r="1.2" fill="currentColor" stroke="none" />
       <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
       <circle cx="12" cy="18.5" r="1.2" fill="currentColor" stroke="none" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  'eye-off': (
+    <>
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+      <path d="M2 2l20 20" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M3 6h18" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M10 11v6M14 11v6" />
     </>
   ),
 };
