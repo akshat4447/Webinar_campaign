@@ -4,7 +4,9 @@ import { resolveRecipient, sendModeLabel } from '@/lib/sendGuard';
 import { upsertAttentionItem } from '@/lib/attentionItems';
 import { resolveStepDate } from '@/lib/stepSchedule';
 import { isWithinSendWindow } from '@/lib/sendWindow';
-import { validateRenderedMessage } from '@/lib/messageValidation';
+import { validateRenderedMessage, validateRenderedMessageForChannel } from '@/lib/messageValidation';
+import { normalizeChannel } from '@/lib/channels';
+import { deliverChannelMessage, sandboxTargetPhone, type DeliveryChannel } from '@/lib/channelDelivery';
 
 // Steps that get queued automatically when the cadence launches. Each one's
 // send time comes from its own editable offset (see lib/stepSchedule.ts), so
@@ -13,8 +15,9 @@ import { validateRenderedMessage } from '@/lib/messageValidation';
 // Deliberately excluded: `confirm` fires on a registration event we have no
 // webhook for, and `attend`/`noshow` are triggered by the Zoom attendance
 // import instead (see lib/attendance.ts). `linkedin` is human-or-bot, tracked
-// through its own queue.
-export const AUTOMATED_STEP_KEYS = ['invite', 'nudge', 'final', 't3', 't1d', 't1h'] as const;
+// through its own queue. `whatsapp` joins `confirm` on the event side — it's
+// queued per-registration by lib/linkedin/ingest.ts, not at launch.
+export const AUTOMATED_STEP_KEYS = ['invite', 'nudge', 'final', 't3', 't1d', 't1h', 'sms'] as const;
 
 export function addDays(d: Date, days: number): Date {
   const next = new Date(d);
@@ -203,6 +206,9 @@ export async function processDueSends(campaignId: string): Promise<ProcessResult
       if (result === 'sent') {
         sent++;
         remainingBudget--;
+      } else if (result === 'skipped') {
+        // A compliance skip (missing phone, no opt-in…) is neither a failure
+        // nor budget spend — it's bookkeeping, visible via the row's error.
       } else {
         failed++;
       }
@@ -222,9 +228,27 @@ async function processSingleSend(
   campaignId: string,
   campaign: Awaited<ReturnType<typeof db.campaign.findUniqueOrThrow>>,
   send: DueSendWithContact
-): Promise<'sent' | 'failed'> {
+): Promise<'sent' | 'failed' | 'skipped'> {
     const template = await db.template.findUnique({ where: { campaignId_key: { campaignId, key: send.stepKey } } });
     const contact = send.contact;
+
+    // Hidden templates drop out of the flow entirely — before any channel
+    // routing — so hiding a step on the Templates tab stops every send of it.
+    if (template?.hidden) {
+      await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'skipped', error: 'Template is hidden on the Templates tab' } });
+      return 'skipped';
+    }
+
+    // Channel router — SMS/WhatsApp steps branch off before the email-specific
+    // requirements (they need a phone + consent flags instead of an inbox, and
+    // their own validators/transports).
+    if (template) {
+      const channel = normalizeChannel(template.channel);
+      if (channel === 'sms' || channel === 'whatsapp') {
+        return processChannelSend(campaignId, campaign, send, contact, template, channel);
+      }
+    }
+
     if (!template || !contact.email) {
       await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', error: 'Missing template or contact email' } });
       return 'failed';
@@ -303,6 +327,103 @@ async function processSingleSend(
       });
       return 'failed';
     }
+}
+
+/**
+ * SMS / WhatsApp delivery path. Compliance gates run in order and SKIP (never
+ * fail) when a contact simply isn't eligible — missing mobile, opted out of
+ * SMS, no WhatsApp opt-in. Delivery goes through deliverChannelMessage, which
+ * picks the configured strategy (direct LSQ endpoint vs Automation trigger).
+ */
+async function processChannelSend(
+  campaignId: string,
+  campaign: Awaited<ReturnType<typeof db.campaign.findUniqueOrThrow>>,
+  send: DueSendWithContact,
+  contact: DueSendWithContact['contact'],
+  template: { label: string; channel: string; body: string; subject: string | null },
+  channel: DeliveryChannel
+): Promise<'sent' | 'failed' | 'skipped'> {
+  const skip = async (reason: string): Promise<'skipped'> => {
+    await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'skipped', error: reason } });
+    return 'skipped';
+  };
+
+  if (!contact.phone) return skip('No mobile number on file for this contact');
+  if (channel === 'sms' && contact.smsOptOut) return skip('Contact has opted out of SMS');
+  if (channel === 'whatsapp' && !contact.whatsappOptIn) return skip('No WhatsApp opt-in on record — Meta template messages require it');
+
+  // Render from personalized copy when one exists and validates, else template.
+  const link = campaign.registrationLink ?? '';
+  const personalizedRaw = await db.personalizedMessage.findUnique({
+    where: { campaignId_contactId_stepKey: { campaignId, contactId: contact.id, stepKey: send.stepKey } },
+  });
+  const mergeOpts = { firstName: contact.name.split(' ')[0] || contact.name, company: contact.account, topic: campaign.name, link };
+  const body = renderMergeFields(personalizedRaw ? personalizedRaw.body : template.body, mergeOpts);
+
+  const validation = validateRenderedMessageForChannel(null, body, false, link, channel);
+  if (!validation.valid) {
+    const detail = validation.issues.map((i) => i.message).join('; ').slice(0, 280);
+    await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', error: `Content rejected: ${detail}` } });
+    await upsertAttentionItem(campaignId, {
+      icon: 'ErrorProperty1Outline',
+      color: 'warning',
+      title: `${channel.toUpperCase()} draft for ${contact.name} failed validation`,
+      detail,
+      actionsCsv: 'view',
+    });
+    return 'failed';
+  }
+
+  try {
+    // The recipient: live → the contact's own number; sandbox → the allowlist
+    // lead's number, mirroring how email sends are redirected in sandbox mode.
+    const targetPhone = (process.env.SEND_MODE === 'live' ? contact.phone : await sandboxTargetPhone()).replace(/[^\d+]/g, '');
+
+    // The lead must exist in LeadSquared first (trigger strategy attaches the
+    // activity to it; direct strategy keeps CRM state consistent too).
+    let lsqLeadId = contact.lsqLeadId;
+    if (!lsqLeadId && contact.email) {
+      const result = await createOrUpdateLead([
+        { Attribute: 'EmailAddress', Value: contact.email },
+        { Attribute: 'FirstName', Value: contact.name.split(' ')[0] || contact.name },
+        { Attribute: 'Phone', Value: contact.phone },
+        { Attribute: 'Company', Value: contact.account },
+      ]);
+      lsqLeadId = result.Message.Id;
+      await db.contact.update({ where: { id: contact.id }, data: { lsqLeadId } });
+    }
+    if (!lsqLeadId) return skip('No email to key a LeadSquared lead on and none synced yet');
+
+    const delivery = await deliverChannelMessage({
+      channel,
+      stepKey: send.stepKey,
+      campaignName: campaign.name,
+      message: body,
+      phone: targetPhone,
+      lsqLeadId,
+    });
+
+    await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'sent', sentAt: new Date(), error: null } });
+    await db.activityLogEntry.create({
+      data: {
+        campaignId,
+        text: `Sent ${channel.toUpperCase()} "${template.label}" to ${contact.name} (${delivery.strategyUsed}: ${delivery.detail})${process.env.SEND_MODE !== 'live' ? ' — sandboxed → allowlisted phone' : ''}`,
+        dot: 'var(--success-500)',
+      },
+    });
+    return 'sent';
+  } catch (err) {
+    const message = String(err instanceof Error ? err.message : err).slice(0, 280);
+    await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', error: message } });
+    await upsertAttentionItem(campaignId, {
+      icon: 'ErrorProperty1Outline',
+      color: 'error',
+      title: `${channel.toUpperCase()} send failed for ${contact.name}`,
+      detail: message,
+      actionsCsv: 'retry',
+    });
+    return 'failed';
+  }
 }
 
 export async function advanceSimulatedClock(campaignId: string, days: number) {

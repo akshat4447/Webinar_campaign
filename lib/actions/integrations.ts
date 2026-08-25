@@ -46,7 +46,7 @@ export async function saveIntegrationConfigAction(id: string, fields: Record<str
   return { savedAt: new Date().toISOString() };
 }
 
-const TESTABLE = ['lsq', 'claude', 'apollo', 'apify'];
+const TESTABLE = ['lsq', 'claude', 'apollo', 'apify', 'linkedin'];
 
 /**
  * Resolves typed → saved (DB) → env for each field this connector has, so
@@ -106,6 +106,25 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
       const body: { data?: { username?: string }; error?: { message?: string } } = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(`${res.status} · ${body.error?.message || 'Apify rejected this token.'}`);
       result = { ok: true, detail: `200 · user "${body.data?.username ?? 'unknown'}" · ${Date.now() - started}ms` };
+    } else if (id === 'linkedin') {
+      const f = await resolveTestFields('linkedin', typedFields);
+      const mode = process.env.LINKEDIN_MODE === 'live' ? 'live' : 'sandbox';
+      if (mode !== 'live') {
+        result = { ok: true, detail: `sandbox mode — every LinkedIn call is simulated until LINKEDIN_MODE=live${f.clientId ? ' · app credentials saved' : ''}` };
+      } else {
+        if (!f.accessToken) throw new Error('Live mode needs an access token — click “Connect with LinkedIn” first.');
+        const res = await fetch('https://api.linkedin.com/rest/organizationAcls?q=member&state=APPROVED&count=1', {
+          headers: {
+            Authorization: `Bearer ${f.accessToken}`,
+            'LinkedIn-Version': process.env.LINKEDIN_VERSION || '202608',
+            'X-Restli-Protocol-Version': '2.0.0',
+          },
+          cache: 'no-store',
+        });
+        const text = await res.text();
+        if (!res.ok) throw new Error(`${res.status} · ${text.slice(0, 180)}`);
+        result = { ok: true, detail: `200 · token valid · ${Date.now() - started}ms` };
+      }
     } else {
       result = { ok: false, detail: 'This integration stays in demo mode for this build.' };
     }

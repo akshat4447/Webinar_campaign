@@ -1,9 +1,23 @@
 import { db } from '@/lib/db';
 import { personalizeMessages, type PersonalizeContact } from '@/lib/claude';
 import { upsertAttentionItem } from '@/lib/attentionItems';
+import { normalizeChannel } from '@/lib/channels';
 
-/** Steps that carry a template and can therefore be personalized. */
-export const PERSONALIZABLE_STEPS = ['invite', 'nudge', 'final', 'linkedin', 'attend', 'noshow'] as const;
+/** Steps that carry a template and can therefore be personalized — every step, across all channels. */
+export const PERSONALIZABLE_STEPS = [
+  'invite',
+  'confirm',
+  'nudge',
+  'final',
+  't3',
+  't1d',
+  't1h',
+  'linkedin',
+  'whatsapp',
+  'sms',
+  'attend',
+  'noshow',
+] as const;
 
 /**
  * Canonical default for Campaign.personalizationPrompt — the single source of
@@ -51,8 +65,8 @@ function toWritten(m: {
   return { contactId: m.contactId, id: m.id, subject: m.subject, body: m.body, rationale: m.rationale, status: m.status, linkStale: false };
 }
 
-function channelFor(stepKey: string): 'email' | 'linkedin' {
-  return stepKey === 'linkedin' ? 'linkedin' : 'email';
+function channelFor(templateChannel: string): 'email' | 'linkedin' | 'sms' | 'whatsapp' {
+  return normalizeChannel(templateChannel);
 }
 
 /**
@@ -130,7 +144,7 @@ export async function generatePersonalized(campaignId: string, stepKey: string):
   if (contacts.length === 0) return { ok: false, error: 'No approved contacts — approve some on the Scoring tab first.' };
 
   const link = campaign.registrationLink || campaign.zoomLink || '';
-  const channel = channelFor(stepKey);
+  const channel = channelFor(template.channel);
 
   const payload: PersonalizeContact[] = contacts.map((c) => ({
     id: c.id,
@@ -173,7 +187,7 @@ export async function generatePersonalized(campaignId: string, stepKey: string):
         if (repaired) linkRepaired++;
         const data = {
           channel,
-          subject: channel === 'linkedin' ? null : d.subject,
+          subject: channel === 'email' ? d.subject : null,
           body,
           rationale: d.rationale,
           linkUsed: link || null,
@@ -230,7 +244,7 @@ export async function regenerateOne(campaignId: string, contactId: string, stepK
   if (!template) return { ok: false, error: 'Template missing.' };
 
   const link = campaign.registrationLink || campaign.zoomLink || '';
-  const channel = channelFor(stepKey);
+  const channel = channelFor(template.channel);
 
   try {
     const [draft] = await personalizeMessages({
@@ -261,7 +275,7 @@ export async function regenerateOne(campaignId: string, contactId: string, stepK
     const { body } = ensureLink(draft.body, link);
     const data = {
       channel,
-      subject: channel === 'linkedin' ? null : draft.subject,
+      subject: channel === 'email' ? draft.subject : null,
       body,
       rationale: draft.rationale,
       linkUsed: link || null,

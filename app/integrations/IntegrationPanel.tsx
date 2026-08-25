@@ -8,7 +8,8 @@ import { getIntegrationConfigMaskedAction, saveIntegrationConfigAction, testInte
 
 const EXPLANATION: Record<string, string> = {
   zoom: 'Zoom attendance comes from a real exported "Participants Report" CSV, not the Zoom API — there\'s nothing to connect here. Import the CSV from a campaign\'s Setup tab.',
-  linkedin: "LinkedIn has no outreach API, and automating sends would violate LinkedIn's terms — that risk isn't one this app takes. Outreach stays manual (copy/paste) or a labeled simulation of a bot batch, from a campaign's Schedule tab.",
+  linkedin:
+    "Outreach is manual by design — scripted LinkedIn messaging breaches their terms and risks account restriction. What the app does instead: Apollo verifies every queued contact before you reach out, and LinkedIn Events run through the official API with Lead Sync streaming registrations back in.",
 };
 
 export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string; name: string; onClose: () => void; onChanged: () => void }) {
@@ -104,6 +105,39 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
 
           {!explanatoryOnly && (
             <div>
+              {id === 'lsq' && (
+                <div style={{ marginBottom: 12, padding: 10, background: 'var(--n10)', borderRadius: 'var(--radius-md)', fontSize: 11.5, color: 'var(--n70)', lineHeight: 1.6 }}>
+                  <strong style={{ display: 'block', marginBottom: 4 }}>SMS / WhatsApp delivery</strong>
+                  <strong>Trigger (default):</strong> the app posts a <em>WebinarAgent Channel Trigger</em> activity per send. One-time in your
+                  tenant: Settings → Automation → Add Program → trigger “On activity: WebinarAgent Channel Trigger” → action Send SMS /
+                  Send WhatsApp using field <code>mxp_Message</code>, to the lead&apos;s phone.
+                  <br />
+                  <strong>Direct:</strong> paste your account&apos;s endpoint path from{' '}
+                  <a href="https://apidocs.leadsquared.com/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-500)' }}>
+                    apidocs.leadsquared.com
+                  </a>{' '}
+                  into SMS/WhatsApp Endpoint. Guides &amp; add-ons (Kaleyra/Twilio SMS, Whatsapp Connector):{' '}
+                  <a href="https://help.leadsquared.com/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-500)' }}>
+                    help.leadsquared.com
+                  </a>
+                </div>
+              )}
+              {id === 'linkedin' && (
+                <div style={{ marginBottom: 12 }}>
+                  <a
+                    href="/api/auth/linkedin/connect"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', height: 32, padding: '0 12px', fontSize: 12.5, fontWeight: 600,
+                      background: '#0A66C2', color: '#fff', borderRadius: 'var(--radius-md)', textDecoration: 'none',
+                    }}
+                  >
+                    Connect with LinkedIn
+                  </a>
+                  <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 6, lineHeight: 1.5 }}>
+                    Authorizes your Page for Events, registration forms and Lead Sync (r_events · rw_events · leadgen automation). Tokens are stored server-side only.
+                  </div>
+                </div>
+              )}
               <Button hierarchy="secondary" size="sm" onClick={test} disabled={testing}>
                 {testing ? 'Testing…' : 'Test connection'}
               </Button>

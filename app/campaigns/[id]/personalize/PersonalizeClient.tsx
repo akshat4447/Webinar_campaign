@@ -13,10 +13,12 @@ import {
   markReviewedAction,
   markAllReviewedAction,
   discardPersonalizedAction,
+  discardOnePersonalizedAction,
   repairLinksAction,
 } from '@/lib/actions/personalize';
 import type { GenerateResult } from '@/lib/personalization';
-import { validateRenderedMessage, type ValidationResult } from '@/lib/messageValidation';
+import { validateRenderedMessageForChannel, type ValidationResult } from '@/lib/messageValidation';
+import type { Channel } from '@/lib/channels';
 import { PromptModal } from './PromptModal';
 
 interface MessageState {
@@ -75,7 +77,7 @@ export function PersonalizeClient({
   steps: StepOption[];
   activeStepKey: string;
   activeStepLabel: string;
-  activeChannel: 'email' | 'linkedin';
+  activeChannel: Channel;
   templateSubject: string | null;
   templateBody: string;
   rows: Row[];
@@ -116,7 +118,7 @@ export function PersonalizeClient({
   const validationByContact = useMemo(() => {
     const map = new Map<string, ValidationResult>();
     for (const r of rows) {
-      if (r.message) map.set(r.contactId, validateRenderedMessage(r.message.subject, r.message.body, activeChannel === 'email', currentLink));
+      if (r.message) map.set(r.contactId, validateRenderedMessageForChannel(r.message.subject, r.message.body, activeChannel === 'email', currentLink, activeChannel));
     }
     return map;
   }, [rows, activeChannel, currentLink]);
@@ -254,6 +256,12 @@ export function PersonalizeClient({
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
           {steps.map((s) => {
             const active = s.key === activeStepKey;
+            const dot =
+              s.channel === 'WhatsApp' || s.channel === 'SMS'
+                ? 'var(--warning-700)'
+                : s.channel === 'LinkedIn'
+                ? '#0A66C2'
+                : 'var(--accent-500)';
             return (
               <div
                 key={s.key}
@@ -271,6 +279,7 @@ export function PersonalizeClient({
                   color: active ? '#fff' : 'var(--n70)',
                 }}
               >
+                <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: active ? '#fff' : dot, flexShrink: 0 }} />
                 {s.label}
                 {s.count > 0 && (
                   <span
@@ -477,6 +486,19 @@ export function PersonalizeClient({
                           Mark reviewed
                         </Button>
                       )}
+                      <Button
+                        hierarchy="tertiary"
+                        size="sm"
+                        onClick={async () => {
+                          setBusyRow(selected.contactId);
+                          await discardOnePersonalizedAction(campaignId, selected.contactId, activeStepKey);
+                          setRows((rs) => rs.map((r) => (r.contactId === selected.contactId ? { ...r, message: null } : r)));
+                          setBusyRow(null);
+                        }}
+                        disabled={busyRow === selected.contactId}
+                      >
+                        Use basic template
+                      </Button>
                     </div>
                   </div>
 
@@ -502,6 +524,12 @@ export function PersonalizeClient({
                     </div>
                   )}
 
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <Badge color="success" text="This personalized version is what sends" dot />
+                    <span style={{ fontSize: 11, color: 'var(--n50)' }}>
+                      Use “Use basic template” to fall back to the shared copy for this person.
+                    </span>
+                  </div>
                   {activeChannel === 'email' && (
                     <div style={{ marginBottom: 12 }}>
                       <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>Subject</div>
@@ -510,12 +538,20 @@ export function PersonalizeClient({
                   )}
                   <div>
                     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <div style={{ fontSize: 12, color: 'var(--n60)' }}>{activeChannel === 'linkedin' ? 'LinkedIn message' : 'Email body'}</div>
+                      <div style={{ fontSize: 12, color: 'var(--n60)' }}>
+                        {activeChannel === 'linkedin'
+                          ? 'LinkedIn message'
+                          : activeChannel === 'sms'
+                          ? 'SMS text'
+                          : activeChannel === 'whatsapp'
+                          ? 'WhatsApp message'
+                          : 'Email body'}
+                      </div>
                       <div style={{ fontSize: 11, color: 'var(--n50)', fontVariantNumeric: 'tabular-nums' }}>
                         {selected.message.body.length} chars · {selected.message.body.trim().split(/\s+/).length} words
                       </div>
                     </div>
-                    <textarea className="lsq-input" rows={activeChannel === 'linkedin' ? 5 : 9} value={selected.message.body} onChange={(e) => patchSelected({ body: e.target.value })} />
+                    <textarea className="lsq-input" rows={activeChannel === 'linkedin' ? 5 : activeChannel === 'sms' ? 3 : activeChannel === 'whatsapp' ? 6 : 9} value={selected.message.body} onChange={(e) => patchSelected({ body: e.target.value })} />
                   </div>
                 </div>
 
@@ -527,7 +563,7 @@ export function PersonalizeClient({
                     <Signal label="Function" value={selected.function} />
                     <Signal label="Industry" value={selected.vertical} />
                     <Signal label="Company" value={selected.account} />
-                    <Signal label="Channel" value={activeChannel === 'linkedin' ? 'LinkedIn DM' : 'Email'} />
+                    <Signal label="Channel" value={activeChannel === 'linkedin' ? 'LinkedIn DM' : activeChannel === 'sms' ? 'SMS' : activeChannel === 'whatsapp' ? 'WhatsApp' : 'Email'} />
                   </div>
                   {selected.personaNote && (
                     <div style={{ fontSize: 12, color: 'var(--n70)', lineHeight: 1.55, background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: '9px 11px' }}>

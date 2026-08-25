@@ -4,19 +4,25 @@ import { db } from '@/lib/db';
 import { LeadImportCard } from './LeadImportCard';
 import { CampaignDetailsForm } from './CampaignDetailsForm';
 import { EnrichmentCard } from './EnrichmentCard';
+import { LinkedInPublishCard } from './LinkedInPublishCard';
 import { getEnrichmentStats } from '@/lib/actions/enrichment';
 import { getServerNow } from '@/lib/actions/clock';
+import { resolveIntegrationField } from '@/lib/integrationConfig';
+import { linkedinMode } from '@/lib/linkedin/client';
 
 export default async function SetupPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [campaign, activityLog, enrichmentStats, serverNow, contactCount, scoredCount] = await Promise.all([
+  const [campaign, activityLog, enrichmentStats, serverNow, contactCount, scoredCount, orgName, orgUrn] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id } }),
     db.activityLogEntry.findMany({ where: { campaignId: id }, orderBy: { createdAt: 'desc' }, take: 20 }),
     getEnrichmentStats(id),
     getServerNow(),
     db.contact.count({ where: { campaignId: id } }),
     db.contact.count({ where: { campaignId: id, score: { not: null } } }),
+    resolveIntegrationField('linkedin', 'organizationName'),
+    resolveIntegrationField('linkedin', 'organizationUrn'),
   ]);
+  const mode = linkedinMode();
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
@@ -28,6 +34,19 @@ export default async function SetupPage({ params }: { params: Promise<{ id: stri
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <LinkedInPublishCard
+            campaignId={id}
+            name={campaign.name}
+            description={campaign.description}
+            dateDisplay={campaign.date}
+            zoomLink={campaign.zoomLink}
+            organizationLabel={orgName ?? orgUrn ?? null}
+            mode={mode}
+            status={campaign.linkedinEventStatus}
+            error={campaign.linkedinEventError}
+            eventUrn={campaign.linkedinEventUrn}
+          />
+
           <Card>
             <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent-500)', flexShrink: 0 }} />

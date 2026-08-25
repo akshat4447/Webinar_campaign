@@ -45,6 +45,12 @@ export async function markAllReviewedAction(campaignId: string, stepKey: string)
   return result.count;
 }
 
+/** Drops ONE recipient's personalized copy so the shared template sends instead. */
+export async function discardOnePersonalizedAction(campaignId: string, contactId: string, stepKey: string) {
+  await db.personalizedMessage.deleteMany({ where: { campaignId, contactId, stepKey } });
+  revalidateCampaign(campaignId);
+}
+
 /** Drops the personalized copy for a step so the shared template takes over again. */
 export async function discardPersonalizedAction(campaignId: string, stepKey: string) {
   const result = await db.personalizedMessage.deleteMany({ where: { campaignId, stepKey } });

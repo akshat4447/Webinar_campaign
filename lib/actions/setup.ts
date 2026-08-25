@@ -109,6 +109,7 @@ async function replaceContacts(campaignId: string, rows: (ReturnType<typeof clas
       function: r.function,
       seniority: r.seniority,
       linkedinId: r.linkedinId || null,
+      phone: r.phone || null,
       missingInfo: r.missingInfo,
       source: r.source,
       score: null,
@@ -149,6 +150,7 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
     title: pickCol(headers, ['title', 'designation', 'role', 'position']),
     vertical: pickCol(headers, ['vertical', 'industry', 'sector']),
     linkedin: pickCol(headers, ['linkedin', 'li url', 'profile']),
+    phone: pickCol(headers, ['phone', 'mobile', 'contact number', 'whatsapp']),
   };
 
   const seen = new Set<string>();
@@ -173,6 +175,7 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
         title: get(ci.title) || '—',
         vertical: get(ci.vertical) || 'Unassigned',
         linkedinId: get(ci.linkedin),
+        phone: get(ci.phone) || null,
       })
     );
   }
@@ -228,6 +231,7 @@ function rawLeadToContact(row: RawLsqLead) {
       title: row.Designation || '—',
       vertical: 'Unassigned',
       linkedinId: '',
+      phone: row.Phone || null,
     }),
     // Already a real lead — reuse its id instead of creating a duplicate.
     lsqLeadId: row.ProspectID || undefined,

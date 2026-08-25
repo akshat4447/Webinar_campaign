@@ -1,9 +1,24 @@
 import { IntegrationCard } from './IntegrationCard';
 import { integrationsData } from '@/lib/demo-data';
-import { getTestResult } from '@/lib/integrationConfig';
+import { getTestResult, resolveIntegrationField } from '@/lib/integrationConfig';
 
 export default async function IntegrationsPage() {
   const cards = await Promise.all(integrationsData.map(async (ig) => ({ ig, testResult: await getTestResult(ig.id) })));
+
+  // One glanceable answer to "where do messages actually go right now?" — the
+  // delivery-affecting switches live in three places, so they're surfaced here.
+  const [smsStrategy, waStrategy] = await Promise.all([
+    resolveIntegrationField('lsq', 'smsStrategy'),
+    resolveIntegrationField('lsq', 'whatsappStrategy'),
+  ]);
+  const sendMode = process.env.SEND_MODE === 'live' ? 'live' : 'sandbox';
+  const liMode = process.env.LINKEDIN_MODE === 'live' ? 'live' : 'sandbox';
+  const delivery = [
+    { label: 'Email', value: `${sendMode}${sendMode === 'sandbox' ? ' → allowlisted lead' : ''}` },
+    { label: 'SMS', value: `LSQ ${(smsStrategy || 'trigger').toLowerCase()} strategy` },
+    { label: 'WhatsApp', value: `LSQ ${(waStrategy || 'trigger').toLowerCase()} strategy` },
+    { label: 'LinkedIn', value: liMode === 'live' ? 'Events API live' : 'Events API sandbox · touches manual' },
+  ];
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '32px 40px 48px 40px' }}>
@@ -11,6 +26,18 @@ export default async function IntegrationsPage() {
         <div>
           <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--n90)', letterSpacing: '-0.01em' }}>Integrations</div>
           <div style={{ fontSize: 13, color: 'var(--n60)', marginTop: 3 }}>Manage the connections the agent uses to run campaigns end to end</div>
+        </div>
+      </div>
+
+      <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '14px 20px', marginBottom: 20 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>Delivery settings</div>
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+          {delivery.map((d) => (
+            <div key={d.label}>
+              <div style={{ fontSize: 11, color: 'var(--n50)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{d.label}</div>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--n80)', marginTop: 2 }}>{d.value}</div>
+            </div>
+          ))}
         </div>
       </div>
 

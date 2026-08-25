@@ -4,14 +4,17 @@ import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { NavButton } from '@/components/ui/NavButton';
-import { saveTemplateAction, rewriteTemplateAction, duplicateTemplateAction } from '@/lib/actions/templates';
-import { validateTemplateContent } from '@/lib/messageValidation';
+import { saveTemplateAction, rewriteTemplateAction, duplicateTemplateAction, createCustomTemplateAction, deleteTemplateAction, toggleTemplateHiddenAction } from '@/lib/actions/templates';
+import { BUILT_IN_TEMPLATE_IDS } from '@/lib/demo-data';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { validateTemplateContentForChannel } from '@/lib/messageValidation';
+import { useRouter } from 'next/navigation';
 import type { Template } from '@/lib/generated/prisma/client';
 
 const knownVars = ['firstName', 'lastName', 'company', 'topic', 'link', 'date'];
 
 function channelColor(channel: string): string {
-  return channel === 'LinkedIn' ? 'gray blue' : 'blue';
+  return channel === 'LinkedIn' ? 'gray blue' : channel === 'SMS' || channel === 'WhatsApp' ? 'warning' : 'blue';
 }
 
 function fillTemplate(str: string, campaignName: string, sample: { name: string; account: string }, link: string): string {
@@ -40,11 +43,59 @@ export function TemplatesEditor({
   const [rewriting, setRewriting] = useState(false);
   const [rewriteError, setRewriteError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newLabel, setNewLabel] = useState('');
+  const [newChannel, setNewChannel] = useState('Email');
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
 
   const selected = templates.find((t) => t.id === selectedId)!;
   const dirty = selected.savedBody === null ? true : selected.subject !== selected.savedSubject || selected.body !== selected.savedBody;
 
-  const validation = useMemo(() => validateTemplateContent(selected.subject, selected.body, selected.hasSubject, knownVars), [selected]);
+  const validation = useMemo(
+    () => validateTemplateContentForChannel(selected.subject, selected.body, selected.hasSubject, knownVars, selected.channel),
+    [selected]
+  );
+
+  function isCustom(tpl: Template): boolean {
+    return !BUILT_IN_TEMPLATE_IDS.includes(tpl.key.split('-copy-')[0]);
+  }
+
+  async function addTemplate() {
+    setAdding(true);
+    setAddError(null);
+    const res = await createCustomTemplateAction(campaignId, { label: newLabel, channel: newChannel });
+    setAdding(false);
+    if (!res.ok || !res.key) {
+      setAddError(res.error ?? 'Could not create the template.');
+      return;
+    }
+    setShowAdd(false);
+    setNewLabel('');
+    router.refresh();
+  }
+
+  async function hideToggle(tpl: Template) {
+    await toggleTemplateHiddenAction(campaignId, tpl.id, !tpl.hidden);
+    router.refresh();
+  }
+
+  async function removeTemplate() {
+    if (!confirmDelete) return;
+    setDeleting(true);
+    await deleteTemplateAction(campaignId, confirmDelete.id);
+    setDeleting(false);
+    setConfirmDelete(null);
+    if (selectedId === confirmDelete.id) {
+      const remaining = templates.filter((t) => t.id !== confirmDelete.id);
+      if (remaining[0]) setSelectedId(remaining[0].id);
+    }
+    setTemplates((ts) => ts.filter((t) => t.id !== confirmDelete.id));
+    router.refresh();
+  }
 
   function updateSelected(patch: Partial<Template>) {
     setTemplates((ts) => ts.map((t) => (t.id === selectedId ? { ...t, ...patch } : t)));
@@ -83,6 +134,29 @@ export function TemplatesEditor({
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 260px) minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Button
+          hierarchy="secondary"
+          size="sm"
+          style={{ margin: '4px 6px 8px 6px' }}
+          onClick={() => setShowAdd((v) => !v)}
+        >
+          {showAdd ? 'Cancel' : '+ Add template'}
+        </Button>
+        {showAdd && (
+          <div style={{ margin: '0 6px 10px 6px', padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input className="lsq-input" type="text" placeholder="Step name (e.g. Post-demo follow-up)" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
+            <select className="lsq-select" value={newChannel} onChange={(e) => setNewChannel(e.target.value)} style={{ height: 32, fontSize: 12.5 }}>
+              <option>Email</option>
+              <option>LinkedIn</option>
+              <option>SMS</option>
+              <option>WhatsApp</option>
+            </select>
+            {addError && <div style={{ fontSize: 11, color: 'var(--danger-500)' }}>{addError}</div>}
+            <Button hierarchy="primary" size="sm" onClick={addTemplate} disabled={adding || !newLabel.trim()}>
+              {adding ? 'Creating…' : 'Create step'}
+            </Button>
+          </div>
+        )}
         {templates.map((tpl) => (
           <div
             key={tpl.id}
@@ -96,10 +170,39 @@ export function TemplatesEditor({
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: 8,
+              opacity: tpl.hidden ? 0.55 : 1,
             }}
           >
-            <span style={{ fontSize: 13, fontWeight: 600, color: tpl.id === selectedId ? 'var(--accent-700)' : 'var(--n80)' }}>{tpl.label}</span>
-            <Badge color={channelColor(tpl.channel)} text={tpl.channel} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: tpl.hidden ? 'var(--n50)' : tpl.id === selectedId ? 'var(--accent-700)' : 'var(--n80)', overflowWrap: 'anywhere' }}>
+              {tpl.label}
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+              <Badge color={channelColor(tpl.channel)} text={tpl.channel} />
+              <span
+                aria-label={tpl.hidden ? 'Show this step' : 'Hide this step'}
+                title={tpl.hidden ? 'Show in Personalize & Schedule' : 'Hide from Personalize & Schedule'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  hideToggle(tpl);
+                }}
+                style={{ cursor: 'pointer', fontSize: 12, opacity: 0.7 }}
+              >
+                {tpl.hidden ? '🚫' : '👁'}
+              </span>
+              {isCustom(tpl) && (
+                <span
+                  aria-label="Delete custom step"
+                  title="Delete this custom step"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmDelete({ id: tpl.id, label: tpl.label });
+                  }}
+                  style={{ cursor: 'pointer', fontSize: 12, opacity: 0.7 }}
+                >
+                  🗑
+                </span>
+              )}
+            </span>
           </div>
         ))}
       </div>
@@ -122,6 +225,7 @@ export function TemplatesEditor({
                 text={validation.valid ? 'Valid' : `${validation.issues.filter((i) => i.severity === 'error').length} issue${validation.issues.filter((i) => i.severity === 'error').length === 1 ? '' : 's'}`}
                 dot
               />
+              {selected.hidden && <Badge color="gray" text="Hidden" dot />}
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {dirty && selected.savedBody !== null && (
@@ -182,6 +286,18 @@ export function TemplatesEditor({
           <NavButton href={`/campaigns/${campaignId}/personalize`}>Continue to personalize</NavButton>
         </div>
       </div>
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title={`Delete "${confirmDelete.label}"?`}
+          message="This removes the template, its cadence step and any personalized copies. Queued sends for it are deleted too."
+          confirmLabel="Delete step"
+          destructive
+          busy={deleting}
+          onConfirm={removeTemplate}
+          onClose={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
   );
 }

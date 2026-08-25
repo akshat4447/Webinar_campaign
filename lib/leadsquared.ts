@@ -3,7 +3,7 @@
 // on the Integrations page, from the DB — see resolveLsqConfig) and must not
 // ship to the browser. Endpoints verified against https://apidocs.leadsquared.com/.
 
-import { resolveIntegrationField } from '@/lib/integrationConfig';
+import { resolveIntegrationField, resolveIntegrationField as resolveField } from '@/lib/integrationConfig';
 
 export class LeadSquaredError extends Error {
   constructor(
@@ -253,5 +253,60 @@ export async function sendEmailToLead(params: SendEmailParams): Promise<{ ID: st
       // the caller passes one known to exist.
       ...(params.emailCategory ? { EmailCategory: params.emailCategory } : {}),
     },
+  });
+}
+
+// --- SMS / WhatsApp channels ---------------------------------------------------
+// Two delivery strategies exist for these channels (see lib/channelDelivery.ts):
+//   direct  — this module calls a LeadSquared send endpoint per lead. The exact
+//             path differs per tenant (SMS gateways / WhatsApp add-ons are
+//             account-level features), so it is CONFIG (lsq.smsEndpoint /
+//             lsq.waEndpoint on the Integrations page), not a constant.
+//   trigger — the default. A custom activity is pushed on the lead; an LSQ
+//             Automation program sends through LSQ's own compliant gateway,
+//             inheriting DND scrubbing, sender IDs and Meta-approved templates.
+
+export class UnsupportedChannelError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnsupportedChannelError';
+  }
+}
+
+/** GET a single lead by email — used to resolve the sandbox allowlist phone. */
+export async function getLeadByEmailAddress(email: string): Promise<RawLsqLead | null> {
+  const result = await lsqFetch<unknown>('/LeadManagement.svc/Leads.GetByEmailAddress', {
+    query: { email },
+  });
+  // LSQ returns { Leads: [...] } here (unlike Lists.Get's bare array).
+  const leads = (result as { Leads?: Array<{ LeadPropertyList: Array<{ Attribute: string; Value: string }> }> } | null)?.Leads ?? [];
+  const first = leads[0];
+  if (!first) return null;
+  const row: RawLsqLead = {};
+  for (const prop of first.LeadPropertyList) row[prop.Attribute] = prop.Value;
+  return row;
+}
+
+/** Strategy A transport for SMS — endpoint comes from tenant config. */
+export async function sendSmsToLeadDirect(params: { mobile: string; message: string }): Promise<unknown> {
+  const path = await resolveField('lsq', 'smsEndpoint');
+  if (!path) {
+    throw new UnsupportedChannelError('No lsq.smsEndpoint configured — set it on the Integrations page or use the trigger strategy.');
+  }
+  return lsqFetch(path, {
+    method: 'POST',
+    body: { PhoneNumber: params.mobile, TextMessage: params.message },
+  });
+}
+
+/** Strategy A transport for WhatsApp — same config story as SMS. */
+export async function sendWhatsappDirect(params: { mobile: string; message: string }): Promise<unknown> {
+  const path = await resolveField('lsq', 'waEndpoint');
+  if (!path) {
+    throw new UnsupportedChannelError('No lsq.waEndpoint configured — WhatsApp sends run through the trigger strategy.');
+  }
+  return lsqFetch(path, {
+    method: 'POST',
+    body: { PhoneNumber: params.mobile, Message: params.message },
   });
 }

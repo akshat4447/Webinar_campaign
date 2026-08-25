@@ -96,3 +96,17 @@ export async function setApprovalAction(contactId: string, approved: boolean) {
 export async function bulkSetApprovalAction(contactIds: string[], approved: boolean) {
   await db.contact.updateMany({ where: { id: { in: contactIds } }, data: { approved, approvedManually: true } });
 }
+
+/**
+ * Sets a contact's mobile number (used by the SMS/WhatsApp channels). An empty
+ * value clears it. Normalizes nothing else — the channel send path strips
+ * formatting at delivery time.
+ */
+export async function updateContactPhoneAction(contactId: string, phone: string): Promise<{ ok: boolean; error?: string }> {
+  const clean = phone.trim();
+  if (clean && !/^\+?[\d\s()-]{6,20}$/.test(clean)) {
+    return { ok: false, error: "That doesn't look like a valid mobile number." };
+  }
+  await db.contact.update({ where: { id: contactId }, data: { phone: clean || null } });
+  return { ok: true };
+}

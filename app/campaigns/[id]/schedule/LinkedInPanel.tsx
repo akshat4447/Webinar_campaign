@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
 import { Badge } from '@/components/ui/Badge';
-import { markLinkedInSendAction, setLinkedInModeAction, setLinkedInProfileAction } from '@/lib/actions/linkedin';
+import { markLinkedInSendAction, setLinkedInProfileAction, verifyLinkedInQueueAction } from '@/lib/actions/linkedin';
 import { composeUrl, profileUrl, peopleSearchUrl } from '@/lib/linkedinUrl';
+import type { VerificationStatus } from '@/lib/apolloVerify';
 
 export interface LinkedInQueueItem {
   id: string;
@@ -22,42 +23,53 @@ export interface LinkedInQueueItem {
    *  rejected rather than intentionally generic. */
   personalizedInvalid?: boolean;
   slug?: string | null;
+  /** Apollo people-match verdict taken before this person may be contacted. */
+  checkStatus?: VerificationStatus | null;
+  checkNote?: string | null;
 }
-
-type Mode = 'assisted' | 'automated';
 
 export function LinkedInPanel({
   campaignId,
   queue,
   initialProgress,
-  initialMode,
 }: {
   campaignId: string;
   queue: LinkedInQueueItem[];
   initialProgress: Record<string, string>;
-  initialMode: Mode;
 }) {
-  const [mode, setMode] = useState<Mode>(initialMode);
-  const [open, setOpen] = useState(false);
-  const [index, setIndex] = useState(0);
-  const [progress, setProgress] = useState<Record<string, string>>(initialProgress);
-  const [steps, setSteps] = useState<Record<string, { copied?: boolean; opened?: boolean }>>({});
-  const [botRunning, setBotRunning] = useState(false);
   const [profileDraft, setProfileDraft] = useState('');
   const [profileError, setProfileError] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifySummary, setVerifySummary] = useState<string | null>(null);
   const router = useRouter();
+  const [index, setIndex] = useState(0);
+  const [progress, setProgress] = useState<Record<string, string>>(initialProgress);
+  const [steps, setSteps] = useState<Record<string, { copied?: boolean; opened?: boolean }>>({});
+  const [open, setOpen] = useState(false);
+
+  const verifiedCount = queue.filter((q) => q.checkStatus === 'verified').length;
+  const failedCount = queue.filter((q) => q.checkStatus === 'mismatch' || q.checkStatus === 'not_found' || q.checkStatus === 'error').length;
+  const uncheckedCount = queue.length - verifiedCount - failedCount;
+
+  async function verifyQueue() {
+    setVerifying(true);
+    setVerifySummary(null);
+    const res = await verifyLinkedInQueueAction(campaignId);
+    setVerifySummary(
+      res.ok
+        ? `${res.usedLiveApi ? 'Apollo checked' : 'No Apollo key — skipped'} · ${res.verified ?? 0} verified · ${res.mismatch ?? 0} job-changed · ${res.notFound ?? 0} not found${res.errors ? ` · ${res.errors} errors` : ''}`
+        : res.error ?? 'Verification failed.'
+    );
+    setVerifying(false);
+    router.refresh();
+  }
 
   const sentCount = queue.filter((q) => progress[q.id] === 'sent').length;
   const pending = queue.filter((q) => !progress[q.id]);
   const pct = queue.length ? Math.round((sentCount / queue.length) * 100) : 0;
   const current = queue[Math.min(index, Math.max(0, queue.length - 1))];
   const curSteps = current ? steps[current.id] ?? {} : {};
-
-  async function selectMode(next: Mode) {
-    setMode(next);
-    await setLinkedInModeAction(campaignId, next, queue.length);
-  }
 
   /**
    * Copies the draft and opens LinkedIn in one gesture.
@@ -104,51 +116,37 @@ export function LinkedInPanel({
     router.refresh();
   }
 
-  async function mark(contactId: string, status: 'sent' | 'skipped', viaBot = false) {
+  async function mark(contactId: string, status: 'sent' | 'skipped') {
     setProgress((p) => ({ ...p, [contactId]: status }));
-    await markLinkedInSendAction(campaignId, contactId, status, viaBot);
+    await markLinkedInSendAction(campaignId, contactId, status);
   }
 
   function next() {
     setIndex((i) => Math.min(i + 1, queue.length - 1));
   }
 
-  // Simulated batch: walks the queue marking sends on a timer so the flow is
-  // visible. Deliberately does NOT drive a browser or call LinkedIn — scripted
-  // DMs breach LinkedIn's terms and get accounts permanently restricted.
-  async function runBot() {
-    setBotRunning(true);
-    for (const item of queue.filter((q) => !progress[q.id])) {
-      await new Promise((r) => setTimeout(r, 600));
-      await mark(item.id, 'sent', true);
-    }
-    setBotRunning(false);
-    router.refresh();
-  }
-
   return (
     <>
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>LinkedIn outreach</div>
-        <div style={{ fontSize: 12, color: 'var(--n60)', lineHeight: 1.5, marginBottom: 12 }}>
-          {queue.length} draft{queue.length === 1 ? '' : 's'} ready. Pick how they go out.
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>LinkedIn touches · manual</div>
+        <div style={{ fontSize: 12, color: 'var(--n60)', lineHeight: 1.5, marginBottom: 10 }}>
+          {queue.length} draft{queue.length === 1 ? '' : 's'} ready ·{' '}
+          <span style={{ color: 'var(--success-700)' }}>{verifiedCount} Apollo-verified</span>
+          {uncheckedCount > 0 && ` · ${uncheckedCount} unchecked`}
+          {failedCount > 0 && <span style={{ color: 'var(--warning-700)' }}> · {failedCount} failed verification</span>}
         </div>
 
-        <div role="radiogroup" aria-label="LinkedIn outreach mode" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-          <ModeOption
-            selected={mode === 'assisted'}
-            title="Send manually"
-            detail="One click copies the draft and opens LinkedIn — you paste, review, and press send."
-            badge={{ color: 'success', text: 'Recommended' }}
-            onSelect={() => selectMode('assisted')}
-          />
-          <ModeOption
-            selected={mode === 'automated'}
-            title="Send automatically by bot"
-            detail="A batch job posts each draft for you. Simulated here — scripted LinkedIn DMs breach their terms."
-            badge={{ color: 'warning', text: 'Simulated' }}
-            onSelect={() => selectMode('automated')}
-          />
+        <Button hierarchy="secondary" size="sm" fullWidth onClick={verifyQueue} disabled={verifying} style={{ marginBottom: 12 }}>
+          {verifying ? 'Verifying with Apollo…' : queue.some((q) => !q.checkStatus) ? 'Verify queue with Apollo' : 'Re-verify queue'}
+        </Button>
+        {verifySummary && (
+          <div style={{ fontSize: 11.5, color: verifySummary.startsWith('No') || verifySummary.includes('errors') ? 'var(--warning-700)' : 'var(--n70)', marginBottom: 12, lineHeight: 1.5 }}>
+            {verifySummary}
+          </div>
+        )}
+
+        <div style={{ fontSize: 11.5, color: 'var(--n60)', marginBottom: 12 }}>
+          Sends are manual by design — scripted LinkedIn outreach breaches their terms. Apollo verification keeps the queue honest.
         </div>
 
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -162,7 +160,7 @@ export function LinkedInPanel({
         </div>
 
         <Button hierarchy="secondary" size="sm" fullWidth onClick={() => setOpen(true)} disabled={queue.length === 0}>
-          {queue.length === 0 ? 'No approved contacts yet' : mode === 'automated' ? 'Open bot queue' : 'Open send queue'}
+          {queue.length === 0 ? 'No approved contacts yet' : 'Open send queue'}
         </Button>
       </div>
 
@@ -190,7 +188,7 @@ export function LinkedInPanel({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--n90)' }}>LinkedIn send queue</div>
                 <div style={{ fontSize: 12, color: 'var(--n60)', marginTop: 2 }}>
-                  {mode === 'automated' ? 'Bot mode · simulated' : 'Manual send'} · {sentCount} of {queue.length} sent
+                  Manual send · {sentCount} of {queue.length} sent
                 </div>
               </div>
               <div onClick={() => setOpen(false)} style={{ cursor: 'pointer', width: 28, height: 28, borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -199,18 +197,6 @@ export function LinkedInPanel({
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px 22px 20px' }}>
-              {mode === 'automated' ? (
-                <div>
-                  <div style={{ background: 'var(--warning-100)', borderRadius: 'var(--radius-md)', padding: '12px 14px', fontSize: 12.5, color: 'var(--warning-700)', lineHeight: 1.55, marginBottom: 14 }}>
-                    <strong>Simulated in this build.</strong> A real version would drive a headless browser session, which breaches
-                    LinkedIn&apos;s terms for most accounts and risks a permanent restriction. This walks the queue and records the
-                    sends so you can see the flow — no LinkedIn call is made.
-                  </div>
-                  <Button hierarchy="primary" size="md" fullWidth onClick={runBot} disabled={botRunning || pending.length === 0}>
-                    {botRunning ? 'Running batch…' : pending.length === 0 ? 'Whole queue processed' : `Run bot on ${pending.length} remaining`}
-                  </Button>
-                </div>
-              ) : (
                 <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 16 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                     <div style={{ minWidth: 0 }}>
@@ -223,6 +209,17 @@ export function LinkedInPanel({
                       Next
                     </Button>
                   </div>
+                  {current.checkStatus && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }} title={current.checkNote ?? undefined}>
+                      {current.checkStatus === 'verified' && <Badge color="success" text="Apollo verified" dot />}
+                      {current.checkStatus === 'mismatch' && <Badge color="error" text="Job change detected" dot />}
+                      {current.checkStatus === 'not_found' && <Badge color="error" text="Not found on Apollo" dot />}
+                      {current.checkStatus === 'error' && <Badge color="warning" text="Verification lookup failed" dot />}
+                      {current.checkStatus !== 'verified' && (
+                        <span style={{ fontSize: 11, color: 'var(--warning-700)', lineHeight: 1.4 }}>{current.checkNote}</span>
+                      )}
+                    </div>
+                  )}
                   {current.personalized && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
                       {current.personalizedInvalid ? (
@@ -307,7 +304,6 @@ export function LinkedInPanel({
                     </div>
                   </div>
                 </div>
-              )}
 
               <div style={{ marginTop: 16 }}>
                 <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Queue</div>
@@ -316,7 +312,7 @@ export function LinkedInPanel({
                     <div
                       key={q.id}
                       onClick={() => setIndex(i)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: i === index && mode === 'assisted' ? 'var(--n10)' : 'transparent' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: i === index ? 'var(--n10)' : 'transparent' }}
                     >
                       <span style={{ width: 18, fontSize: 11.5, color: 'var(--n50)', flexShrink: 0 }}>{i + 1}</span>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--n90)', overflowWrap: 'anywhere' }}>{q.name}</span>
@@ -337,63 +333,3 @@ export function LinkedInPanel({
     </>
   );
 }
-
-function ModeOption({
-  selected,
-  title,
-  detail,
-  badge,
-  onSelect,
-}: {
-  selected: boolean;
-  title: string;
-  detail: string;
-  badge: { color: string; text: string };
-  onSelect: () => void;
-}) {
-  return (
-    <div
-      role="radio"
-      aria-checked={selected}
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      style={{
-        display: 'flex',
-        gap: 10,
-        alignItems: 'flex-start',
-        border: selected ? '1.5px solid var(--accent-500)' : '1px solid var(--border-subtle)',
-        background: selected ? 'var(--accent-50)' : '#fff',
-        borderRadius: 'var(--radius-md)',
-        padding: selected ? '9.5px 11.5px' : '10px 12px',
-        cursor: 'pointer',
-      }}
-    >
-      <span
-        aria-hidden="true"
-        style={{
-          width: 15,
-          height: 15,
-          borderRadius: '50%',
-          flexShrink: 0,
-          marginTop: 2,
-          border: selected ? '4.5px solid var(--accent-500)' : '1.5px solid var(--border-default)',
-          background: '#fff',
-        }}
-      />
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--n90)' }}>{title}</span>
-          <Badge color={badge.color} text={badge.text} />
-        </div>
-        <div style={{ fontSize: 11.5, color: 'var(--n60)', lineHeight: 1.45 }}>{detail}</div>
-      </div>
-    </div>
-  );
-}
-

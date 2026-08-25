@@ -44,6 +44,17 @@ model Campaign {
   simulatedNow   DateTime?
   attendanceImportedAt DateTime?
   lsqListId      String?
+
+  // --- LinkedIn Event integration (lib/linkedin/) ---
+  // lifecycle: form_pending_review → creating → created_unpublished → published
+  // (or failed / canceled). Null until someone publishes this webinar to LinkedIn.
+  linkedinEventUrn    String?
+  linkedinPostUrn     String?
+  linkedinRegFormUrn  String?
+  linkedinEventStatus String?
+  linkedinEventError  String?
+  linkedinInvitedAt   DateTime?
+
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -55,6 +66,7 @@ model Campaign {
   attentionItems AttentionItem[]
   chatMessages   ChatMessage[]
   personalized   PersonalizedMessage[]
+  linkedinRegistrations LinkedinRegistration[]
 }
 
 model Contact {
@@ -71,6 +83,15 @@ model Contact {
   seniority   String
   linkedinId  String?
   missingInfo Boolean @default(false)
+
+  // --- SMS / WhatsApp cadence (lib/channelDelivery.ts) ---
+  // phone is the mobile number used by both channels; whatsappOptIn gates the
+  // WhatsApp channel entirely (Meta requires explicit opt-in for template
+  // messages), smsOptOut records a DND/STOP signal. Both flow in from imports,
+  // LeadSquared sync, or the registration form's custom questions.
+  phone          String?
+  smsOptOut      Boolean @default(false)
+  whatsappOptIn  Boolean @default(false)
 
   score       Int?
   explanation String?
@@ -95,6 +116,16 @@ model Contact {
 
   attended     Boolean @default(false)
   watchMinutes Int?
+
+  // --- LinkedIn outreach pre-flight (lib/apolloVerify.ts) ---
+  // Apollo people-match verdict taken BEFORE this contact enters the LinkedIn
+  // send queue: verified = still the person/title we targeted; mismatch =
+  // Apollo shows a different company/title than our baseline (job change?);
+  // not_found = no confident profile match; error = lookup itself failed.
+  // The automated bot path refuses to process anything not 'verified'.
+  linkedinCheckStatus String?
+  linkedinCheckedAt   DateTime?
+  linkedinCheckNote   String?
 
   createdAt   DateTime @default(now())
 
@@ -154,6 +185,10 @@ model Template {
   savedSubject String?
   savedBody    String?
   savedAt      DateTime?
+
+  // Hidden templates stay editable here but drop out of Personalize, and their
+  // matching cadence step is disabled so Schedule/Sends reflect the choice.
+  hidden Boolean @default(false)
 
   updatedAt  DateTime @updatedAt
 
@@ -240,4 +275,37 @@ model ChatMessage {
   from       String // agent | user
   text       String
   createdAt  DateTime @default(now())
+}
+
+/// One Lead Sync webhook delivery for a LinkedIn Event registration. The row
+/// doubles as the ingestion queue: the webhook handler inserts fast and
+/// responds 200 (LinkedIn retries non-200s), then processing happens via
+/// `after()` or scripts/linkedin-process.ts. The unique responseUrn makes
+/// redeliveries idempotent, and processedAt=null+error IS the retry marker.
+///
+/// campaignId is nullable because a registration can arrive for an event this
+/// app didn't publish (created manually on LinkedIn) — such rows are stored,
+/// marked processed with an explanatory error, and never silently dropped.
+model LinkedinRegistration {
+  id              String    @id @default(cuid())
+  campaignId      String?
+  campaign        Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  responseUrn     String    @unique // urn:li:leadGenFormResponse:… — LinkedIn's own idempotency key
+  eventUrn        String
+  organizationUrn String?
+  formUrn         String?
+  leadAction      String    @default("CREATED") // CREATED | DELETED
+  occurredAt      DateTime?
+
+  registrantName  String?
+  registrantEmail String?
+  contactId       String?
+
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  @@index([processedAt])
+  @@index([campaignId])
 }

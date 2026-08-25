@@ -1,0 +1,701 @@
+<title>Three Layers of LinkedIn Reach</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --paper:      #F4F6F7;
+    --surface:    #FFFFFF;
+    --surface-2:  #E9EDEF;
+    --ink:        #14181C;
+    --ink-2:      #4A555D;
+    --ink-3:      #6E7C85;
+    --rule:       #D2DADE;
+    --rule-hard:  #A9B5BC;
+    --accent:     #0F6E74;
+    --accent-bg:  #E2EFF0;
+    --blocked:    #A33327;
+    --blocked-bg: #F6E5E2;
+    --gated:      #8A6109;
+    --gated-bg:   #F6EEDC;
+
+    --display: "IBM Plex Sans Condensed", "Helvetica Neue", Arial, sans-serif;
+    --body:    "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono:    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #101418;
+      --surface:    #171C21;
+      --surface-2:  #1F262C;
+      --ink:        #E4E9EC;
+      --ink-2:      #A7B3BA;
+      --ink-3:      #7F8C94;
+      --rule:       #2A333A;
+      --rule-hard:  #3C474F;
+      --accent:     #4FC3C9;
+      --accent-bg:  #123133;
+      --blocked:    #E58A7C;
+      --blocked-bg: #38211E;
+      --gated:      #D9A63F;
+      --gated-bg:   #33280F;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:      #101418;
+    --surface:    #171C21;
+    --surface-2:  #1F262C;
+    --ink:        #E4E9EC;
+    --ink-2:      #A7B3BA;
+    --ink-3:      #7F8C94;
+    --rule:       #2A333A;
+    --rule-hard:  #3C474F;
+    --accent:     #4FC3C9;
+    --accent-bg:  #123133;
+    --blocked:    #E58A7C;
+    --blocked-bg: #38211E;
+    --gated:      #D9A63F;
+    --gated-bg:   #33280F;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px 96px; }
+  .prose { max-width: 68ch; }
+
+  /* ---- masthead ---- */
+  header.masthead {
+    border-bottom: 2px solid var(--ink);
+    padding: 56px 0 22px;
+    margin-bottom: 40px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 18px;
+  }
+  h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(34px, 6vw, 58px);
+    line-height: 1.02;
+    letter-spacing: -0.018em;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .verdict {
+    font-size: clamp(17px, 2.2vw, 20px);
+    line-height: 1.5;
+    color: var(--ink-2);
+    max-width: 62ch;
+    margin: 0;
+  }
+  .verdict strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- sections ---- */
+  section { margin-top: 60px; }
+  h2 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(24px, 3.4vw, 33px);
+    line-height: 1.12;
+    letter-spacing: -0.01em;
+    margin: 0 0 8px;
+    text-wrap: balance;
+  }
+  h2 + .sub {
+    font-size: 15px;
+    color: var(--ink-3);
+    margin: 0 0 26px;
+    max-width: 62ch;
+  }
+  h3 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 19px;
+    letter-spacing: -0.005em;
+    margin: 0 0 6px;
+  }
+  p { margin: 0 0 16px; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, .layer:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    overflow-wrap: anywhere;
+  }
+
+  /* ---- chips ---- */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .chip.ok      { background: var(--accent-bg);  color: var(--accent);  }
+  .chip.gate    { background: var(--gated-bg);   color: var(--gated);   }
+  .chip.no      { background: var(--blocked-bg); color: var(--blocked); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+
+  /* ---- correction callout ---- */
+  .correction {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--blocked);
+    padding: 24px 26px;
+    display: grid;
+    gap: 18px;
+  }
+  .correction .row { display: grid; gap: 4px; }
+  .correction .assumed {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+  }
+  .correction .truth { font-size: 15.5px; }
+  .correction .truth b { font-weight: 600; }
+
+  /* ---- layer blocks ---- */
+  .layer {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 26px 28px 22px;
+    margin-bottom: 20px;
+  }
+  .layer-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 18px;
+  }
+  .layer-head h3 { flex: 1 1 auto; min-width: 0; margin: 0; }
+  .who {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    flex-basis: 100%;
+  }
+  .layer p { font-size: 15.5px; }
+  .layer p:last-child { margin-bottom: 0; }
+
+  dl.spec {
+    display: grid;
+    grid-template-columns: minmax(120px, max-content) 1fr;
+    gap: 9px 20px;
+    margin: 0 0 18px;
+    font-size: 14px;
+  }
+  dl.spec dt {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    padding-top: 3px;
+  }
+  dl.spec dd { margin: 0; font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+  dl.spec dd.plain { font-family: var(--body); font-size: 14.5px; }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 620px; }
+  caption {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    padding: 14px 18px 0;
+  }
+  th, td {
+    text-align: left;
+    padding: 11px 18px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  thead th {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--rule-hard);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.api { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* ---- flow diagram ---- */
+  .flow-wrap { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); padding: 26px 22px; }
+  svg.flow { display: block; min-width: 860px; width: 100%; height: auto; }
+  svg.flow .node  { fill: var(--surface-2); stroke: var(--rule-hard); stroke-width: 1; }
+  svg.flow .node-li { fill: var(--accent-bg); stroke: var(--accent); }
+  svg.flow .lbl   { font-family: var(--body); font-size: 12.5px; font-weight: 500; fill: var(--ink); }
+  svg.flow .sub-l { font-family: var(--mono); font-size: 10px; fill: var(--ink-3); letter-spacing: 0.04em; }
+  svg.flow .arrow { stroke: var(--rule-hard); stroke-width: 1.5; fill: none; }
+  svg.flow .arrowhead { fill: var(--rule-hard); }
+  svg.flow .stage { font-family: var(--mono); font-size: 9.5px; fill: var(--ink-3); letter-spacing: 0.1em; }
+
+  /* ---- checklist ---- */
+  ol.approvals { list-style: none; counter-reset: ap; padding: 0; margin: 0; display: grid; gap: 14px; }
+  ol.approvals li {
+    counter-increment: ap;
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 16px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 18px 20px;
+  }
+  ol.approvals li::before {
+    content: counter(ap);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    width: 26px; height: 26px;
+    display: grid; place-items: center;
+    border-radius: 50%;
+  }
+  ol.approvals .ap-name { font-family: var(--display); font-weight: 600; font-size: 16.5px; }
+  ol.approvals .ap-meta { font-family: var(--mono); font-size: 12px; color: var(--ink-3); margin-top: 3px; }
+  ol.approvals .ap-body { font-size: 14.5px; margin-top: 8px; }
+
+  /* ---- unverified ---- */
+  .unverified {
+    background: var(--gated-bg);
+    border: 1px solid var(--gated);
+    padding: 24px 26px;
+  }
+  .unverified h2 { font-size: 22px; margin-bottom: 6px; }
+  .unverified ul { margin: 14px 0 0; padding-left: 20px; display: grid; gap: 9px; font-size: 14.5px; }
+  .unverified li::marker { color: var(--gated); }
+
+  /* ---- build order ---- */
+  .steps { display: grid; gap: 2px; }
+  .step {
+    display: grid;
+    grid-template-columns: minmax(96px, max-content) 1fr;
+    gap: 20px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 16px 20px;
+    align-items: start;
+  }
+  .step .when {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding-top: 3px;
+  }
+  .step .what { font-size: 15px; }
+  .step .what b { font-weight: 600; }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-3);
+    line-height: 1.8;
+  }
+
+  @media (max-width: 620px) {
+    dl.spec { grid-template-columns: 1fr; gap: 3px 0; }
+    dl.spec dt { padding-top: 10px; }
+    .step { grid-template-columns: 1fr; gap: 6px; }
+    ol.approvals li { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Integration assessment · Webinar Campaign Agent · Aug 2026</p>
+    <h1>Three Layers of LinkedIn Reach</h1>
+    <p class="verdict">
+      LinkedIn's business APIs <strong>cannot message the contacts you already own</strong> — no API sends a
+      direct message to a person you pick, and paid targeting needs 300 matched members where your campaigns
+      hold 24–44. What LinkedIn genuinely offers is an <strong>event hub you create by API</strong> and
+      <strong>paid reach to people you don't have yet</strong>, with registrants flowing back into the app.
+    </p>
+  </header>
+
+  <section>
+    <h2>What changed against our assumptions</h2>
+    <p class="sub">Three findings that moved the goal. All verified against LinkedIn's own documentation, Marketing version <code>202608</code>.</p>
+    <div class="correction">
+      <div class="row">
+        <span class="assumed">We assumed → Message Ads API</span>
+        <span class="truth"><b>Discontinued since May 2023.</b> LinkedIn's docs read <em>"We're discontinuing Message Ads, starting May 2023."</em> The live product is Conversation Ads; the <code>inMailContents</code> endpoint survives only as its container.</span>
+      </div>
+      <div class="row">
+        <span class="assumed">We assumed → a bulk DM endpoint exists</span>
+        <span class="truth"><b>It does not, at any tier.</b> Every candidate is gated or closed, and the one that isn't — the Messages API — requires the member to see and edit each draft and press send themselves. It explicitly forbids automated or scheduled use.</span>
+      </div>
+      <div class="row">
+        <span class="assumed">We assumed → upload the CSV and target it</span>
+        <span class="truth"><b>A 300-member floor blocks it.</b> Every campaign needs ≥300 members in its audience, and LinkedIn recommends <em>300,000</em> for Sponsored Messaging. A 24–44 contact list cannot clear that even at a 100% match rate.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Every messaging API, and why it's out</h2>
+    <p class="sub">Checked so this question doesn't get reopened later. Anyone selling "LinkedIn bulk DM automation" is either operating under their own partner agreement or scripting a logged-in browser session — the terms violation we already ruled out.</p>
+    <div class="scroll">
+      <table>
+        <caption>Outbound messaging surface, assessed</caption>
+        <thead>
+          <tr><th scope="col">API</th><th scope="col">Status</th><th scope="col">What it's actually for</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="api">Messages API</td>
+            <td><span class="chip no"><span class="dot"></span>Gated</span></td>
+            <td>Human-in-the-loop send. Member must see and edit the draft, then act to send it. No automation, no scheduling, first-degree connections only, no HTML.</td>
+          </tr>
+          <tr>
+            <td class="api">Invitations API</td>
+            <td><span class="chip no"><span class="dot"></span>Gated</span></td>
+            <td>Connection requests on behalf of the signed-in user. Not event invites.</td>
+          </tr>
+          <tr>
+            <td class="api">Sales Navigator (SNAP)</td>
+            <td><span class="chip no"><span class="dot"></span>Gated</span></td>
+            <td>Read, display and profile matching for CRMs. Contains no send capability whatsoever.</td>
+          </tr>
+          <tr>
+            <td class="api">Compliance API</td>
+            <td><span class="chip no"><span class="dot"></span>Closed</span></td>
+            <td>Read-only archiving of messaging activity. Cannot even be applied for.</td>
+          </tr>
+          <tr>
+            <td class="api">Community Management</td>
+            <td><span class="chip gate"><span class="dot"></span>No scope</span></td>
+            <td>Page posts, comments, reactions. There is no messaging scope in the product at all.</td>
+          </tr>
+          <tr>
+            <td class="api">Conversation Ads</td>
+            <td><span class="chip ok"><span class="dot"></span>Open</span></td>
+            <td>The one real bulk path — a paid ad in the inbox, targeted at an audience segment, never at named people.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>The three layers</h2>
+    <p class="sub">Organised by who you're trying to reach, because that — not the API catalogue — is what decides which tools are even available to you.</p>
+
+    <article class="layer" tabindex="-1">
+      <div class="layer-head">
+        <span class="who">Audience — people already in your list (24–44 contacts)</span>
+        <h3>Keep what already works. LinkedIn's API has no role here.</h3>
+        <span class="chip ok"><span class="dot"></span>Shipping today</span>
+      </div>
+      <p>
+        These contacts are unreachable by any LinkedIn API: too few for paid targeting, and no endpoint accepts
+        a named recipient. The one-click assisted flow already built and verified is the ceiling — it copies the
+        personalized draft and opens the recipient's composer, and you press send. Email carries the rest of the cadence.
+      </p>
+      <dl class="spec">
+        <dt>Effort</dt><dd class="plain">None. Already built and verified.</dd>
+        <dt>Cost</dt><dd class="plain">Free.</dd>
+        <dt>Honest limit</dt><dd class="plain">One paste keystroke per contact; the app cannot confirm a send actually happened, so "sent" stays a human confirmation.</dd>
+      </dl>
+    </article>
+
+    <article class="layer" tabindex="-1">
+      <div class="layer-head">
+        <span class="who">Audience — anyone who finds the webinar on LinkedIn</span>
+        <h3>Create the LinkedIn Event by API. This is the highest-value piece.</h3>
+        <span class="chip gate"><span class="dot"></span>Needs Page admin</span>
+      </div>
+      <p>
+        A real LinkedIn Event becomes the webinar's hub on the platform, built straight from fields the app already
+        holds — name, description, schedule, Zoom link. Attach a registration form and every signup flows back
+        through Lead Sync as a new contact, gets scored by Claude, and syncs to LeadSquared as a real Lead.
+        No audience floor, no cost per head.
+      </p>
+      <dl class="spec">
+        <dt>Create</dt><dd>POST /rest/events</dd>
+        <dt>Publish</dt><dd>POST /rest/posts</dd>
+        <dt>List</dt><dd>GET /rest/events?q=eventsByOrganizer</dd>
+        <dt>Scopes</dt><dd>r_events · rw_events</dd>
+        <dt>Role</dt><dd class="plain">Page <code>ADMINISTRATOR</code> or <code>CONTENT_ADMINISTRATOR</code></dd>
+        <dt>Cost</dt><dd class="plain">Free.</dd>
+      </dl>
+      <p>
+        Two constraints worth designing around. The <code>POST /rest/posts</code> step is not optional — until the
+        event is posted it cannot even be fetched or updated. And a registration form can only be attached
+        <b>at the moment of creation</b> and is not editable afterwards, so the form has to be created and approved
+        before the app creates the event.
+      </p>
+      <p>
+        <b>The gap:</b> LinkedIn has no invite endpoint. Inviting members to an Event is a UI-only action, so a
+        human clicks "Invite connections" once. The app creates, publishes, and harvests — it cannot invite.
+      </p>
+    </article>
+
+    <article class="layer" tabindex="-1">
+      <div class="layer-head">
+        <span class="who">Audience — the ICP you don't have contacts for</span>
+        <h3>Paid reach by attribute, not by list. This is demand generation.</h3>
+        <span class="chip no"><span class="dot"></span>Budget + 3 approvals</span>
+      </div>
+      <p>
+        This is where the 300 floor stops mattering — you target <em>attributes</em> (job title, seniority, industry,
+        company size, location) rather than uploading names, and those audiences run to hundreds of thousands.
+        A Conversation Ad lands in the inbox with a lead-gen form attached; submissions return via Lead Sync as
+        brand-new contacts. It finds people who were never in your CRM, which is the opposite of outreach.
+      </p>
+      <dl class="spec">
+        <dt>Campaign</dt><dd>POST /rest/adAccounts/{id}/adCampaigns · type SPONSORED_INMAILS</dd>
+        <dt>Conversation</dt><dd>POST /rest/conversationAds</dd>
+        <dt>Message tree</dt><dd>POST /rest/conversationAds/{id}/sponsoredMessageContents</dd>
+        <dt>Container</dt><dd>POST /rest/inMailContents</dd>
+        <dt>Creative</dt><dd>POST /rest/adAccounts/{id}/creatives</dd>
+        <dt>Dry run</dt><dd>POST /rest/inMailContents?action=sendTestInMail</dd>
+        <dt>Reporting</dt><dd>GET /rest/adAnalytics</dd>
+        <dt>Scopes</dt><dd>rw_ads · r_ads · r_ads_reporting</dd>
+        <dt>Headers</dt><dd>Linkedin-Version: 202608 · X-Restli-Protocol-Version: 2.0.0</dd>
+        <dt>Billing</dt><dd class="plain">Cost-per-send (CPS), charged per message delivered.</dd>
+      </dl>
+      <p>
+        <code>sendTestInMail</code> is the most useful thing in this layer for us: it delivers a test message to
+        <b>your own inbox</b>, with no spend and no real recipient. That makes the whole path verifiable before a
+        single rupee is committed, and it's what the validation layer should gate activation on.
+      </p>
+      <p>
+        Also true and worth knowing before writing copy: a "Not Interested" button is injected at render time and
+        isn't exposed in the API; replies are constrained to preset option buttons rather than free text; creatives
+        enter a review queue on activation and cannot be modified once live; and in the EEA and Switzerland only
+        members who opted in to Sponsored Messaging are reachable at all.
+      </p>
+    </article>
+  </section>
+
+  <section>
+    <h2>Your own list, if it ever reaches 300</h2>
+    <p class="sub">Matched Audiences remains the right tool for retargeting people you do have — it's simply out of range at current list sizes. Worth building behind a gate rather than not at all.</p>
+    <div class="scroll">
+      <table>
+        <caption>Matched Audiences — hard numbers</caption>
+        <thead>
+          <tr><th scope="col">Constraint</th><th scope="col">Value</th><th scope="col">Consequence for us</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Minimum matched members</td><td class="num">300</td><td>Blocks every current campaign. 24–44 contacts cannot clear it.</td></tr>
+          <tr><td>LinkedIn's recommendation</td><td class="num">300,000</td><td>Even at 300 the format underperforms; this is a scale channel by design.</td></tr>
+          <tr><td>Email format</td><td class="num">SHA256</td><td>Lowercase and trim before hashing, or every match silently fails.</td></tr>
+          <tr><td>Users per batch</td><td class="num">5,000</td><td>Comfortable — our lists fit in one call.</td></tr>
+          <tr><td>Rate limit</td><td class="num">600 / min</td><td>Per member. Needs 429 backoff, which our LeadSquared client doesn't have yet.</td></tr>
+          <tr><td>Pause after segment create</td><td class="num">5 s</td><td>Adding users sooner fails. Must be an explicit wait, not a retry loop.</td></tr>
+          <tr><td>Segments per ad account</td><td class="num">1,000</td><td>One per campaign is fine; needs cleanup if we ever churn.</td></tr>
+          <tr><td>Match retention</td><td class="num">90 days</td><td>Matches purge; unused segments archive after 30 days.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How a registrant becomes a scored lead</h2>
+    <p class="sub">This is the part that makes the integration worth building — it closes the loop into the LeadSquared and Claude work that already exists.</p>
+    <div class="flow-wrap">
+      <svg class="flow" viewBox="0 0 900 210" role="img" aria-labelledby="flowtitle flowdesc">
+        <title id="flowtitle">Registrant flow from LinkedIn into the campaign agent and LeadSquared</title>
+        <desc id="flowdesc">A LinkedIn Event or Conversation Ad captures a registration through a lead-gen form. Lead Sync delivers it to the app as a new contact, Claude scores it, it syncs to LeadSquared as a Lead, and it enters the existing email cadence.</desc>
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" class="arrowhead"></path>
+          </marker>
+        </defs>
+
+        <text x="8" y="16" class="stage">ON LINKEDIN</text>
+        <text x="330" y="16" class="stage">INBOUND</text>
+        <text x="518" y="16" class="stage">IN THE APP</text>
+        <text x="792" y="16" class="stage">DOWNSTREAM</text>
+
+        <rect x="8" y="30" width="150" height="52" rx="3" class="node node-li"></rect>
+        <text x="24" y="52" class="lbl">LinkedIn Event</text>
+        <text x="24" y="69" class="sub-l">POST /rest/events</text>
+
+        <rect x="8" y="98" width="150" height="52" rx="3" class="node node-li"></rect>
+        <text x="24" y="120" class="lbl">Conversation Ad</text>
+        <text x="24" y="137" class="sub-l">SPONSORED_INMAILS</text>
+
+        <rect x="188" y="64" width="126" height="52" rx="3" class="node"></rect>
+        <text x="204" y="86" class="lbl">Lead-gen form</text>
+        <text x="204" y="103" class="sub-l">member submits</text>
+
+        <rect x="344" y="64" width="140" height="52" rx="3" class="node"></rect>
+        <text x="360" y="86" class="lbl">Lead Sync</text>
+        <text x="360" y="103" class="sub-l">leadType: EVENT</text>
+
+        <rect x="514" y="64" width="132" height="52" rx="3" class="node"></rect>
+        <text x="530" y="86" class="lbl">New Contact</text>
+        <text x="530" y="103" class="sub-l">campaign audience</text>
+
+        <rect x="676" y="64" width="118" height="52" rx="3" class="node"></rect>
+        <text x="692" y="86" class="lbl">Claude score</text>
+        <text x="692" y="103" class="sub-l">0–100 + reason</text>
+
+        <rect x="824" y="30" width="68" height="52" rx="3" class="node"></rect>
+        <text x="838" y="52" class="lbl">LSQ</text>
+        <text x="838" y="69" class="sub-l">Lead</text>
+
+        <rect x="824" y="98" width="68" height="52" rx="3" class="node"></rect>
+        <text x="838" y="120" class="lbl">Email</text>
+        <text x="838" y="137" class="sub-l">cadence</text>
+
+        <path d="M 158 56 L 174 56 L 174 84 L 186 84" class="arrow" marker-end="url(#ah)"></path>
+        <path d="M 158 124 L 174 124 L 174 96 L 186 96" class="arrow" marker-end="url(#ah)"></path>
+        <path d="M 314 90 L 342 90" class="arrow" marker-end="url(#ah)"></path>
+        <path d="M 484 90 L 512 90" class="arrow" marker-end="url(#ah)"></path>
+        <path d="M 646 90 L 674 90" class="arrow" marker-end="url(#ah)"></path>
+        <path d="M 794 84 L 810 84 L 810 56 L 822 56" class="arrow" marker-end="url(#ah)"></path>
+        <path d="M 794 96 L 810 96 L 810 124 L 822 124" class="arrow" marker-end="url(#ah)"></path>
+      </svg>
+    </div>
+    <div class="prose" style="margin-top:22px">
+      <p>
+        Lead Sync is what carries the inbound half, and it treats organic and paid identically — same endpoint,
+        different owner. Events come back as <code>leadType: EVENT</code> owned by an
+        <code>OrganizationUrn</code>; ad leads as <code>leadType: SPONSORED</code> owned by a
+        <code>SponsoredAccountUrn</code>. It also has a <code>limitedToTestLeads=true</code> filter, which
+        gives us a safe way to exercise the whole pipeline on test submissions before anything real lands in it.
+      </p>
+    </div>
+    <div class="scroll" style="margin-top:20px">
+      <table>
+        <caption>Lead Sync — the inbound contract</caption>
+        <thead><tr><th scope="col">Purpose</th><th scope="col">Endpoint</th></tr></thead>
+        <tbody>
+          <tr><td>Fetch submissions</td><td class="api">GET /rest/leadFormResponses?q=owner&amp;owner={urn}&amp;leadType={type}</td></tr>
+          <tr><td>Subscribe to new leads</td><td class="api">POST /rest/leadNotifications</td></tr>
+          <tr><td>List forms</td><td class="api">GET /rest/leadForms?q=owner&amp;owner={urn}</td></tr>
+          <tr><td>Scope</td><td class="api">r_marketing_leadgen_automation</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Three approvals, applied for separately</h2>
+    <p class="sub">None of these are self-serve, and one does not grant another. This is the real timeline risk — not the engineering.</p>
+    <ol class="approvals">
+      <li>
+        <div>
+          <div class="ap-name">Advertising API</div>
+          <div class="ap-meta">rw_ads · r_ads · r_ads_reporting</div>
+          <div class="ap-body">
+            Applied for in the Developer Portal. A <b>super admin of your LinkedIn Page must verify the app</b>, and
+            you need an Ad Account with billing configured. New apps land on Development tier — edit rights on a
+            maximum of five ad accounts; unlimited access needs a separate support ticket. Also required for
+            creating the Event registration form.
+          </div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <div class="ap-name">Lead Sync API</div>
+          <div class="ap-meta">r_marketing_leadgen_automation</div>
+          <div class="ap-body">
+            A separate program — Advertising API approval explicitly does <b>not</b> grant it. This is the one that
+            matters most for us, because without it registrations never reach the app and the whole loop above stays
+            manual.
+          </div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <div class="ap-name">Matched Audiences API</div>
+          <div class="ap-meta">rw_dmp_segments</div>
+          <div class="ap-body">
+            A third application, with Advertising API approval as a prerequisite. Only needed for retargeting your own
+            list, so it can wait until a campaign audience realistically clears 300.
+          </div>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="unverified">
+    <h2>Five things I could not verify</h2>
+    <p style="margin:0;font-size:15px">
+      Stated here rather than assumed anywhere in the design. Each is widely quoted in vendor blogs and absent from
+      LinkedIn's own documentation, so none should be encoded into code, comments, or UI copy as fact.
+    </p>
+    <ul>
+      <li><b>The numeric frequency cap.</b> Docs say only that LinkedIn "strictly controls" how often a member sees Sponsored Messaging. The commonly cited "one per 30 days" is vendor material, not LinkedIn's.</li>
+      <li><b>Cost per send.</b> There is no published rate card. Third-party figures around $0.30–$0.80 are unverified.</li>
+      <li><b>Audience match latency.</b> A processing SLA is referenced but never given a number.</li>
+      <li><b>Whether recipients can reply in free text</b>, as opposed to only the preset option buttons.</li>
+      <li><b>Approval turnaround.</b> No SLA is published for any of the three programs above.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Recommended build order</h2>
+    <p class="sub">Sequenced so that each stage is independently useful and independently verifiable, and so the longest-lead approval starts first.</p>
+    <div class="steps">
+      <div class="step"><span class="when">Now</span><span class="what"><b>Delete the simulated bot mode.</b> It is the one part of the app that claims to do something it doesn't — a 600 ms timer per contact writing a fake status. Removing it costs nothing and removes the only dishonest surface.</span></div>
+      <div class="step"><span class="when">Now</span><span class="what"><b>Fix the audience cap.</b> The LinkedIn queue is capped at ten contacts while the real approved count is displayed beside it, so any audience upload built on it would silently use a subset.</span></div>
+      <div class="step"><span class="when">Day one</span><span class="what"><b>File all three applications.</b> Approval is the critical path, not the code. Start Advertising API and Lead Sync immediately; Matched Audiences can follow.</span></div>
+      <div class="step"><span class="when">Week 1</span><span class="what"><b>Build the Events path.</b> Create, publish, list, and pull registrants. Verifiable as soon as Page-admin access exists, with no budget and no audience floor — this is the piece that actually ships usable.</span></div>
+      <div class="step"><span class="when">Week 2</span><span class="what"><b>Build the validation layer.</b> Config preflight, content limits, the 300-member gate, a spend guard modelled on the existing sandbox send guard, and a mandatory <code>sendTestInMail</code> dry run before any creative can go live.</span></div>
+      <div class="step"><span class="when">On approval</span><span class="what"><b>Wire Conversation Ads.</b> Behind the validation layer, defaulting to sandbox so a creative can never be activated by accident.</span></div>
+    </div>
+  </section>
+
+  <footer>
+    Sources: LinkedIn Marketing API documentation (learn.microsoft.com/linkedin), Marketing version 202608, and
+    LinkedIn Marketing Solutions Help. Endpoint paths, scope names and numeric limits taken from official docs only;
+    vendor blogs were not treated as authoritative. Note that Marketing version 202508 sunsets 17 Aug 2026 — pin the
+    <code>Linkedin-Version</code> header deliberately.
+  </footer>
+
+</div>

@@ -20,7 +20,7 @@ export const STEP_DEFAULTS: Record<string, StepSchedule> = {
   attend: { offsetValue: 2, offsetUnit: 'hours', anchor: 'webinar' },
   noshow: { offsetValue: 2, offsetUnit: 'hours', anchor: 'webinar' },
   whatsapp: { offsetValue: 0, offsetUnit: 'days', anchor: 'event' },
-  sms: { offsetValue: 0, offsetUnit: 'days', anchor: 'event' },
+  sms: { offsetValue: -1, offsetUnit: 'hours', anchor: 'webinar' },
 };
 
 export function applyOffset(base: Date, offsetValue: number, offsetUnit: string): Date {

@@ -117,11 +117,11 @@ export const cadenceStepsData: CadenceStep[] = [
   { id: 't1h', group: 'Reminders · registrants only', title: 'T-1 hour reminder', timing: 'T-1h', channel: 'Email', channelColor: 'blue', desc: 'Final live-link push', toggleable: true, sent: 0, scheduled: 0, remaining: 486, failed: 0 },
   { id: 'attend', group: 'Post-webinar · within 2 hrs', title: 'Attendee follow-up', timing: '+0–2h', channel: 'Email', channelColor: 'blue', desc: 'Recording + next-step CTA', toggleable: true, sent: 0, scheduled: 0, remaining: 296, failed: 0 },
   { id: 'noshow', group: 'Post-webinar · within 2 hrs', title: 'No-show follow-up', timing: '+0–2h', channel: 'Email', channelColor: 'blue', desc: '"Sorry we missed you" + recording', toggleable: true, sent: 0, scheduled: 0, remaining: 190, failed: 0 },
-  { id: 'whatsapp', group: 'Roadmap channels', title: 'WhatsApp cadence', timing: '—', channel: 'WhatsApp', channelColor: 'warning', desc: 'Same cadence engine, behind opt-in rollout', toggleable: false, isRoadmap: true },
-  { id: 'sms', group: 'Roadmap channels', title: 'SMS cadence', timing: '—', channel: 'SMS', channelColor: 'warning', desc: 'Same cadence engine, behind opt-in rollout', toggleable: false, isRoadmap: true },
+  { id: 'whatsapp', group: 'Reminders · registrants only', title: 'WhatsApp confirmation', timing: 'Instant', channel: 'WhatsApp', channelColor: 'warning', desc: 'Opt-in confirmation with the join link, fired when a LinkedIn Event registration lands', toggleable: true },
+  { id: 'sms', group: 'Reminders · registrants only', title: 'SMS reminder', timing: 'T-1h', channel: 'SMS', channelColor: 'warning', desc: 'One-segment text with the join link — catches people who miss email', toggleable: true },
 ];
 
-export const cadenceGroupOrder = ['Pre-registration', 'Reminders · registrants only', 'Post-webinar · within 2 hrs', 'Roadmap channels'];
+export const cadenceGroupOrder = ['Pre-registration', 'Reminders · registrants only', 'Post-webinar · within 2 hrs'];
 
 export const accountBreakdownData = [
   { account: 'Acme Financial', persona: 'VP Marketing', invited: 2, registered: 2, watched: '38 min', action: 'Demo requested', actionColor: 'success' },
@@ -138,7 +138,7 @@ export const integrationsData = [
   { id: 'claude', name: 'Claude', role: 'Propensity scoring, rewrites & chat', initial: 'C', avatarBg: 'var(--accent-purple)', statusColor: 'success', statusLabel: 'Connected', lastOp: 'Scored 342 contacts, today', endpoint: 'POST /v1/messages' },
   { id: 'apollo', name: 'Apollo', role: 'Contact enrichment', initial: 'A', avatarBg: '#7C3AED', statusColor: 'success', statusLabel: 'Connected', lastOp: 'Enriched contact details, today', endpoint: 'POST /v1/people/match' },
   { id: 'apify', name: 'Apify', role: 'Web + profile enrichment', initial: 'A', avatarBg: '#F97316', statusColor: 'error', statusLabel: 'Error', lastOp: 'Attempted enrichment, today', hasError: true, error: 'Rate limit exceeded on last batch — retry in 15 min.', endpoint: 'POST /v2/acts/lsq~linkedin-company/runs' },
-  { id: 'linkedin', name: 'LinkedIn', role: 'Outreach — manual or bot', initial: 'in', avatarBg: '#0A66C2', statusColor: 'gray', statusLabel: 'Manual / simulated', lastOp: 'Drafted messages for the send queue, today', endpoint: 'No outreach API — manual send, or simulated bot batch' },
+  { id: 'linkedin', name: 'LinkedIn', role: 'Events — create · publish · Lead Sync', initial: 'in', avatarBg: '#0A66C2', statusColor: 'gray', statusLabel: 'Not connected', lastOp: 'Connect to publish events and stream registrations in', endpoint: 'POST /rest/events · POST /rest/posts · LEAD_ACTION webhook' },
 ];
 
 export interface Template {
@@ -152,22 +152,28 @@ export interface Template {
 }
 
 export const templatesData: Template[] = [
-  { id: 'invite', label: 'Initial invite', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: "You're invited: {{topic}}", body: 'Hi {{firstName}},\n\nJoin us for {{topic}} — a live session built for teams like {{company}}.\n\nRegister here: {{link}}\n\nSee you there.' },
-  { id: 'nudge', label: 'Nudge (+4 days)', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: 'Still time to join {{topic}}', body: 'Hi {{firstName}},\n\nJust a reminder — {{topic}} is coming up. Spots are filling for {{company}} and similar teams.\n\nRegister: {{link}}' },
-  { id: 'final', label: 'Final call (+7 days)', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: 'Last chance: {{topic}}', body: "Hi {{firstName}},\n\nRegistration for {{topic}} closes soon. Don't miss it.\n\n{{link}}" },
-  { id: 'linkedin', label: 'LinkedIn touch', channel: 'LinkedIn', channelColor: 'gray blue', hasSubject: false, body: "Hi {{firstName}} — noticed {{company}}'s work in this space. We're running {{topic}} and thought it'd be relevant. Link if useful: {{link}}" },
-  { id: 'attend', label: 'Attendee follow-up', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: 'Thanks for joining {{topic}}', body: "Hi {{firstName}},\n\nThanks for attending {{topic}}. Here's the recording plus a quick next step for {{company}}: {{link}}" },
-  { id: 'noshow', label: 'No-show follow-up', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: 'Sorry we missed you at {{topic}}', body: "Hi {{firstName}},\n\nSorry we missed you at {{topic}}. Here's the recording so {{company}} doesn't miss out: {{link}}" },
+  { id: 'invite', label: 'Initial invite', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: "You're invited: {{topic}}", body: "Hi {{firstName}},\n\nWe're running a live session on {{topic}} — built for teams like {{company}} who are dealing with exactly this problem. You'll leave with practical takeaways you can apply immediately, not a sales pitch.\n\nSave your seat: {{link}}\n\nWould be great to have {{company}} in the room." },
+  { id: 'confirm', label: 'Registration confirmation', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: "You're confirmed for {{topic}}", body: "Hi {{firstName}},\n\nYour seat is confirmed. One thing worth doing right now — add it to your calendar so it doesn't get buried:\n\n{{link}}\n\nWe'll send a reminder an hour before we go live." },
+  { id: 'nudge', label: 'Nudge (+4 days)', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: 'Still time to join {{topic}}', body: "Hi {{firstName}},\n\nQuick nudge — registration for {{topic}} is filling up. If this is a priority for {{company}} right now, the session will be worth the 45 minutes.\n\nGrab your seat: {{link}}" },
+  { id: 'final', label: 'Final call (+7 days)', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: 'Last chance: {{topic}}', body: "Hi {{firstName}},\n\nThis is the final invite I'll send for {{topic}} — we go live soon.\n\nIf the timing isn't right, feel free to ignore me. If it is: {{link}}" },
+  { id: 'linkedin', label: 'LinkedIn touch', channel: 'LinkedIn', channelColor: 'gray blue', hasSubject: false, body: "Hi {{firstName}} — given your role at {{company}}, our upcoming session on {{topic}} should be directly relevant. Register here if useful: {{link}}" },
+  { id: 'whatsapp', label: 'WhatsApp confirmation', channel: 'WhatsApp', channelColor: 'warning', hasSubject: false, body: 'Hi {{firstName}}! Your seat for {{topic}} is confirmed ✅ Join at the scheduled time: {{link}}' },
+  { id: 'sms', label: 'SMS reminder', channel: 'SMS', channelColor: 'warning', hasSubject: false, body: '{{topic}} starts in 1 hour. Join link: {{link}}\nReply STOP to opt out.' },
   // t3/t1d/t1h are in AUTOMATED_STEP_KEYS (lib/cadence.ts) and get a CadenceStep
   // row from provisionCampaignDefaults — but until now had no Template row to
   // go with them. Every send for these three steps therefore permanently
   // failed with "Missing template or contact email" (see processSingleSend in
   // lib/cadence.ts), and no amount of retrying could ever succeed, because the
   // underlying cause was a missing template, not a transient send failure.
-  { id: 't3', label: 'T-3 day reminder', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: "3 days to go: {{topic}}", body: "Hi {{firstName}},\n\n{{topic}} is coming up in 3 days. Save the time and get ready to join {{company}}'s peers.\n\nJoin link: {{link}}" },
-  { id: 't1d', label: 'T-1 day reminder', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: "Tomorrow: {{topic}}", body: "Hi {{firstName}},\n\nJust a reminder — {{topic}} is tomorrow. We'll see you there.\n\nJoin link: {{link}}" },
-  { id: 't1h', label: 'T-1 hour reminder', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: "Starting soon: {{topic}}", body: "Hi {{firstName}},\n\n{{topic}} starts in about an hour. Here's your join link so you don't lose it: {{link}}" },
+  { id: 't3', label: 'T-3 day reminder', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: '3 days to go: {{topic}}', body: "Hi {{firstName}},\n\n{{topic}} runs this week. It's the kind of session where you leave with things you can put to work immediately — calendar hold and join link here:\n\n{{link}}" },
+  { id: 't1d', label: 'T-1 day reminder', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: 'Tomorrow: {{topic}}', body: "Hi {{firstName}},\n\n{{topic}} is tomorrow. Everything you need is on this page — the join link is right at the top:\n\n{{link}}\n\nSee you there." },
+  { id: 't1h', label: 'T-1 hour reminder', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: 'Starting soon: {{topic}}', body: "Hi {{firstName}},\n\n{{topic}} starts in about an hour. Your join link, so you don't lose it: {{link}}\n\nSee you inside." },
+  { id: 'attend', label: 'Attendee follow-up', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: 'Thanks for joining {{topic}}', body: "Hi {{firstName}},\n\nGreat having you at {{topic}} live. As promised, the recording plus everything we referenced is here:\n\n{{link}}\n\nIf something specific resonated and you'd like to go deeper, just reply — it comes straight to me." },
+  { id: 'noshow', label: 'No-show follow-up', channel: 'Email', channelColor: 'blue', hasSubject: true, subject: 'Sorry we missed you at {{topic}}', body: "Hi {{firstName}},\n\nSorry we didn't catch you at {{topic}}. The full recording is here — worth the watch when you have 30 minutes:\n\n{{link}}\n\nWe'll keep you posted on the next one." },
 ];
+
+/** Template keys every campaign is provisioned with — these can be hidden but never deleted. */
+export const BUILT_IN_TEMPLATE_IDS = templatesData.map((t) => t.id);
 
 export const discoveryStats = [
   { label: 'Accounts processed', value: '150', sub: '6 shown below' },

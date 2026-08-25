@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
 import { NavButton } from '@/components/ui/NavButton';
-import { setApprovalAction, bulkSetApprovalAction } from '@/lib/actions/scoring';
+import { setApprovalAction, bulkSetApprovalAction, updateContactPhoneAction } from '@/lib/actions/scoring';
 import { verifyInferredEmailsAction } from '@/lib/actions/enrichment';
 import { useRouter } from 'next/navigation';
 import type { Contact } from '@/lib/generated/prisma/client';
@@ -152,6 +152,7 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
               <th style={thStyle}>Account · vertical</th>
               <th style={thStyle}>Title / function</th>
               <th style={thStyle}>Source</th>
+              <th style={thStyle}>Mobile (SMS/WA)</th>
               <th style={thStyle}>Relevance</th>
               <th style={{ ...thStyle, textAlign: 'center' }}>Approve</th>
             </tr>
@@ -193,6 +194,13 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
                   <td style={{ padding: 12 }}>
                     <Badge color={sourceColor(c.source)} text={c.source} />
                   </td>
+                  <td style={{ padding: 12 }}>
+                    <PhoneCell
+                      contactId={c.id}
+                      initial={c.phone ?? ''}
+                      onChange={(phone) => setContacts((cs) => cs.map((x) => (x.id === c.id ? { ...x, phone: phone || null } : x)))}
+                    />
+                  </td>
                   <td style={{ padding: 12, minWidth: 170, whiteSpace: 'nowrap' }} title={[c.explanation, c.personaNote].filter(Boolean).join('\n\n') || undefined}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ background: 'var(--n20)', borderRadius: 'var(--radius-full)', height: 6, overflow: 'hidden', width: 70, flexShrink: 0 }}>
@@ -231,3 +239,48 @@ const thStyle: React.CSSProperties = {
   textTransform: 'uppercase',
   letterSpacing: '0.03em',
 };
+
+/** Inline mobile editor — saves on blur/Enter; feeds the SMS/WhatsApp channels. */
+function PhoneCell({ contactId, initial, onChange }: { contactId: string; initial: string; onChange: (phone: string) => void }) {
+  const [draft, setDraft] = useState(initial);
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    if (draft.trim() === initial.trim()) return;
+    setState('saving');
+    const res = await updateContactPhoneAction(contactId, draft);
+    if (!res.ok) {
+      setState('error');
+      setError(res.error ?? 'Could not save.');
+      return;
+    }
+    onChange(draft.trim());
+    setState('saved');
+    setError(null);
+    setTimeout(() => setState('idle'), 1500);
+  }
+
+  return (
+    <div>
+      <input
+        className="lsq-input"
+        type="tel"
+        value={draft}
+        placeholder="add mobile…"
+        onChange={(e) => {
+          setDraft(e.target.value);
+          if (state === 'saved') setState('idle');
+        }}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        }}
+        style={{ width: 140, height: 28, fontSize: 12 }}
+      />
+      {state === 'saving' && <div style={{ fontSize: 10.5, color: 'var(--n60)', marginTop: 2 }}>saving…</div>}
+      {state === 'saved' && <div style={{ fontSize: 10.5, color: 'var(--success-700)', marginTop: 2 }}>saved ✓</div>}
+      {state === 'error' && <div style={{ fontSize: 10.5, color: 'var(--danger-500)', marginTop: 2 }}>{error}</div>}
+    </div>
+  );
+}

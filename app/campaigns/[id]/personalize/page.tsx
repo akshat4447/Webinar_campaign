@@ -1,6 +1,9 @@
 import { db } from '@/lib/db';
 import { PersonalizeClient } from './PersonalizeClient';
 import { PERSONALIZABLE_STEPS, CONFIRM_THRESHOLD, isLinkStale } from '@/lib/personalization';
+import { normalizeChannel } from '@/lib/channels';
+import { computePersonalizeReadiness } from '@/lib/cadenceReadiness';
+import { Badge } from '@/components/ui/Badge';
 
 export default async function PersonalizePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ step?: string }> }) {
   const { id } = await params;
@@ -15,7 +18,7 @@ export default async function PersonalizePage({ params, searchParams }: { params
     }),
   ]);
 
-  const available = PERSONALIZABLE_STEPS.map((key) => templates.find((t) => t.key === key)).filter((t): t is NonNullable<typeof t> => !!t);
+  const available = PERSONALIZABLE_STEPS.map((key) => templates.find((t) => t.key === key)).filter((t): t is NonNullable<typeof t> => !!t && !t.hidden);
 
   if (available.length === 0) {
     return (
@@ -37,6 +40,7 @@ export default async function PersonalizePage({ params, searchParams }: { params
   const countByStep = Object.fromEntries(grouped.map((g) => [g.stepKey, g._count]));
 
   const currentLink = campaign.registrationLink || campaign.zoomLink || '';
+  const readiness = await computePersonalizeReadiness(id);
 
   const rows = approvedContacts.map((c) => {
     const m = byContact.get(c.id);
@@ -65,6 +69,12 @@ export default async function PersonalizePage({ params, searchParams }: { params
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        <Badge color={readiness.ok ? 'success' : 'warning'} text={readiness.ok ? `Personalization ready — ${readiness.generatedTotal} draft(s) across ${available.length} steps` : `${readiness.problems.length} issue(s) to fix`} dot />
+        {!readiness.ok && (
+          <span style={{ fontSize: 12, color: 'var(--warning-700)', overflowWrap: 'anywhere' }}>{readiness.problems.join(' · ')}</span>
+        )}
+      </div>
       <PersonalizeClient
         // Remount on step change: the editor holds the recipient copy in local
         // state, and a soft navigation between steps swaps the props without
@@ -76,7 +86,7 @@ export default async function PersonalizePage({ params, searchParams }: { params
         steps={available.map((t) => ({ key: t.key, label: t.label, channel: t.channel, count: countByStep[t.key] ?? 0 }))}
         activeStepKey={activeStep.key}
         activeStepLabel={activeStep.label}
-        activeChannel={activeStep.key === 'linkedin' ? 'linkedin' : 'email'}
+        activeChannel={normalizeChannel(activeStep.channel)}
         templateSubject={activeStep.hasSubject ? activeStep.subject : null}
         templateBody={activeStep.body}
         rows={rows}

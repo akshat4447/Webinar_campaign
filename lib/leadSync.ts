@@ -9,13 +9,14 @@ export interface LeadSyncResult {
   error?: string;
 }
 
-function leadFieldsFor(c: { email: string | null; name: string; account: string; title: string }): LeadField[] {
+function leadFieldsFor(c: { email: string | null; name: string; account: string; title: string; phone?: string | null }): LeadField[] {
   return [
     { Attribute: 'EmailAddress', Value: c.email! },
     { Attribute: 'FirstName', Value: c.name.split(' ')[0] || c.name },
     { Attribute: 'LastName', Value: c.name.split(' ').slice(1).join(' ') },
     { Attribute: 'Company', Value: c.account },
     { Attribute: 'JobTitle', Value: c.title },
+    ...(c.phone ? [{ Attribute: 'Phone', Value: c.phone }] : []),
   ];
 }
 

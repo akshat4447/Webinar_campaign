@@ -39,13 +39,14 @@ export interface ImportedContact {
   title: string;
   vertical: string;
   linkedinId: string;
+  phone?: string | null;
   missingInfo: boolean;
   function: string;
   seniority: string;
   source: 'LinkedIn' | 'LinkedIn+Apollo' | 'Apollo';
 }
 
-export function classifyContact(fields: { name: string; email: string; account: string; title: string; vertical: string; linkedinId: string }): ImportedContact {
+export function classifyContact(fields: Omit<ImportedContact, 'missingInfo' | 'function' | 'seniority' | 'source'>): ImportedContact {
   const missingInfo = !/.+@.+\..+/.test(fields.email);
   const fn = functionFor(fields.title);
   const seniority = seniorityFor(fields.title);

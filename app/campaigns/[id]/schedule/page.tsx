@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { ScheduleConfig } from './ScheduleConfig';
 import { CadenceGroups } from './CadenceGroups';
 import { LinkedInPanel } from './LinkedInPanel';
+import { ChannelMixCard } from './ChannelMixCard';
 import { LaunchCadenceCard } from './LaunchCadenceCard';
 import { AUTOMATED_STEP_KEYS, renderMergeFields } from '@/lib/cadence';
 import { sendModeLabel } from '@/lib/sendGuard';
@@ -9,6 +10,8 @@ import { getLinkedInProgressAction } from '@/lib/actions/linkedin';
 import { getServerNow } from '@/lib/actions/clock';
 import { normalizeLinkedInSlug, peopleSearchUrl } from '@/lib/linkedinUrl';
 import { validateRenderedMessage } from '@/lib/messageValidation';
+import { normalizeChannel } from '@/lib/channels';
+import type { VerificationStatus } from '@/lib/apolloVerify';
 
 export default async function SchedulePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -28,6 +31,21 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
   const approvedCount = await db.contact.count({ where: { campaignId: id, approved: true } });
   const linkedinProgress = await getLinkedInProgressAction(id);
   const serverNow = await getServerNow();
+
+  // Channel mix snapshot for the toggle card (per-channel enabled/total steps).
+  const mixSteps = await db.cadenceStep.findMany({ where: { campaignId: id }, select: { channel: true, enabled: true } });
+  const channelMix = {
+    email: { enabled: 0, total: 0 },
+    linkedin: { enabled: 0, total: 0 },
+    sms: { enabled: 0, total: 0 },
+    whatsapp: { enabled: 0, total: 0 },
+  } as Record<'email' | 'linkedin' | 'sms' | 'whatsapp', { enabled: number; total: number }>;
+  for (const s of mixSteps) {
+    const ch = normalizeChannel(s.channel);
+    if (!channelMix[ch]) continue;
+    channelMix[ch].total++;
+    if (s.enabled) channelMix[ch].enabled++;
+  }
 
   // Every approved contact gets a LinkedIn touch. `slug` is their real profile
   // when one is on file (from the CSV's LinkedIn column or pasted in the queue);
@@ -57,7 +75,19 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
       // send path in lib/cadence.ts actually does, rather than surfacing a
       // draft that's missing its link or has a leftover {{token}} in it.
       message: personalizedBody && personalizedValid ? personalizedBody : fallback,
+      checkStatus: (c.linkedinCheckStatus as VerificationStatus | null) ?? null,
+      checkNote: c.linkedinCheckNote ?? null,
     };
+  });
+
+  // Apollo-verified first, unchecked next, failed verification last — the
+  // queue is consumed top-down, so the safest sends are always the closest.
+  const CHECK_ORDER: Record<string, number> = { verified: 0 };
+  linkedinQueue.sort((a, b) => {
+    const ra = a.checkStatus ? CHECK_ORDER[a.checkStatus] ?? 2 : 1;
+    const rb = b.checkStatus ? CHECK_ORDER[b.checkStatus] ?? 2 : 1;
+    if (ra !== rb) return ra - rb;
+    return 0; // preserve original approved-contacts ordering within a band
   });
 
   const countsByStep: Record<string, { sent: number; queued: number; failed: number }> = {};
@@ -72,6 +102,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
     <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 300px)', gap: 20, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <ChannelMixCard campaignId={id} initial={channelMix} />
           <ScheduleConfig campaign={campaign} />
           <CadenceGroups
             campaignId={id}
@@ -88,7 +119,6 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
             campaignId={id}
             queue={linkedinQueue}
             initialProgress={linkedinProgress}
-            initialMode={campaign.linkedinMode === 'automated' ? 'automated' : 'assisted'}
           />
 
           <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>

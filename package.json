@@ -11,6 +11,9 @@
     "db:seed": "tsx prisma/seed.ts",
     "demo:reset": "tsx scripts/demo-reset.ts",
     "cadence:tick": "tsx scripts/cadence-tick.ts",
+    "linkedin:process": "tsx scripts/linkedin-process.ts",
+    "backfill:channels": "tsx scripts/backfill-channels.ts",
+    "refresh:templates": "tsx scripts/refresh-template-copy.ts",
     "backfill:templates": "tsx scripts/backfill-templates.ts",
     "demo:tidy": "tsx scripts/demo-tidy.ts"
   },

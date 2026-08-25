@@ -224,7 +224,7 @@ const PERSONALIZE_BATCH = 5;
  */
 export async function personalizeMessages(params: {
   campaign: PersonalizeCampaign;
-  channel: 'email' | 'linkedin';
+  channel: 'email' | 'linkedin' | 'sms' | 'whatsapp';
   stepLabel: string;
   templateSubject: string | null;
   templateBody: string;
@@ -238,7 +238,11 @@ export async function personalizeMessages(params: {
   const channelRules =
     channel === 'linkedin'
       ? 'This is a LinkedIn DM. Under 60 words, no subject line (return null), no greeting block or sign-off, conversational, one clear ask. Return null for subject.'
-      : 'This is an email. Keep a subject line under 60 characters that survives a mobile inbox. Body under 120 words, short paragraphs, one clear ask.';
+      : channel === 'sms'
+        ? 'This is a single SMS text. HARD LIMITS: 300 characters or fewer total; plain GSM-safe characters only — no emoji, no smart quotes, no multiple paragraphs. One short personalised line of context, then the join link verbatim. Return null for subject.'
+        : channel === 'whatsapp'
+          ? 'This is a WhatsApp message. Friendly and human, 40–120 words, at most one emoji, one or two short paragraphs, and the join link verbatim. Return null for subject.'
+          : 'This is an email. Keep a subject line under 60 characters that survives a mobile inbox. Body under 120 words, short paragraphs, one clear ask.';
 
   for (let i = 0; i < contacts.length; i += PERSONALIZE_BATCH) {
     const batch = contacts.slice(i, i + PERSONALIZE_BATCH);
