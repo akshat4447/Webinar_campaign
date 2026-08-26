@@ -37,20 +37,37 @@ async function strategyFor(channel: DeliveryChannel): Promise<ChannelStrategy> {
 }
 
 /** One shared custom-activity type backs both channels' trigger strategy. */
-async function ensureTriggerActivityTypeId(): Promise<number> {
+export async function ensureTriggerActivityTypeId(): Promise<number> {
   const existing = await db.appSetting.findUnique({ where: { key: TRIGGER_TYPE_SETTING } });
   if (existing) return Number(existing.value);
-  const id = await createActivityType('WebinarAgent Channel Trigger', [
-    { schemaName: 'mxp_Channel', displayName: 'Channel' },
-    { schemaName: 'mxp_StepKey', displayName: 'Cadence Step' },
-    { schemaName: 'mxp_Message', displayName: 'Message' },
-  ]);
-  await db.appSetting.upsert({
-    where: { key: TRIGGER_TYPE_SETTING },
-    create: { key: TRIGGER_TYPE_SETTING, value: String(id) },
-    update: { value: String(id) },
-  });
-  return id;
+
+  // If a previous attempt left an orphan behind ("already exists"), retry under
+  // a numbered name — the next create carries the CORRECT mx_Custom_N fields,
+  // unlike whatever half-created row triggered the collision.
+  const baseName = 'WebinarAgent Channel Trigger';
+  const fields = [
+    { schemaName: 'mx_Custom_1', displayName: 'Channel' },
+    { schemaName: 'mx_Custom_2', displayName: 'Cadence Step' },
+    { schemaName: 'mx_Custom_3', displayName: 'Message' },
+  ];
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const name = attempt === 0 ? baseName : `${baseName} ${attempt + 1}`;
+    try {
+      const id = await createActivityType(name, fields);
+      await db.appSetting.upsert({
+        where: { key: TRIGGER_TYPE_SETTING },
+        create: { key: TRIGGER_TYPE_SETTING, value: String(id) },
+        update: { value: String(id) },
+      });
+      return id;
+    } catch (err) {
+      lastErr = err;
+      if (!/already exists/i.test(String(err))) throw err;
+    }
+  }
+  throw lastErr ?? new Error('Could not create the trigger activity type.');
 }
 
 // The allowlist lead's phone, resolved once per process (same lead email is
@@ -96,12 +113,23 @@ async function deliverViaTrigger(input: ChannelDeliveryInput): Promise<string> {
     ActivityEvent: typeId,
     ActivityNote: `${input.channel.toUpperCase()} step "${input.stepKey}" due — ${input.campaignName}`,
     Fields: [
-      { SchemaName: 'mxp_Channel', Value: input.channel },
-      { SchemaName: 'mxp_StepKey', Value: input.stepKey },
-      { SchemaName: 'mxp_Message', Value: input.message.slice(0, 500) },
+      { SchemaName: 'mx_Custom_1', Value: input.channel },
+      { SchemaName: 'mx_Custom_2', Value: input.stepKey },
+      { SchemaName: 'mx_Custom_3', Value: input.message.slice(0, 500) },
     ],
   };
-  await pushCustomActivities([activity]);
+  try {
+    await pushCustomActivities([activity]);
+  } catch (err) {
+    // If the recovered type exists WITHOUT its custom fields (possible when a
+    // previous create attempt half-succeeded), fire the bare activity anyway —
+    // the automation trigger only needs the activity type to appear.
+    if (/custom|field/i.test(String(err))) {
+      await pushCustomActivities([{ ...activity, Fields: undefined }]);
+    } else {
+      throw err;
+    }
+  }
   return 'trigger activity posted — LSQ Automation delivers via its configured gateway';
 }
 

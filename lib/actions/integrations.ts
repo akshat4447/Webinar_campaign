@@ -72,7 +72,38 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
       const f = await resolveTestFields('lsq', typedFields);
       if (!f.accessKey || !f.secretKey || !f.host) throw new Error('Access Key, Secret Key, and Host are all required.');
       const fields = await getLeadsMetadata({ accessKey: f.accessKey, secretKey: f.secretKey, host: f.host });
-      result = { ok: true, detail: `200 · ${fields.length} lead fields · ${Date.now() - started}ms` };
+
+      // Sender self-verify: round-trip SendEmailToLead to the configured sender
+      // itself. This is THE definitive test for the "Invalid Sender details"
+      // rejection that silently killed campaign emails before.
+      let senderNote = '';
+      if (f.senderEmail && process.env.SEND_MODE !== 'sandbox') {
+        try {
+          await fetch(`https://${f.host}/v2/EmailMarketing.svc/SendEmailToLead?accessKey=${encodeURIComponent(f.accessKey)}&secretKey=${encodeURIComponent(f.secretKey)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              SenderType: 'UserEmailAddress',
+              Sender: f.senderEmail,
+              RecipientType: 'LeadEmailAddress',
+              Recipient: f.senderEmail,
+              EmailType: 'Text',
+              Subject: 'Webinar Agent — sender verification',
+              ContentText: 'If you received this, the From identity works.',
+            }),
+            cache: 'no-store',
+          }).then(async (r) => {
+            const b = await r.text();
+            if (!r.ok || /Error/i.test(b)) throw new Error(`${r.status} ${b.slice(0, 120)}`);
+          });
+          senderNote = ` · sender "${f.senderEmail}" VERIFIED`;
+        } catch (e) {
+          throw new Error(
+            `Sender email "${f.senderEmail}" FAILED verification: ${String(e instanceof Error ? e.message : e).slice(0, 140)} — use the exact email of an ACTIVE user (LSQ → Settings → Users), or clear the field.`
+          );
+        }
+      }
+      result = { ok: true, detail: `200 · ${fields.length} lead fields${senderNote} · ${Date.now() - started}ms` };
     } else if (id === 'claude') {
       const f = await resolveTestFields('claude', typedFields);
       if (!f.apiKey) throw new Error('An API key is required.');
