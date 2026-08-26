@@ -1,7 +1,7 @@
 'use server';
 
 import { db } from '@/lib/db';
-import { getLists, getLeadsInList, type RawLsqLead } from '@/lib/leadsquared';
+import { getLists, getLeadsInList, getLeadByEmailAddress, type RawLsqLead } from '@/lib/leadsquared';
 import { classifyContact, pickCol } from '@/lib/importHeuristics';
 import { syncContactsToLeadSquared } from '@/lib/leadSync';
 import { upsertAttentionItem } from '@/lib/attentionItems';
@@ -267,5 +267,128 @@ export async function importFromLsqListAction(campaignId: string, listId: string
     return { ok: true, rowCount: classified.length, withEmail, logLines };
   } catch (err) {
     return { ok: false, error: String(err) };
+  }
+}
+
+// --- single-lead lookup straight from the LeadSquared platform -----------------
+
+export interface LsqLeadLookup {
+  name: string;
+  email: string;
+  phone: string;
+  account: string;
+  title: string;
+  lsqLeadId: string;
+  /** Any other populated attributes LSQ returned, for transparency. */
+  extra: Array<[string, string]>;
+}
+
+const KNOWN_ATTRS = new Set(['FirstName', 'LastName', 'EmailAddress', 'Phone', 'Company', 'Designation', 'ProspectID', 'SearchBy']);
+
+function mapRawLead(row: RawLsqLead): LsqLeadLookup {
+  const name = [row.FirstName, row.LastName].filter(Boolean).join(' ').trim() || row.EmailAddress || 'Unnamed lead';
+  const extra: Array<[string, string]> = [];
+  for (const [attr, value] of Object.entries(row)) {
+    if (!KNOWN_ATTRS.has(attr) && typeof value === 'string' && value.trim() && value !== '[]') {
+      extra.push([attr, value.trim()]);
+    }
+  }
+  return {
+    name,
+    email: row.EmailAddress ?? '',
+    phone: row.Phone ?? '',
+    account: row.Company ?? '',
+    title: row.Designation ?? '',
+    lsqLeadId: row.ProspectID ?? '',
+    extra,
+  };
+}
+
+/** Looks up ONE lead on the LeadSquared platform by exact email address. */
+export async function fetchLsqLeadByEmailAction(
+  email: string
+): Promise<{ ok: true; lead: LsqLeadLookup } | { ok: false; notFound?: boolean; error: string }> {
+  const clean = email.trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) return { ok: false, error: 'Enter a valid email address.' };
+  try {
+    const row = await getLeadByEmailAddress(clean);
+    if (!row) return { ok: false, notFound: true, error: `No LeadSquared lead found with email ${clean}.` };
+    return { ok: true, lead: mapRawLead(row) };
+  } catch (err) {
+    return { ok: false, error: String(err instanceof Error ? err.message : err).slice(0, 250) };
+  }
+}
+
+/**
+ * Fetches the lead by email AND imports it into this campaign as a fully-
+ * detailed Contact (reusing its existing LeadSquared lead id so future syncs
+ * update rather than duplicate).
+ */
+export async function importLsqLeadByEmailAction(
+  campaignId: string,
+  email: string
+): Promise<{ ok: boolean; contactId?: string; mode?: 'created' | 'updated'; error?: string }> {
+  const clean = email.trim();
+  try {
+    const row = await getLeadByEmailAddress(clean);
+    if (!row || !row.EmailAddress) return { ok: false, error: `No LeadSquared lead found with email ${clean}.` };
+
+    const classified = classifyContact({
+      name: [row.FirstName, row.LastName].filter(Boolean).join(' ').trim() || row.EmailAddress,
+      email: row.EmailAddress,
+      account: row.Company || '—',
+      title: row.Designation || '—',
+      vertical: 'Unassigned',
+      linkedinId: '',
+      phone: row.Phone || null,
+    });
+
+    const existingByLsqId = row.ProspectID
+      ? await db.contact.findFirst({ where: { lsqLeadId: row.ProspectID }, select: { id: true } })
+      : null;
+    const existing =
+      existingByLsqId ??
+      (await db.contact.findFirst({ where: { campaignId, email: clean.toLowerCase() }, select: { id: true } }));
+
+    const dataFields = {
+      name: classified.name,
+      email: classified.email,
+      phone: classified.phone || null,
+      account: classified.account,
+      title: classified.title,
+      vertical: classified.vertical,
+      function: classified.function,
+      seniority: classified.seniority,
+      missingInfo: classified.missingInfo,
+    };
+
+    let contactId: string;
+    let mode: 'created' | 'updated';
+    if (existing) {
+      await db.contact.update({
+        where: { id: existing.id },
+        data: { ...dataFields, lsqLeadId: row.ProspectID || undefined },
+      });
+      contactId = existing.id;
+      mode = 'updated';
+    } else {
+      const created = await db.contact.create({
+        data: { campaignId, ...dataFields, lsqLeadId: row.ProspectID || undefined },
+      });
+      contactId = created.id;
+      mode = 'created';
+    }
+
+    await db.activityLogEntry.create({
+      data: {
+        campaignId,
+        text: `Fetched ${classified.name} from LeadSquared by email (${mode}) — imported with platform details and linked to their LSQ lead`,
+        dot: 'var(--accent-500)',
+      },
+    });
+    revalidateCampaign(campaignId);
+    return { ok: true, contactId, mode };
+  } catch (err) {
+    return { ok: false, error: String(err instanceof Error ? err.message : err).slice(0, 250) };
   }
 }

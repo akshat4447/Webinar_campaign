@@ -18,7 +18,7 @@ export const INTEGRATION_FIELDS: Record<string, IntegrationField[]> = {
     { key: 'accessKey', label: 'Access Key', secret: true, placeholder: 'Paste your LeadSquared Access Key' },
     { key: 'secretKey', label: 'Secret Key', secret: true, placeholder: 'Paste your LeadSquared Secret Key' },
     { key: 'host', label: 'API Host', secret: false, placeholder: 'e.g. api-in21.leadsquared.com' },
-    { key: 'senderEmail', label: 'Sender email', secret: false, optional: true, placeholder: 'A real user email in your LSQ account — needed to send mail' },
+    { key: 'senderEmail', label: 'Sender email', secret: false, optional: true, placeholder: 'Exact email of an ACTIVE LSQ user — becomes the verified From address' },
     { key: 'smsStrategy', label: 'SMS strategy', secret: false, optional: true, placeholder: "trigger (default) | direct | auto" },
     { key: 'smsEndpoint', label: 'SMS endpoint', secret: false, optional: true, placeholder: 'Direct path e.g. /LeadManagement.svc/Sms.Sendsms (only for direct)' },
     { key: 'whatsappStrategy', label: 'WhatsApp strategy', secret: false, optional: true, placeholder: "trigger (default) | direct | auto" },

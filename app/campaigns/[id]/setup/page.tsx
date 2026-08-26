@@ -5,6 +5,7 @@ import { LeadImportCard } from './LeadImportCard';
 import { CampaignDetailsForm } from './CampaignDetailsForm';
 import { EnrichmentCard } from './EnrichmentCard';
 import { LinkedInPublishCard } from './LinkedInPublishCard';
+import { SingleLeadLookupCard } from './SingleLeadLookupCard';
 import { getEnrichmentStats } from '@/lib/actions/enrichment';
 import { getServerNow } from '@/lib/actions/clock';
 import { resolveIntegrationField } from '@/lib/integrationConfig';
@@ -30,6 +31,7 @@ export default async function SetupPage({ params }: { params: Promise<{ id: stri
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <CampaignDetailsForm campaign={campaign} serverNow={serverNow} />
           <LeadImportCard campaignId={id} existingContactCount={contactCount} existingScoredCount={scoredCount} />
+          <SingleLeadLookupCard campaignId={id} />
           <EnrichmentCard campaignId={id} stats={enrichmentStats} />
         </div>
 

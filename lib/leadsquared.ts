@@ -231,29 +231,59 @@ function sleep(ms: number) {
 
 export async function sendEmailToLead(params: SendEmailParams): Promise<{ ID: string; MemberCount: number; TotalRecipient: number }> {
   await throttle();
-  // SenderType "APICaller" has no mail-sending identity configured on some
-  // accounts and 500s at the delivery layer even though the API call itself
-  // validates fine. LSQ_SENDER_EMAIL (a real LeadSquared user's email in this
-  // tenant) opts into "UserEmailAddress" instead, which has a real mailbox.
+  // Two sender identities exist on LSQ accounts, and either can be the broken
+  // one depending on tenant configuration:
+  //   UserEmailAddress — sends as a real LSQ user (needs the configured email
+  //                      to be the EXACT address of an active user)
+  //   APICaller        — sends as the API user's identity (works only where an
+  //                      admin has configured that identity)
+  // MXMandatoryAttributeMissingException "Invalid Sender details" means the
+  // chosen identity isn't recognised, so we automatically retry with the other
+  // one before surfacing a precise, actionable error.
   const senderEmail = await resolveIntegrationField('lsq', 'senderEmail');
-  return lsqFetch('/EmailMarketing.svc/SendEmailToLead', {
-    method: 'POST',
-    body: {
-      SenderType: senderEmail ? 'UserEmailAddress' : 'APICaller',
-      ...(senderEmail ? { Sender: senderEmail } : {}),
-      RecipientType: 'LeadEmailAddress',
-      Recipient: params.recipientEmail,
-      EmailType: 'Html',
-      Subject: params.subject,
-      ContentHTML: params.contentHtml,
-      ContentText: params.contentText,
-      IncludeEmailFooter: true,
-      // EmailCategory must reference a category that already exists in the
-      // LeadSquared account's settings — an invented value 500s. Omit unless
-      // the caller passes one known to exist.
-      ...(params.emailCategory ? { EmailCategory: params.emailCategory } : {}),
-    },
+  const strategies: Array<{ type: 'UserEmailAddress' | 'APICaller'; sender?: string }> = senderEmail
+    ? [
+        { type: 'UserEmailAddress', sender: senderEmail },
+        { type: 'APICaller' },
+      ]
+    : [{ type: 'APICaller' }];
+
+  const buildBody = (s: { type: 'UserEmailAddress' | 'APICaller'; sender?: string }) => ({
+    SenderType: s.type,
+    ...(s.type === 'UserEmailAddress' && s.sender ? { Sender: s.sender } : {}),
+    RecipientType: 'LeadEmailAddress',
+    Recipient: params.recipientEmail,
+    EmailType: 'Html',
+    Subject: params.subject,
+    ContentHTML: params.contentHtml,
+    ContentText: params.contentText,
+    IncludeEmailFooter: true,
+    // EmailCategory must reference a category that already exists in the
+    // LeadSquared account's settings — an invented value 500s. Omit unless
+    // the caller passes one known to exist.
+    ...(params.emailCategory ? { EmailCategory: params.emailCategory } : {}),
   });
+
+  let lastRaw = '';
+  for (const s of strategies) {
+    try {
+      return await lsqFetch<{ ID: string; MemberCount: number; TotalRecipient: number }>('/EmailMarketing.svc/SendEmailToLead', {
+        method: 'POST',
+        body: buildBody(s),
+      });
+    } catch (err) {
+      lastRaw = err instanceof LeadSquaredError ? `${err.status} ${String(err.body ?? '')}` : String(err);
+      // Only a sender-identity rejection justifies retrying with the other
+      // identity — anything else (rate limit, recipient missing) must surface.
+      if (!/Invalid Sender|MandatoryAttributeMissing/i.test(lastRaw)) throw err;
+    }
+  }
+
+  throw new Error(
+    senderEmail
+      ? `LeadSquared rejected BOTH sender identities ("${senderEmail}" and APICaller). In LSQ → Settings → Users, confirm "${senderEmail}" is an ACTIVE user with email sending enabled, or clear the Sender email field to use APICaller after configuring that identity with LSQ support.`
+      : 'LeadSquared rejected the APICaller sender identity. Set LSQ_SENDER_EMAIL (or Integrations → LeadSquared → Sender email) to the exact email of an ACTIVE LeadSquared user — that becomes the verified From address.'
+  );
 }
 
 // --- SMS / WhatsApp channels ---------------------------------------------------
