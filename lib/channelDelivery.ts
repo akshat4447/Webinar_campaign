@@ -30,6 +30,79 @@ export type ChannelStrategy = 'direct' | 'trigger' | 'auto';
 export type DeliveryChannel = 'sms' | 'whatsapp';
 
 const TRIGGER_TYPE_SETTING = 'lsq_channel_trigger_activity_type_id';
+const ACTIVITY_MAP_SETTING = 'lsq_activity_map_setting';
+
+/** Schema names for the trigger activity's custom fields — overridable via manual mapping. */
+export interface TriggerFieldMap {
+  channel: string;
+  stepKey: string;
+  message: string;
+}
+
+export const DEFAULT_TRIGGER_FIELDS: TriggerFieldMap = {
+  channel: 'mx_Custom_1',
+  stepKey: 'mx_Custom_2',
+  message: 'mx_Custom_3',
+};
+
+export interface ChannelActivityMapping {
+  /** Post THIS activity type id (discovered or manually entered). */
+  typeId?: number;
+}
+
+const MAP_CHANNELS = ['email', 'linkedin', 'sms', 'whatsapp'] as const;
+
+/** Reads the operator-configurable activity map (channel → activity type). */
+export async function getActivityMap(): Promise<Record<string, ChannelActivityMapping | null>> {
+  try {
+    const raw = await db.appSetting.findUnique({ where: { key: ACTIVITY_MAP_SETTING } });
+    if (raw?.value) {
+      const parsed = JSON.parse(raw.value) as Record<string, ChannelActivityMapping | null>;
+      const out: Record<string, ChannelActivityMapping | null> = {};
+      for (const ch of MAP_CHANNELS) out[ch] = parsed[ch] ?? null;
+      return out;
+    }
+  } catch {
+    /* fall through to defaults */
+  }
+  const out: Record<string, ChannelActivityMapping | null> = {};
+  for (const ch of MAP_CHANNELS) out[ch] = null;
+  return out;
+}
+
+export async function saveActivityMap(map: Record<string, ChannelActivityMapping | null>): Promise<void> {
+  await db.appSetting.upsert({
+    where: { key: ACTIVITY_MAP_SETTING },
+    create: { key: ACTIVITY_MAP_SETTING, value: JSON.stringify(map) },
+    update: { value: JSON.stringify(map) },
+  });
+}
+
+/** Trigger field schema names: mapped overrides first, mx_Custom_N defaults second. */
+export async function getTriggerFieldMap(): Promise<TriggerFieldMap> {
+  try {
+    const raw = await db.appSetting.findUnique({ where: { key: 'lsq_trigger_field_map' } });
+    if (raw?.value) {
+      const parsed = JSON.parse(raw.value) as Partial<TriggerFieldMap>;
+      return {
+        channel: parsed.channel || DEFAULT_TRIGGER_FIELDS.channel,
+        stepKey: parsed.stepKey || DEFAULT_TRIGGER_FIELDS.stepKey,
+        message: parsed.message || DEFAULT_TRIGGER_FIELDS.message,
+      };
+    }
+  } catch {
+    /* defaults below */
+  }
+  return DEFAULT_TRIGGER_FIELDS;
+}
+
+export async function saveTriggerFieldMap(map: TriggerFieldMap): Promise<void> {
+  await db.appSetting.upsert({
+    where: { key: 'lsq_trigger_field_map' },
+    create: { key: 'lsq_trigger_field_map', value: JSON.stringify(map) },
+    update: { value: JSON.stringify(map) },
+  });
+}
 
 async function strategyFor(channel: DeliveryChannel): Promise<ChannelStrategy> {
   const raw = ((await resolveIntegrationField('lsq', channel === 'sms' ? 'smsStrategy' : 'whatsappStrategy')) || 'trigger').toLowerCase();
@@ -38,9 +111,6 @@ async function strategyFor(channel: DeliveryChannel): Promise<ChannelStrategy> {
 
 /** One shared custom-activity type backs both channels' trigger strategy. */
 export async function ensureTriggerActivityTypeId(): Promise<number> {
-  const existing = await db.appSetting.findUnique({ where: { key: TRIGGER_TYPE_SETTING } });
-  if (existing) return Number(existing.value);
-
   // If a previous attempt left an orphan behind ("already exists"), retry under
   // a numbered name — the next create carries the CORRECT mx_Custom_N fields,
   // unlike whatever half-created row triggered the collision.
@@ -107,30 +177,35 @@ async function deliverDirect(input: ChannelDeliveryInput): Promise<string> {
 }
 
 async function deliverViaTrigger(input: ChannelDeliveryInput): Promise<string> {
-  const typeId = await ensureTriggerActivityTypeId();
+  // Per-channel mapped type wins; otherwise the shared auto-provisioned type.
+  const map = await getActivityMap();
+  const override = map[input.channel]?.typeId;
+  const fieldNames = await getTriggerFieldMap();
+  const typeId = override ?? (await ensureTriggerActivityTypeId());
+
   const activity: CustomActivity = {
     RelatedProspectId: input.lsqLeadId,
     ActivityEvent: typeId,
     ActivityNote: `${input.channel.toUpperCase()} step "${input.stepKey}" due — ${input.campaignName}`,
     Fields: [
-      { SchemaName: 'mx_Custom_1', Value: input.channel },
-      { SchemaName: 'mx_Custom_2', Value: input.stepKey },
-      { SchemaName: 'mx_Custom_3', Value: input.message.slice(0, 500) },
+      { SchemaName: fieldNames.channel, Value: input.channel },
+      { SchemaName: fieldNames.stepKey, Value: input.stepKey },
+      { SchemaName: fieldNames.message, Value: input.message.slice(0, 500) },
     ],
   };
   try {
     await pushCustomActivities([activity]);
   } catch (err) {
-    // If the recovered type exists WITHOUT its custom fields (possible when a
-    // previous create attempt half-succeeded), fire the bare activity anyway —
-    // the automation trigger only needs the activity type to appear.
+    // If the type exists WITHOUT its custom fields (possible when a previous
+    // create attempt half-succeeded), fire the bare activity anyway — the
+    // automation trigger only needs the activity type to appear.
     if (/custom|field/i.test(String(err))) {
       await pushCustomActivities([{ ...activity, Fields: undefined }]);
     } else {
       throw err;
     }
   }
-  return 'trigger activity posted — LSQ Automation delivers via its configured gateway';
+  return `trigger activity posted${override ? ` on mapped type #${typeId}` : ''} — LSQ Automation delivers via its configured gateway`;
 }
 
 /**
@@ -159,3 +234,28 @@ export async function deliverChannelMessage(input: ChannelDeliveryInput): Promis
 }
 
 export { sandboxTargetPhone };
+
+/**
+ * Posts a "message sent" activity IF the operator mapped an activity type for
+ * this channel — giving THEIR LSQ automations a hook on every stage. Returns
+ * false when nothing is mapped (silently, by design).
+ */
+export async function postSentActivityIfMapped(opts: {
+  channel: 'email' | 'linkedin' | 'sms' | 'whatsapp';
+  lsqLeadId: string;
+  campaignName: string;
+  stepKey: string;
+  note: string;
+}): Promise<boolean> {
+  const map = await getActivityMap();
+  const mapped = map[opts.channel]?.typeId;
+  if (!mapped) return false;
+  await pushCustomActivities([
+    {
+      RelatedProspectId: opts.lsqLeadId,
+      ActivityEvent: mapped,
+      ActivityNote: `${opts.note} — ${opts.campaignName}`.slice(0, 480),
+    },
+  ]);
+  return true;
+}

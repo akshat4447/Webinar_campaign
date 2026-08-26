@@ -340,3 +340,83 @@ export async function sendWhatsappDirect(params: { mobile: string; message: stri
     body: { PhoneNumber: params.mobile, Message: params.message },
   });
 }
+
+// --- activity type discovery (for manual/auto mapping) -------------------------
+
+export interface LsqActivityType {
+  id: number;
+  name: string;
+}
+
+/**
+ * Lists the account's activity types. LSQ exposes this under slightly
+ * different paths across versions/API generations, so we probe the known
+ * candidates (GET first, then empty-body POST) and normalize the winner.
+ */
+export async function listActivityTypes(): Promise<LsqActivityType[]> {
+  const candidates = [
+    '/ProspectActivity.svc/ActivityTypes.Get',
+    '/ProspectActivity.svc/Types.Get',
+    '/ProspectActivity.svc/ActivityTypes',
+    '/ProspectActivity.svc/Types',
+  ];
+  for (const path of candidates) {
+    for (const method of ['GET', 'POST'] as const) {
+      try {
+        const res = await lsqFetch<unknown>(path, method === 'POST' ? { method: 'POST', body: {} } : {});
+        const arr = Array.isArray(res)
+          ? res
+          : ((res as { ActivityTypes?: unknown[]; Types?: unknown[]; Data?: unknown[] } | null)?.ActivityTypes ??
+            (res as { Types?: unknown[] } | null)?.Types ??
+            (res as { Data?: unknown[] } | null)?.Data ??
+            []);
+        if (!Array.isArray(arr) || (arr.length === 0 && method === 'GET')) continue;
+        const out: LsqActivityType[] = [];
+        for (const t of arr as Array<Record<string, unknown>>) {
+          const id = Number(t.ActivityEvent ?? t.Id ?? t.ActivityTypeId ?? NaN);
+          const name = String(t.ActivityTypeName ?? t.Name ?? t.ActivityEventName ?? '');
+          if (Number.isFinite(id) && name) out.push({ id, name });
+        }
+        if (out.length > 0) return out;
+      } catch {
+        /* try next candidate */
+      }
+    }
+  }
+  return [];
+}
+
+/** Details (incl. custom field schema names) for one activity type. */
+export async function getActivityTypeDetails(
+  id: number
+): Promise<{ name: string; fields: Array<{ schemaName: string; displayName: string }> } | null> {
+  const candidates = [
+    `/ProspectActivity.svc/ActivityType.Get?ActivityEvent=${id}`,
+    `/ProspectActivity.svc/ActivityTypeDetails.Get?ActivityEvent=${id}`,
+    `/ProspectActivity.svc/Types/${id}`,
+  ];
+  for (const path of candidates) {
+    for (const method of ['GET', 'POST'] as const) {
+      try {
+        const res = await lsqFetch<unknown>(path, method === 'POST' ? { method: 'POST', body: {} } : {});
+        const obj = (res ?? {}) as Record<string, unknown>;
+        const name = String(obj.ActivityTypeName ?? obj.Name ?? obj.ActivityEventName ?? '');
+        const rawFields =
+          (obj.Fields as Array<Record<string, unknown>> | undefined) ??
+          (obj.fields as Array<Record<string, unknown>> | undefined) ??
+          [];
+        if (!name && rawFields.length === 0) continue;
+        return {
+          name,
+          fields: rawFields.map((f) => ({
+            schemaName: String(f.SchemaName ?? f.schemaName ?? ''),
+            displayName: String(f.DisplayName ?? f.displayName ?? f.Label ?? ''),
+          })),
+        };
+      } catch {
+        /* try next candidate */
+      }
+    }
+  }
+  return null;
+}

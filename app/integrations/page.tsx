@@ -1,4 +1,5 @@
 import { IntegrationCard } from './IntegrationCard';
+import { LsqActivityMappingCard } from './LsqActivityMappingCard';
 import { integrationsData } from '@/lib/demo-data';
 import { getTestResult, resolveIntegrationField } from '@/lib/integrationConfig';
 
@@ -44,6 +45,8 @@ export default async function IntegrationsPage() {
           ))}
         </div>
       </div>
+
+      <LsqActivityMappingCard />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(288px, 1fr))', gap: 16 }}>
         {cards.map(({ ig, testResult }) => (

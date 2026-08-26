@@ -6,7 +6,7 @@ import { resolveStepDate } from '@/lib/stepSchedule';
 import { isWithinSendWindow } from '@/lib/sendWindow';
 import { validateRenderedMessage, validateRenderedMessageForChannel } from '@/lib/messageValidation';
 import { normalizeChannel } from '@/lib/channels';
-import { deliverChannelMessage, sandboxTargetPhone, type DeliveryChannel } from '@/lib/channelDelivery';
+import { deliverChannelMessage, sandboxTargetPhone, postSentActivityIfMapped, type DeliveryChannel } from '@/lib/channelDelivery';
 
 // Steps that get queued automatically when the cadence launches. Each one's
 // send time comes from its own editable offset (see lib/stepSchedule.ts), so
@@ -290,13 +290,15 @@ async function processSingleSend(
       const { email: recipientEmail, sandboxed } = resolveRecipient(contact);
 
       // Ensure the contact exists as a LeadSquared lead before emailing it.
-      if (!contact.lsqLeadId) {
+      let lsqLeadId = contact.lsqLeadId;
+      if (!lsqLeadId) {
         const result = await createOrUpdateLead([
           { Attribute: 'EmailAddress', Value: contact.email },
           { Attribute: 'FirstName', Value: mergeOpts.firstName },
           { Attribute: 'Company', Value: contact.account },
         ]);
-        await db.contact.update({ where: { id: contact.id }, data: { lsqLeadId: result.Message.Id } });
+        lsqLeadId = result.Message.Id;
+        await db.contact.update({ where: { id: contact.id }, data: { lsqLeadId } });
       }
 
       await sendEmailToLead({
@@ -307,6 +309,21 @@ async function processSingleSend(
       });
 
       await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'sent', sentAt: new Date() } });
+
+      // Optional hook for THEIR automations: post the mapped "email sent"
+      // activity if the operator mapped one for this channel (Integrations).
+      try {
+        await postSentActivityIfMapped({
+          channel: 'email',
+          lsqLeadId,
+          campaignName: campaign.name,
+          stepKey: send.stepKey,
+          note: `Email "${template.label}" delivered`,
+        });
+      } catch {
+        /* mapping hook must never fail the email itself */
+      }
+
       await db.activityLogEntry.create({
         data: {
           campaignId,

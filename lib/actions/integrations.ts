@@ -165,3 +165,33 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
   if (TESTABLE.includes(id)) await saveTestResult(id, result.ok, result.detail);
   return result;
 }
+
+// --- activity mapping (channel → LSQ activity type) ----------------------------
+
+export async function listLsqActivityTypesAction() {
+  const { listActivityTypes } = await import('@/lib/leadsquared');
+  try {
+    return { ok: true as const, types: await listActivityTypes() };
+  } catch (err) {
+    return { ok: false as const, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
+  }
+}
+
+export async function getActivityMappingAction(): Promise<{
+  map: Record<string, { typeId?: number } | null>;
+  triggerFields: { channel: string; stepKey: string; message: string };
+}> {
+  const { getActivityMap, getTriggerFieldMap } = await import('@/lib/channelDelivery');
+  const [map, triggerFields] = await Promise.all([getActivityMap(), getTriggerFieldMap()]);
+  return { map, triggerFields };
+}
+
+export async function saveLsqActivityMappingAction(
+  map: Record<string, { typeId?: number } | null>,
+  triggerFields: { channel: string; stepKey: string; message: string }
+) {
+  const { saveActivityMap, saveTriggerFieldMap } = await import('@/lib/channelDelivery');
+  await saveActivityMap(map);
+  await saveTriggerFieldMap(triggerFields);
+  return { savedAt: new Date().toISOString() };
+}

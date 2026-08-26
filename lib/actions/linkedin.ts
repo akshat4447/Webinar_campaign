@@ -25,6 +25,26 @@ export async function markLinkedInSendAction(campaignId: string, contactId: stri
     update: { status, sentAt: status === 'sent' ? new Date() : null, error: null },
     create: { campaignId, contactId, stepKey: STEP_KEY, dueAt: new Date(), status, sentAt: status === 'sent' ? new Date() : null, error: null },
   });
+
+  // Optional mapped-activity hook on manual LinkedIn confirmation too.
+  if (status === 'sent') {
+    try {
+      const contact = await db.contact.findUnique({ where: { id: contactId }, select: { lsqLeadId: true, name: true } });
+      if (contact?.lsqLeadId) {
+        const { postSentActivityIfMapped } = await import('@/lib/channelDelivery');
+        await postSentActivityIfMapped({
+          channel: 'linkedin',
+          lsqLeadId: contact.lsqLeadId,
+          campaignName: '',
+          stepKey: STEP_KEY,
+          note: `LinkedIn touch confirmed sent to ${contact.name}`,
+        });
+      }
+    } catch {
+      /* mapping hook is best-effort */
+    }
+  }
+
   revalidateCampaign(campaignId);
   return { ok: true };
 }
