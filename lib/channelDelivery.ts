@@ -31,6 +31,8 @@ export type DeliveryChannel = 'sms' | 'whatsapp';
 
 const TRIGGER_TYPE_SETTING = 'lsq_channel_trigger_activity_type_id';
 const ACTIVITY_MAP_SETTING = 'lsq_activity_map_setting';
+/** Exported so callers can distinguish "no mapping saved" from "mapping of all-none". */
+export const ACTIVITY_MAP_SETTING_KEY = ACTIVITY_MAP_SETTING;
 
 /** Schema names for the trigger activity's custom fields — overridable via manual mapping. */
 export interface TriggerFieldMap {

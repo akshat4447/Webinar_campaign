@@ -68,6 +68,7 @@ export function DashboardClient({
   funnel,
   scoreBands,
   stepBreakdown,
+  channelBreakdown,
   breakdownData,
   accountBreakdown,
   attended,
@@ -79,6 +80,7 @@ export function DashboardClient({
   funnel: FunnelStage[];
   scoreBands: ScoreBand[];
   stepBreakdown: Row[];
+  channelBreakdown: Array<{ label: string; sent: number; queued: number; failed: number }>;
   breakdownData: Record<BreakdownMode, Row[]>;
   accountBreakdown: AccountRow[];
   attended: number;
@@ -252,6 +254,28 @@ export function DashboardClient({
           </div>
         )}
       </div>
+
+      {channelBreakdown.length > 0 && (
+        <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Delivery by channel</div>
+          <div style={{ fontSize: 11.5, color: 'var(--n60)', marginBottom: 14 }}>
+            Every step counted, not just the invite — the funnel above stays invite-only so its stage percentages remain meaningful.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+            {channelBreakdown.map((c) => (
+              <div key={c.label} style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '12px 14px' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{c.label}</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--n90)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{c.sent}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--n60)', marginTop: 4 }}>
+                  sent
+                  {c.queued > 0 && <span> · {c.queued} queued</span>}
+                  {c.failed > 0 && <span style={{ color: 'var(--danger-500)' }}> · {c.failed} failed</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr)', gap: 16 }}>
         <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>

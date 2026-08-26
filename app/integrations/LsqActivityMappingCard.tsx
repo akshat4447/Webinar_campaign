@@ -26,21 +26,32 @@ export function LsqActivityMappingCard() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sourcePath, setSourcePath] = useState<string | null>(null);
+  const [everSaved, setEverSaved] = useState(false);
 
+  // Both halves load on open. The types used to require clicking a quiet
+  // tertiary button, so the card rendered four empty dropdowns and looked
+  // broken before you found the control.
   useEffect(() => {
-    getActivityMappingAction().then((r) => {
-      setMap(r.map);
-      setTriggerFields(r.triggerFields);
-    });
+    void refresh();
   }, []);
 
-  async function loadTypes() {
+  async function refresh() {
     setLoadingTypes(true);
     setError(null);
-    const res = await listLsqActivityTypesAction();
+    const [mapping, res] = await Promise.all([getActivityMappingAction(), listLsqActivityTypesAction()]);
+    setMap(mapping.map);
+    setTriggerFields(mapping.triggerFields);
+    setEverSaved(mapping.everSaved);
+    if (res.ok) {
+      setTypes(res.types);
+      setSourcePath(res.sourcePath ?? null);
+    } else {
+      setTypes([]);
+      setSourcePath(null);
+      setError(res.error);
+    }
     setLoadingTypes(false);
-    if (res.ok) setTypes(res.types);
-    else setError(res.error);
   }
 
   async function save() {
@@ -63,10 +74,22 @@ export function LsqActivityMappingCard() {
           <div style={{ fontSize: 11.5, color: 'var(--n60)', lineHeight: 1.5 }}>
             Pick which activity type we post when a channel message goes out. Your automations then trigger on that activity.
           </div>
+          <div style={{ fontSize: 11, color: 'var(--warning-700)', lineHeight: 1.5, marginTop: 4 }}>
+            Don&apos;t map a channel to an activity type whose automation <em>sends that same channel</em> — the app already sent it,
+            so the automation sends a second copy. Email is sent directly by the app; leave it unmapped unless your automation only
+            logs or scores.
+          </div>
         </div>
-        <Button hierarchy="tertiary" size="sm" onClick={loadTypes} disabled={loadingTypes}>
-          {loadingTypes ? 'Loading…' : types.length ? 'Reload types' : 'Load activity types from LSQ'}
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {!loadingTypes && types.length > 0 && (
+            <span style={{ fontSize: 11, color: 'var(--n50)' }} title={sourcePath ?? undefined}>
+              {types.length} types loaded
+            </span>
+          )}
+          <Button hierarchy="secondary" size="sm" onClick={refresh} disabled={loadingTypes}>
+            {loadingTypes ? 'Refreshing…' : 'Refresh metadata'}
+          </Button>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10, marginBottom: 10 }}>
@@ -80,8 +103,10 @@ export function LsqActivityMappingCard() {
                   {t.name} (#{t.id})
                 </option>
               ))}
-              {[...Array(0)].length === 0 && map[key]?.typeId && !types.some((t) => t.id === map[key]!.typeId) && (
-                <option value={map[key]!.typeId}>#{map[key]!.typeId}</option>
+              {/* A saved id that no longer exists in the tenant still needs to
+                  render, or saving would silently drop it. */}
+              {map[key]?.typeId && !types.some((t) => t.id === map[key]!.typeId) && (
+                <option value={map[key]!.typeId}>#{map[key]!.typeId} (not in this account)</option>
               )}
             </select>
           </div>
@@ -105,7 +130,10 @@ export function LsqActivityMappingCard() {
           {saving ? 'Saving…' : savedAt ? 'Saved ✓' : 'Save mapping'}
         </Button>
         {savedAt && <span style={{ fontSize: 11, color: 'var(--n50)' }}>Saved {new Date(savedAt).toLocaleTimeString('en-GB', { hour12: false })}</span>}
-        {error && <span style={{ fontSize: 11.5, color: 'var(--danger-500)' }}>{error}</span>}
+        {!savedAt && !everSaved && !error && (
+          <span style={{ fontSize: 11, color: 'var(--n50)' }}>No mapping saved yet — nothing is posted per channel until you save one.</span>
+        )}
+        {error && <span style={{ fontSize: 11.5, color: 'var(--danger-500)', overflowWrap: 'anywhere' }}>{error}</span>}
       </div>
     </div>
   );

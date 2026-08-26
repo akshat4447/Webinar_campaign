@@ -46,6 +46,29 @@ export async function saveIntegrationConfigAction(id: string, fields: Record<str
   return { savedAt: new Date().toISOString() };
 }
 
+/**
+ * Finds a sending identity this tenant accepts and (optionally) saves it.
+ * Sends no email — see probeSenderIdentity() for why the probe is safe.
+ */
+export async function discoverSenderAction(save = true) {
+  const { discoverSender } = await import('@/lib/lsqSender');
+  try {
+    // Who "the operator" is only nudges the ranking toward a matching name or
+    // domain. Prefer whatever sender is already configured, then an explicit
+    // env hint; an empty string simply means no preference.
+    const operatorEmail =
+      (await resolveIntegrationField('lsq', 'senderEmail')) || process.env.OPERATOR_EMAIL || '';
+    const result = await discoverSender(operatorEmail);
+    if (result.sender && save) {
+      await saveIntegrationConfig('lsq', { senderEmail: result.sender });
+      await saveTestResult('lsq', true, `Sender auto-configured: ${result.sender}`);
+    }
+    return { ok: true as const, ...result };
+  } catch (err) {
+    return { ok: false as const, error: String(err instanceof Error ? err.message : err).slice(0, 300) };
+  }
+}
+
 const TESTABLE = ['lsq', 'claude', 'apollo', 'apify', 'linkedin'];
 
 /**
@@ -77,9 +100,17 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
       // itself. This is THE definitive test for the "Invalid Sender details"
       // rejection that silently killed campaign emails before.
       let senderNote = '';
-      if (f.senderEmail && process.env.SEND_MODE !== 'sandbox') {
+      // Runs in sandbox too: the recipient is the sender's own address, so it
+      // reaches nobody else — and skipping it meant the one diagnostic built
+      // for this problem never ran for anyone on the default SEND_MODE.
+      if (f.senderEmail) {
+        // The saved host may be a bare host OR a full URL; lsqFetch normalizes
+        // it and so must this, or the URL becomes https://https://… and every
+        // verification "fails" with a misleading fetch error.
+        const senderHost = f.host.includes('://') ? new URL(f.host).host : f.host.replace(/\/.*$/, '');
+        let raw = '';
         try {
-          await fetch(`https://${f.host}/v2/EmailMarketing.svc/SendEmailToLead?accessKey=${encodeURIComponent(f.accessKey)}&secretKey=${encodeURIComponent(f.secretKey)}`, {
+          const r = await fetch(`https://${senderHost}/v2/EmailMarketing.svc/SendEmailToLead?accessKey=${encodeURIComponent(f.accessKey)}&secretKey=${encodeURIComponent(f.secretKey)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -87,20 +118,30 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
               Sender: f.senderEmail,
               RecipientType: 'LeadEmailAddress',
               Recipient: f.senderEmail,
-              EmailType: 'Text',
+              // LeadSquared accepts only Template|Html here — 'Text' is
+              // rejected outright, so this check could never have passed.
+              EmailType: 'Html',
               Subject: 'Webinar Agent — sender verification',
+              ContentHTML: '<p>If you received this, the From identity works.</p>',
               ContentText: 'If you received this, the From identity works.',
+              IncludeEmailFooter: true,
             }),
             cache: 'no-store',
-          }).then(async (r) => {
-            const b = await r.text();
-            if (!r.ok || /Error/i.test(b)) throw new Error(`${r.status} ${b.slice(0, 120)}`);
           });
+          raw = (await r.text()).slice(0, 200);
+          if (!r.ok || /"Status"\s*:\s*"Error"/i.test(raw)) throw new Error(`${r.status} ${raw}`);
           senderNote = ` · sender "${f.senderEmail}" VERIFIED`;
         } catch (e) {
-          throw new Error(
-            `Sender email "${f.senderEmail}" FAILED verification: ${String(e instanceof Error ? e.message : e).slice(0, 140)} — use the exact email of an ACTIVE user (LSQ → Settings → Users), or clear the field.`
-          );
+          const msg = String(e instanceof Error ? e.message : e);
+          // Distinguish "identity rejected" from "identity fine, delivery blocked" —
+          // conflating them sent everyone hunting the wrong problem.
+          if (/MailDelivery/i.test(msg)) {
+            senderNote = ` · sender "${f.senderEmail}" accepted, but DELIVERY is blocked account-side (check email credits, verified sending domain, DKIM/SPF)`;
+          } else {
+            throw new Error(
+              `Sender email "${f.senderEmail}" FAILED verification: ${msg.slice(0, 160)} — use the exact email of an ACTIVE user (LSQ → Settings → Users), or clear the field.`
+            );
+          }
         }
       }
       result = { ok: true, detail: `200 · ${fields.length} lead fields${senderNote} · ${Date.now() - started}ms` };
@@ -171,7 +212,16 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
 export async function listLsqActivityTypesAction() {
   const { listActivityTypes } = await import('@/lib/leadsquared');
   try {
-    return { ok: true as const, types: await listActivityTypes() };
+    const { types, sourcePath, attempts } = await listActivityTypes();
+    // Zero types is a failure, not a quiet success — reporting it as ok:true
+    // is what made the mapping card look loaded while showing nothing.
+    if (types.length === 0) {
+      return {
+        ok: false as const,
+        error: `LeadSquared returned no activity types. Tried: ${attempts.join(' | ').slice(0, 400) || 'no candidate paths ran'}`,
+      };
+    }
+    return { ok: true as const, types, sourcePath };
   } catch (err) {
     return { ok: false as const, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
   }
@@ -180,10 +230,17 @@ export async function listLsqActivityTypesAction() {
 export async function getActivityMappingAction(): Promise<{
   map: Record<string, { typeId?: number } | null>;
   triggerFields: { channel: string; stepKey: string; message: string };
+  /** False until a mapping has actually been persisted, so the UI can say so
+   *  rather than showing an all-"none" form that looks the same as a broken one. */
+  everSaved: boolean;
 }> {
-  const { getActivityMap, getTriggerFieldMap } = await import('@/lib/channelDelivery');
-  const [map, triggerFields] = await Promise.all([getActivityMap(), getTriggerFieldMap()]);
-  return { map, triggerFields };
+  const { getActivityMap, getTriggerFieldMap, ACTIVITY_MAP_SETTING_KEY } = await import('@/lib/channelDelivery');
+  const [map, triggerFields, row] = await Promise.all([
+    getActivityMap(),
+    getTriggerFieldMap(),
+    db.appSetting.findUnique({ where: { key: ACTIVITY_MAP_SETTING_KEY }, select: { key: true } }),
+  ]);
+  return { map, triggerFields, everSaved: !!row };
 }
 
 export async function saveLsqActivityMappingAction(

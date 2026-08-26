@@ -110,6 +110,7 @@ async function replaceContacts(campaignId: string, rows: (ReturnType<typeof clas
       seniority: r.seniority,
       linkedinId: r.linkedinId || null,
       phone: r.phone || null,
+      extraFieldsJson: r.extras && Object.keys(r.extras).length > 0 ? JSON.stringify(r.extras) : null,
       missingInfo: r.missingInfo,
       source: r.source,
       score: null,
@@ -153,11 +154,21 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
     phone: pickCol(headers, ['phone', 'mobile', 'contact number', 'whatsapp']),
   };
 
+  // Any column not claimed by a first-class field above is retained rather than
+  // dropped — an operator's CSV often carries region, owner, plan tier etc.
+  const claimed = new Set(Object.values(ci).filter((i) => i >= 0));
+  const extraCols = headersRaw.map((h, i) => ({ header: h, index: i })).filter((c) => !claimed.has(c.index) && c.header !== '');
+
   const seen = new Set<string>();
   let dupes = 0;
   const classified = [];
   for (const r of rows.slice(1)) {
     const get = (i: number) => (i >= 0 ? String(r[i] ?? '').trim() : '');
+    const extras: Record<string, string> = {};
+    for (const c of extraCols) {
+      const v = get(c.index);
+      if (v) extras[c.header] = v;
+    }
     const name = get(ci.name) || [get(ci.first), get(ci.last)].filter(Boolean).join(' ') || 'Unnamed contact';
     const email = get(ci.email);
     const account = get(ci.account) || '—';
@@ -176,6 +187,7 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
         vertical: get(ci.vertical) || 'Unassigned',
         linkedinId: get(ci.linkedin),
         phone: get(ci.phone) || null,
+        extras,
       })
     );
   }
@@ -390,5 +402,59 @@ export async function importLsqLeadByEmailAction(
     return { ok: true, contactId, mode };
   } catch (err) {
     return { ok: false, error: String(err instanceof Error ? err.message : err).slice(0, 250) };
+  }
+}
+
+/**
+ * Pre-import safety net: pairs the CSV's headers with real LeadSquared fields
+ * and type-checks every value BEFORE anything is written.
+ *
+ * Split by design — Claude proposes the header→field pairing (a fuzzy naming
+ * problem across 250+ terse schema names), while `preflightCsvRows` decides
+ * whether values are actually writable. Type checking stays deterministic so a
+ * confident-sounding model can never wave bad data into the CRM.
+ */
+export async function analyzeCsvMappingAction(headers: string[], sampleRows: Array<Record<string, string>>) {
+  try {
+    const { getLeadsMetadata } = await import('@/lib/leadsquared');
+    const { mapCsvColumnsToLsqFields } = await import('@/lib/claude');
+    const { preflightCsvRows } = await import('@/lib/csvPreflight');
+
+    const fields = await getLeadsMetadata();
+    const { mappings, unmapped } = await mapCsvColumnsToLsqFields({ headers, fields });
+
+    const fieldTypes: Record<string, string> = {};
+    for (const f of fields) fieldTypes[f.SchemaName] = f.DataType;
+
+    const report = preflightCsvRows({ rows: sampleRows, mappings, fieldTypes });
+    return { ok: true as const, mappings, unmapped, report, lsqFieldCount: fields.length };
+  } catch (err) {
+    return { ok: false as const, error: String(err instanceof Error ? err.message : err).slice(0, 300) };
+  }
+}
+
+/**
+ * Chooses which existing LeadSquared list imported leads land in. Only static
+ * lists accept additions — dynamic lists are query-driven and reject writes.
+ * Passing null restores the default of auto-creating a per-campaign list.
+ */
+export async function setCampaignListAction(campaignId: string, listId: string | null) {
+  await db.campaign.update({ where: { id: campaignId }, data: { lsqListId: listId } });
+  revalidateCampaign(campaignId);
+  return { ok: true as const };
+}
+
+/** Static lists only — the ones that can actually receive leads. */
+export async function getStaticListsAction() {
+  try {
+    const lists = await getLists();
+    return {
+      ok: true as const,
+      lists: lists
+        .filter((l) => /static/i.test(String(l.ListType)))
+        .map((l) => ({ id: l.ListId, name: l.ListName, members: l.MemberCount })),
+    };
+  } catch (err) {
+    return { ok: false as const, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
   }
 }

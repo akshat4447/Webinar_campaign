@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
 import { INTEGRATION_FIELDS } from '@/lib/integrationFields';
-import { getIntegrationConfigMaskedAction, saveIntegrationConfigAction, testIntegrationAction } from '@/lib/actions/integrations';
+import { getIntegrationConfigMaskedAction, saveIntegrationConfigAction, testIntegrationAction, discoverSenderAction } from '@/lib/actions/integrations';
 
 const EXPLANATION: Record<string, string> = {
   zoom: 'Zoom attendance comes from a real exported "Participants Report" CSV, not the Zoom API — there\'s nothing to connect here. Import the CSV from a campaign\'s Setup tab.',
@@ -22,6 +22,8 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
   const [testResult, setTestResult] = useState<{ ok: boolean; detail: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [finding, setFinding] = useState(false);
+  const [senderNote, setSenderNote] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
 
   useEffect(() => {
     if (explanatoryOnly) return;
@@ -37,6 +39,30 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
     setTestResult(res);
     setTesting(false);
     onChanged();
+  }
+
+  // Sends no email: each candidate is validated against an undeliverable
+  // reserved-TLD recipient, so LeadSquared checks the identity and then finds
+  // nobody to deliver to.
+  async function findSender() {
+    setFinding(true);
+    setSenderNote(null);
+    const res = await discoverSenderAction(true);
+    setFinding(false);
+    if (!res.ok) {
+      setSenderNote({ tone: 'bad', text: res.error });
+      return;
+    }
+    if (res.sender) {
+      setSenderNote({
+        tone: 'good',
+        text: `Saved "${res.sender}" as the sender — accepted by LeadSquared after ${res.attempts.length} check(s) of ${res.activeUsers} active users. No email was sent.`,
+      });
+      setMasked(await getIntegrationConfigMaskedAction(id));
+      onChanged();
+    } else {
+      setSenderNote({ tone: 'bad', text: res.note });
+    }
   }
 
   async function save() {
@@ -105,6 +131,22 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
 
           {!explanatoryOnly && (
             <div>
+              {id === 'lsq' && (
+                <div style={{ marginBottom: 12 }}>
+                  <Button hierarchy="secondary" size="sm" onClick={findSender} disabled={finding}>
+                    {finding ? 'Checking senders…' : 'Find a working sender'}
+                  </Button>
+                  <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 6, lineHeight: 1.5 }}>
+                    The sender must be an active user in <em>this</em> tenant. This checks your users and saves the first one
+                    LeadSquared accepts — without sending any email.
+                  </div>
+                  {senderNote && (
+                    <div style={{ fontSize: 11.5, fontWeight: 600, marginTop: 6, color: senderNote.tone === 'good' ? 'var(--success-700)' : 'var(--danger-500)', overflowWrap: 'anywhere' }}>
+                      {senderNote.text}
+                    </div>
+                  )}
+                </div>
+              )}
               {id === 'lsq' && (
                 <div style={{ marginBottom: 12, padding: 10, background: 'var(--n10)', borderRadius: 'var(--radius-md)', fontSize: 11.5, color: 'var(--n70)', lineHeight: 1.6 }}>
                   <strong style={{ display: 'block', marginBottom: 4 }}>SMS / WhatsApp delivery</strong>

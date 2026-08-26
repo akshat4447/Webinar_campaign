@@ -206,6 +206,77 @@ export async function pushCustomActivities(activities: CustomActivity[]): Promis
   }
 }
 
+// --- users & sender identity ----------------------------------------------------
+
+export interface LsqUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  /** LSQ uses StatusCode 0 for an active user. */
+  active: boolean;
+}
+
+/** Every user on the account — the candidate pool for a sending identity. */
+export async function listUsers(): Promise<LsqUser[]> {
+  const rows = await lsqFetch<Array<Record<string, unknown>>>('/UserManagement.svc/Users.Get');
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((u) => ({
+      id: String(u.UserId ?? u.ID ?? ''),
+      email: String(u.EmailAddress ?? ''),
+      firstName: String(u.FirstName ?? ''),
+      lastName: String(u.LastName ?? ''),
+      role: String(u.Role ?? ''),
+      active: Number(u.StatusCode ?? 0) === 0,
+    }))
+    .filter((u) => u.email.includes('@'));
+}
+
+export type SenderProbe = { verdict: 'valid' | 'invalid' | 'error'; detail: string };
+
+/**
+ * Answers "would LeadSquared accept this address as a From identity?" WITHOUT
+ * sending any email.
+ *
+ * The trick: LSQ validates the sender before it attempts delivery, so aiming at
+ * a deliberately undeliverable recipient separates the two failure modes.
+ * `example.invalid` is an IANA-reserved TLD that can never resolve, so no
+ * message can escape even in principle.
+ *   • sender rejected  → "Invalid Sender details."
+ *   • sender accepted  → "No lead found with RecipientType: LeadEmailAddress…"
+ * That second error is the success signal: validation passed and LSQ only then
+ * discovered it had nobody to deliver to.
+ */
+export async function probeSenderIdentity(senderEmail: string): Promise<SenderProbe> {
+  await throttle();
+  try {
+    await lsqFetch('/EmailMarketing.svc/SendEmailToLead', {
+      method: 'POST',
+      body: {
+        SenderType: 'UserEmailAddress',
+        Sender: senderEmail,
+        RecipientType: 'LeadEmailAddress',
+        Recipient: 'sender-validation-probe@example.invalid',
+        EmailType: 'Html',
+        Subject: 'sender validation probe',
+        ContentHTML: '<p>probe</p>',
+        ContentText: 'probe',
+      },
+    });
+    // Reaching here would mean LSQ accepted an undeliverable recipient, which
+    // it never has. Treat as valid rather than inventing a failure.
+    return { verdict: 'valid', detail: 'Accepted (unexpectedly returned success).' };
+  } catch (err) {
+    const raw = err instanceof LeadSquaredError ? `${typeof err.body === 'string' ? err.body : JSON.stringify(err.body ?? {})}` : String(err);
+    const msg = raw.match(/"ExceptionMessage"\s*:\s*"([^"]+)"/)?.[1] ?? raw.slice(0, 160);
+    if (/No lead found/i.test(msg)) return { verdict: 'valid', detail: msg };
+    if (/Invalid Sender/i.test(msg)) return { verdict: 'invalid', detail: msg };
+    return { verdict: 'error', detail: msg };
+  }
+}
+
 // --- email sending -------------------------------------------------------------
 
 export interface SendEmailParams {
@@ -272,7 +343,24 @@ export async function sendEmailToLead(params: SendEmailParams): Promise<{ ID: st
         body: buildBody(s),
       });
     } catch (err) {
-      lastRaw = err instanceof LeadSquaredError ? `${err.status} ${String(err.body ?? '')}` : String(err);
+      // err.body is a PARSED object — String() on it yields "[object Object]",
+      // which made every pattern below fail to match. That silently disabled
+      // the dual-identity retry AND produced sender-blaming errors for
+      // failures that had nothing to do with the sender.
+      lastRaw = err instanceof LeadSquaredError ? `${err.status} ${typeof err.body === 'string' ? err.body : JSON.stringify(err.body ?? {})}` : String(err);
+
+      // A delivery rejection is NOT a sender problem: the identity was accepted
+      // and LeadSquared refused to deliver. Retrying the other identity cannot
+      // help, so surface it immediately with the causes that actually apply.
+      if (/MailDelivery/i.test(lastRaw)) {
+        throw new Error(
+          `LeadSquared accepted the sender but refused to DELIVER to ${params.recipientEmail} (MXMailDeliveryException). ` +
+            `This is an account-level mail restriction, not a code or sender problem — check, in LSQ: ` +
+            `(1) Settings → Billing and Usage for remaining email credits, ` +
+            `(2) a verified sending domain, and (3) DKIM/SPF records. Raw: ${lastRaw.slice(0, 200)}`
+        );
+      }
+
       // Only a sender-identity rejection justifies retrying with the other
       // identity — anything else (rate limit, recipient missing) must surface.
       if (!/Invalid Sender|MandatoryAttributeMissing/i.test(lastRaw)) throw err;
@@ -281,8 +369,8 @@ export async function sendEmailToLead(params: SendEmailParams): Promise<{ ID: st
 
   throw new Error(
     senderEmail
-      ? `LeadSquared rejected BOTH sender identities ("${senderEmail}" and APICaller). In LSQ → Settings → Users, confirm "${senderEmail}" is an ACTIVE user with email sending enabled, or clear the Sender email field to use APICaller after configuring that identity with LSQ support.`
-      : 'LeadSquared rejected the APICaller sender identity. Set LSQ_SENDER_EMAIL (or Integrations → LeadSquared → Sender email) to the exact email of an ACTIVE LeadSquared user — that becomes the verified From address.'
+      ? `LeadSquared rejected BOTH sender identities ("${senderEmail}" and APICaller). In LSQ → Settings → Users, confirm "${senderEmail}" is an ACTIVE user with email sending enabled, or clear the Sender email field to use APICaller after configuring that identity with LSQ support. Raw: ${lastRaw.slice(0, 200)}`
+      : `LeadSquared rejected the APICaller sender identity. Set LSQ_SENDER_EMAIL (or Integrations → LeadSquared → Sender email) to the exact email of an ACTIVE LeadSquared user — that becomes the verified From address. Raw: ${lastRaw.slice(0, 200)}`
   );
 }
 
@@ -348,18 +436,31 @@ export interface LsqActivityType {
   name: string;
 }
 
+export interface ActivityTypesResult {
+  types: LsqActivityType[];
+  /** Which candidate path actually answered — null when every one failed. */
+  sourcePath: string | null;
+  /** One line per failed candidate, so a total failure is diagnosable instead of silent. */
+  attempts: string[];
+}
+
 /**
  * Lists the account's activity types. LSQ exposes this under slightly
  * different paths across versions/API generations, so we probe the known
  * candidates (GET first, then empty-body POST) and normalize the winner.
+ *
+ * Returns the probe outcome rather than a bare array: an empty list used to be
+ * indistinguishable from "every endpoint failed", which made the Activity
+ * mapping card look like it had loaded when it had actually found nothing.
  */
-export async function listActivityTypes(): Promise<LsqActivityType[]> {
+export async function listActivityTypes(): Promise<ActivityTypesResult> {
   const candidates = [
     '/ProspectActivity.svc/ActivityTypes.Get',
     '/ProspectActivity.svc/Types.Get',
     '/ProspectActivity.svc/ActivityTypes',
     '/ProspectActivity.svc/Types',
   ];
+  const attempts: string[] = [];
   for (const path of candidates) {
     for (const method of ['GET', 'POST'] as const) {
       try {
@@ -370,20 +471,27 @@ export async function listActivityTypes(): Promise<LsqActivityType[]> {
             (res as { Types?: unknown[] } | null)?.Types ??
             (res as { Data?: unknown[] } | null)?.Data ??
             []);
-        if (!Array.isArray(arr) || (arr.length === 0 && method === 'GET')) continue;
+        if (!Array.isArray(arr) || (arr.length === 0 && method === 'GET')) {
+          attempts.push(`${method} ${path} → no array in response`);
+          continue;
+        }
         const out: LsqActivityType[] = [];
         for (const t of arr as Array<Record<string, unknown>>) {
           const id = Number(t.ActivityEvent ?? t.Id ?? t.ActivityTypeId ?? NaN);
           const name = String(t.ActivityTypeName ?? t.Name ?? t.ActivityEventName ?? '');
           if (Number.isFinite(id) && name) out.push({ id, name });
         }
-        if (out.length > 0) return out;
-      } catch {
-        /* try next candidate */
+        if (out.length > 0) {
+          out.sort((a, b) => a.name.localeCompare(b.name));
+          return { types: out, sourcePath: `${method} ${path}`, attempts };
+        }
+        attempts.push(`${method} ${path} → ${arr.length} rows but none had a usable id+name`);
+      } catch (err) {
+        attempts.push(`${method} ${path} → ${err instanceof Error ? err.message.slice(0, 120) : String(err).slice(0, 120)}`);
       }
     }
   }
-  return [];
+  return { types: [], sourcePath: null, attempts };
 }
 
 /** Details (incl. custom field schema names) for one activity type. */

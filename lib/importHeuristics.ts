@@ -40,6 +40,8 @@ export interface ImportedContact {
   vertical: string;
   linkedinId: string;
   phone?: string | null;
+  /** Columns with no first-class field here, kept verbatim so nothing is lost. */
+  extras?: Record<string, string>;
   missingInfo: boolean;
   function: string;
   seniority: string;

@@ -111,6 +111,9 @@ model Contact {
   enrichedAt       DateTime?
   enrichmentSource String?
   personaNote      String?
+  // Every CSV column that has no first-class field above, kept as JSON so an
+  // import never silently discards data the operator supplied.
+  extraFieldsJson  String?
   emailSimulated   Boolean @default(false)
   emailVerified    Boolean @default(false)
 

@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Icon } from '@/components/ui/Icon';
 import { Drawer, type DrawerContent } from '@/components/ui/Drawer';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { importCsvAction, fetchLsqListsAction, importFromLsqListAction, type CsvImportResult } from '@/lib/actions/setup';
+import { importCsvAction, fetchLsqListsAction, importFromLsqListAction, analyzeCsvMappingAction, getStaticListsAction, setCampaignListAction, type CsvImportResult } from '@/lib/actions/setup';
 import type { LsqList } from '@/lib/leadsquared';
 
 export function LeadImportCard({
@@ -37,6 +37,13 @@ export function LeadImportCard({
   // Only the *first* import (no contacts yet) skips the prompt.
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [confirmingCsv, setConfirmingCsv] = useState(false);
+
+  // AI field-mapping check + destination list (CSV mode)
+  const [checking, setChecking] = useState(false);
+  const [check, setCheck] = useState<Awaited<ReturnType<typeof analyzeCsvMappingAction>> | null>(null);
+  const [destLists, setDestLists] = useState<Array<{ id: string; name: string; members: number }> | null>(null);
+  const [destListId, setDestListId] = useState('');
+  const [destSaving, setDestSaving] = useState(false);
   const [confirmingLsq, setConfirmingLsq] = useState(false);
   const hasExisting = existingContactCount > 0;
 
@@ -58,6 +65,40 @@ export function LeadImportCard({
       return;
     }
     handleFile(file);
+  }
+
+  /**
+   * Reads the chosen file in the browser and asks the server to pair its
+   * headers with real LeadSquared fields, then type-check the values. Runs
+   * before any import, so problems surface while they're still cheap to fix.
+   */
+  async function runCheck() {
+    const file = pendingFile ?? inputRef.current?.files?.[0];
+    if (!file) return;
+    setChecking(true);
+    setCheck(null);
+    const text = await file.text();
+    const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
+    const split = (l: string) => l.split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
+    const headers = split(lines[0] ?? '');
+    const rows = lines.slice(1, 51).map((l) => {
+      const cells = split(l);
+      return Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? '']));
+    });
+    setCheck(await analyzeCsvMappingAction(headers, rows));
+    setChecking(false);
+  }
+
+  async function loadDestLists() {
+    const res = await getStaticListsAction();
+    if (res.ok) setDestLists(res.lists);
+  }
+
+  async function chooseDestList(listId: string) {
+    setDestListId(listId);
+    setDestSaving(true);
+    await setCampaignListAction(campaignId, listId || null);
+    setDestSaving(false);
   }
 
   async function handleFile(file: File) {
@@ -183,6 +224,78 @@ export function LeadImportCard({
           <Button hierarchy="tertiary" size="sm" onClick={() => inputRef.current?.click()}>
             Replace file
           </Button>
+        </div>
+      )}
+
+      {mode === 'csv' && (
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            <Button hierarchy="secondary-color" size="sm" onClick={runCheck} disabled={checking}>
+              {checking ? 'Checking…' : '\u2726 Check fields against LeadSquared'}
+            </Button>
+            <span style={{ fontSize: 11.5, color: 'var(--n60)' }}>
+              Pairs your columns with real LSQ fields and type-checks the values before anything is written.
+            </span>
+          </div>
+
+          {check && !check.ok && <div style={{ fontSize: 12, color: 'var(--danger-500)' }}>{check.error}</div>}
+
+          {check?.ok && (
+            <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: 12, fontSize: 12 }}>
+              <div style={{ color: 'var(--n60)', marginBottom: 8 }}>
+                Matched against {check.lsqFieldCount} LeadSquared fields.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }}>
+                {check.mappings.map((m) => (
+                  <div key={m.header} style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ color: 'var(--n80)', fontWeight: 600 }}>{m.header}</span>
+                    <span style={{ color: 'var(--n50)' }}>&rarr;</span>
+                    <span style={{ fontFamily: 'monospace', color: 'var(--n90)' }}>{m.schemaName}</span>
+                    <Badge color={m.confidence === 'high' ? 'success' : m.confidence === 'medium' ? 'warning' : 'error'} text={m.confidence} />
+                    <span style={{ color: 'var(--n60)' }}>{m.reason}</span>
+                  </div>
+                ))}
+              </div>
+              {check.unmapped.length > 0 && (
+                <div style={{ color: 'var(--n60)', marginBottom: 8 }}>
+                  Kept on the contact but not written to LeadSquared (no good field match): <strong>{check.unmapped.join(', ')}</strong>
+                </div>
+              )}
+              <div style={{ color: check.report.issues.length ? 'var(--danger-500)' : 'var(--success-700)', fontWeight: 600 }}>
+                {check.report.issues.length === 0
+                  ? `All ${check.report.checked} values look writable.`
+                  : `${check.report.issues.length} value(s) across ${check.report.badRows} row(s) would be rejected \u2014 fix these first:`}
+              </div>
+              {check.report.issues.slice(0, 8).map((i, n) => (
+                <div key={n} style={{ color: 'var(--n70)', marginTop: 3 }}>
+                  Row {i.row}, &ldquo;{i.header}&rdquo; = {i.value} &mdash; {i.problem}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>
+              Destination list in LeadSquared {destSaving && <span style={{ color: 'var(--n50)' }}>&middot; saving…</span>}
+            </div>
+            <select
+              className="lsq-select"
+              value={destListId}
+              onFocus={() => { if (!destLists) void loadDestLists(); }}
+              onChange={(e) => void chooseDestList(e.target.value)}
+              style={{ width: '100%', height: 34, fontSize: 12.5 }}
+            >
+              <option value="">Create a new list for this campaign (default)</option>
+              {destLists?.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name} ({l.members} members)
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 5 }}>
+              Only static lists are listed &mdash; dynamic lists are query-driven and reject additions.
+            </div>
+          </div>
         </div>
       )}
 

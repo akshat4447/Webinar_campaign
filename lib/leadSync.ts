@@ -9,8 +9,23 @@ export interface LeadSyncResult {
   error?: string;
 }
 
-function leadFieldsFor(c: { email: string | null; name: string; account: string; title: string; phone?: string | null }): LeadField[] {
-  return [
+/**
+ * Builds the attribute list written to LeadSquared.
+ *
+ * `extraFieldsJson` holds columns the CSV supplied that have no first-class
+ * column here. They're sent only when the operator has confirmed a
+ * header→SchemaName mapping (stored under `_lsqMap`), so an unreviewed guess
+ * never writes into a live CRM field.
+ */
+function leadFieldsFor(c: {
+  email: string | null;
+  name: string;
+  account: string;
+  title: string;
+  phone?: string | null;
+  extraFieldsJson?: string | null;
+}): LeadField[] {
+  const base: LeadField[] = [
     { Attribute: 'EmailAddress', Value: c.email! },
     { Attribute: 'FirstName', Value: c.name.split(' ')[0] || c.name },
     { Attribute: 'LastName', Value: c.name.split(' ').slice(1).join(' ') },
@@ -18,6 +33,23 @@ function leadFieldsFor(c: { email: string | null; name: string; account: string;
     { Attribute: 'JobTitle', Value: c.title },
     ...(c.phone ? [{ Attribute: 'Phone', Value: c.phone }] : []),
   ];
+
+  if (!c.extraFieldsJson) return base;
+  try {
+    const parsed = JSON.parse(c.extraFieldsJson) as Record<string, unknown>;
+    const map = parsed._lsqMap as Record<string, string> | undefined;
+    if (!map) return base;
+    const taken = new Set(base.map((f) => f.Attribute));
+    for (const [header, schemaName] of Object.entries(map)) {
+      const value = parsed[header];
+      if (typeof value !== 'string' || !value.trim() || taken.has(schemaName)) continue;
+      taken.add(schemaName);
+      base.push({ Attribute: schemaName, Value: value.trim() });
+    }
+  } catch {
+    /* malformed extras must never block the core lead write */
+  }
+  return base;
 }
 
 // LSQ rejects AddLeadsToStaticList with this when a leadId in the payload

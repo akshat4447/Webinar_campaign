@@ -284,6 +284,128 @@ export async function personalizeMessages(params: {
   return results;
 }
 
+// --- CSV column → LeadSquared field mapping ---------------------------------------
+
+const CsvMapSchema = z.object({
+  mappings: z.array(
+    z.object({
+      header: z.string().describe('The CSV header, copied exactly from the input'),
+      schemaName: z.string().describe('The LeadSquared field SchemaName it maps to, copied exactly from the field list'),
+      confidence: z.enum(['high', 'medium', 'low']),
+      reason: z.string().describe('One short clause on why this pairing is right'),
+    })
+  ),
+  unmapped: z.array(z.string()).describe('CSV headers with no sensible LeadSquared field. Copy verbatim.'),
+});
+
+export type CsvFieldMapping = z.infer<typeof CsvMapSchema>['mappings'][number];
+
+/**
+ * Pairs arbitrary CSV headers with real LeadSquared field SchemaNames.
+ *
+ * A tenant can expose 250+ lead fields with terse schema names, and a customer
+ * CSV uses whatever wording it likes ("Mobile No.", "Acct Owner", "Region").
+ * Fuzzy-matching those two vocabularies is the one part of the import that
+ * deterministic code does badly, so it is the part delegated here.
+ *
+ * Deliberately advisory: this only PROPOSES a mapping. Type/format checking and
+ * the decision to write are handled by deterministic code and the operator.
+ */
+export async function mapCsvColumnsToLsqFields(params: {
+  headers: string[];
+  fields: Array<{ SchemaName: string; DisplayName: string; DataType: string }>;
+}): Promise<{ mappings: CsvFieldMapping[]; unmapped: string[] }> {
+  const response = await (await client()).messages.parse({
+    model: MODEL,
+    max_tokens: 4000,
+    output_config: { format: zodOutputFormat(CsvMapSchema), effort: 'low' },
+    system: [
+      'You map CSV column headers onto LeadSquared lead field SchemaNames for a contact import.',
+      '',
+      'Rules:',
+      '- Only ever use a SchemaName that appears in the supplied field list. Never invent one.',
+      '- Map a header at most once, and never map two headers to the same SchemaName.',
+      '- Respect the field DataType: do not send free text at a Number or Date field.',
+      '- Prefer the standard fields (EmailAddress, FirstName, LastName, Company, JobTitle, Phone, Mobile) over custom mx_ fields when both would fit.',
+      '- If a header has no genuinely good match, put it in `unmapped` rather than forcing a weak pairing. A wrong mapping is worse than none.',
+      '- Use confidence "low" whenever you are guessing, so a human reviews it.',
+    ].join('\n'),
+    messages: [
+      {
+        role: 'user',
+        content: JSON.stringify({
+          headers: params.headers,
+          // Trimmed to what matching needs; the full metadata is large.
+          fields: params.fields.map((f) => ({ SchemaName: f.SchemaName, DisplayName: f.DisplayName, DataType: f.DataType })),
+        }),
+      },
+    ],
+  });
+  return { mappings: response.parsed_output?.mappings ?? [], unmapped: response.parsed_output?.unmapped ?? [] };
+}
+
+// --- sender candidate ranking -----------------------------------------------------
+
+/**
+ * Deliberately asks for a SHORTLIST, not a full reordering. A tenant can hold
+ * ~200 users; echoing every one back with a reason overflows the output budget
+ * and takes tens of seconds. Only the top handful is ever probed anyway.
+ */
+const SHORTLIST_SIZE = 12;
+
+const SenderRankSchema = z.object({
+  top: z
+    .array(
+      z.object({
+        email: z.string().describe('The candidate email, copied exactly from the input list'),
+        reason: z.string().describe('Short reason this is a good public From identity'),
+      })
+    )
+    .describe(`The ${SHORTLIST_SIZE} most suitable candidates, best first. Copy emails verbatim; never invent one.`),
+});
+
+export interface SenderCandidate {
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+}
+
+/**
+ * Orders sender candidates by how appropriate each is as a campaign's public
+ * "From" address. Ranking ONLY — whether an address actually works is decided
+ * by LeadSquared via probeSenderIdentity(), never here.
+ *
+ * Worth ordering because a tenant can hold ~200 users, most of them test or
+ * per-role logins; picking the first one alphabetically tends to put something
+ * like `1.sc.scmum@…` on outgoing mail.
+ */
+export async function rankSenderCandidates(params: {
+  operatorEmail: string;
+  candidates: SenderCandidate[];
+}): Promise<Array<{ email: string; reason: string }>> {
+  const response = await (await client()).messages.parse({
+    model: MODEL,
+    max_tokens: 2000,
+    output_config: { format: zodOutputFormat(SenderRankSchema), effort: 'low' },
+    system: [
+      `You pick the ${SHORTLIST_SIZE} LeadSquared users most suitable as the public "From" address on a B2B webinar campaign.`,
+      '',
+      'Prefer: a real named human; a marketing, campaigns, growth or admin role; a plain first.last@ address; someone whose name or email domain matches the operator running the campaign.',
+      'Avoid: addresses that look like test, demo, QA, sandbox or numbered fixtures (leading digits, "+tag" suffixes, random strings); shared or no-reply mailboxes; sales-agent seats that would look odd on a marketing send.',
+      '',
+      `Return at most ${SHORTLIST_SIZE}, best first, copying each email verbatim from the input. Do not invent addresses.`,
+    ].join('\n'),
+    messages: [
+      {
+        role: 'user',
+        content: JSON.stringify({ operatorEmail: params.operatorEmail, candidates: params.candidates }),
+      },
+    ],
+  });
+  return response.parsed_output?.top ?? [];
+}
+
 // --- attention item AI diagnosis --------------------------------------------------
 
 export interface DiagnoseResult {

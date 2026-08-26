@@ -12,11 +12,15 @@ const SCORE_BANDS = [
 export default async function DashboardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [campaign, contacts, sendCounts, invitedSends] = await Promise.all([
+  const [campaign, contacts, sendCounts, invitedSends, templates, steps] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id } }),
     db.contact.findMany({ where: { campaignId: id } }),
     db.cadenceSend.groupBy({ by: ['stepKey', 'status'], where: { campaignId: id }, _count: true }),
     db.cadenceSend.findMany({ where: { campaignId: id, stepKey: 'invite', status: 'sent' }, select: { contactId: true } }),
+    // Template carries both the human label and the real channel, so the
+    // dashboard no longer needs its own hardcoded copy of either.
+    db.template.findMany({ where: { campaignId: id }, select: { key: true, label: true, channel: true } }),
+    db.cadenceStep.findMany({ where: { campaignId: id }, select: { key: true } }),
   ]);
 
   if (contacts.length === 0) {
@@ -29,10 +33,13 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
 
   const sentByStep: Record<string, number> = {};
   const failedByStep: Record<string, number> = {};
+  const queuedByStep: Record<string, number> = {};
   for (const row of sendCounts) {
     if (row.status === 'sent') sentByStep[row.stepKey] = (sentByStep[row.stepKey] ?? 0) + row._count;
     if (row.status === 'failed') failedByStep[row.stepKey] = (failedByStep[row.stepKey] ?? 0) + row._count;
+    if (row.status === 'queued') queuedByStep[row.stepKey] = (queuedByStep[row.stepKey] ?? 0) + row._count;
   }
+  const totalDelivered = Object.values(sentByStep).reduce((a, b) => a + b, 0);
 
   const total = contacts.length;
   const enriched = contacts.filter((c) => c.enrichedAt).length;
@@ -53,7 +60,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
     { label: 'Enriched', value: enriched },
     { label: 'Scored', value: scored },
     { label: 'Approved', value: approved },
-    { label: 'Invited', value: invited },
+    { label: 'Invited (invite step)', value: invited },
     ...(attendanceImported ? [{ label: 'Attended', value: attended }] : []),
   ];
   const funnel = rawFunnel.map((stage, i) => {
@@ -72,6 +79,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
   const kpis = [
     { label: 'Approval rate', value: total ? `${Math.round((approved / total) * 100)}%` : '—', sub: `${approved} of ${total} scored contacts`, tone: 'accent' as const },
     { label: 'Invites delivered', value: String(invited), sub: failedByStep['invite'] ? `${failedByStep['invite']} failed` : 'no failures', tone: failedByStep['invite'] ? ('warn' as const) : ('neutral' as const) },
+    { label: 'Messages delivered', value: String(totalDelivered), sub: 'every channel and step', tone: 'neutral' as const },
     {
       label: 'Attendance rate',
       value: attendanceImported && approved ? `${Math.round((attended / approved) * 100)}%` : '—',
@@ -96,24 +104,38 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
     };
   }).filter((b) => b.contacts > 0);
 
-  const stepOrder = ['invite', 'linkedin', 'nudge', 'final', 'attend', 'noshow'];
-  const stepLabels: Record<string, string> = {
-    invite: 'Initial invite',
-    linkedin: 'LinkedIn touch',
-    nudge: 'Nudge',
-    final: 'Final call',
-    attend: 'Attendee follow-up',
-    noshow: 'No-show follow-up',
-  };
+  // Derived, never hardcoded: the old fixed list silently omitted sms, t3, t1d
+  // and t1h, so real sends rendered nowhere. Union the campaign's own steps,
+  // its templates, and anything that has actually been sent, so a newly added
+  // channel can never go missing again.
+  const stepMeta = new Map(templates.map((t) => [t.key, { label: t.label, channel: t.channel }]));
+  const stepOrder = [...new Set([...steps.map((s) => s.key), ...templates.map((t) => t.key), ...Object.keys(sentByStep), ...Object.keys(failedByStep), ...Object.keys(queuedByStep)])];
+
   const maxSent = Math.max(1, ...stepOrder.map((k) => sentByStep[k] ?? 0));
   const stepBreakdown = stepOrder
     .filter((k) => (sentByStep[k] ?? 0) > 0 || (failedByStep[k] ?? 0) > 0)
     .map((k) => ({
-      label: stepLabels[k],
+      label: stepMeta.get(k)?.label ?? k,
       count: sentByStep[k] ?? 0,
       failed: failedByStep[k] ?? 0,
       pct: Math.round(((sentByStep[k] ?? 0) / maxSent) * 100),
     }));
+
+  // Channel rollup — the funnel is invite-only by design, so this is where the
+  // full multi-channel picture lives.
+  const channelTotals = new Map<string, { sent: number; queued: number; failed: number }>();
+  for (const k of stepOrder) {
+    const channel = stepMeta.get(k)?.channel ?? 'Other';
+    const acc = channelTotals.get(channel) ?? { sent: 0, queued: 0, failed: 0 };
+    acc.sent += sentByStep[k] ?? 0;
+    acc.queued += queuedByStep[k] ?? 0;
+    acc.failed += failedByStep[k] ?? 0;
+    channelTotals.set(channel, acc);
+  }
+  const channelBreakdown = [...channelTotals.entries()]
+    .map(([label, v]) => ({ label, ...v }))
+    .filter((c) => c.sent > 0 || c.queued > 0 || c.failed > 0)
+    .sort((a, b) => b.sent - a.sent);
 
   function groupBy(key: (c: (typeof contacts)[number]) => string) {
     const counts = new Map<string, number>();
@@ -180,6 +202,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
         funnel={funnel}
         scoreBands={scoreBands}
         stepBreakdown={stepBreakdown}
+        channelBreakdown={channelBreakdown}
         breakdownData={breakdownData}
         accountBreakdown={accountBreakdown}
         attended={attended}
