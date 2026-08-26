@@ -99,8 +99,8 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
       >
         <div style={{ flexShrink: 0, padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'start', gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--n90)' }}>{name}</div>
-            <div style={{ fontSize: 12, color: 'var(--n60)', marginTop: 3 }}>{explanatoryOnly ? 'No credentials needed' : 'Connection settings'}</div>
+            <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>{name}</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 3 }}>{explanatoryOnly ? 'No credentials needed' : 'Connection settings'}</div>
           </div>
           <div onClick={onClose} style={{ cursor: 'pointer', width: 28, height: 28, borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Icon name="close" size={16} style={{ color: 'var(--n60)' }} />
@@ -109,11 +109,11 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
 
         <div style={{ flex: 1, overflow: 'auto', padding: '18px 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           {explanatoryOnly ? (
-            <div style={{ fontSize: 13, color: 'var(--n70)', lineHeight: 1.6 }}>{EXPLANATION[id]}</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.6 }}>{EXPLANATION[id]}</div>
           ) : (
             fields.map((f) => (
               <div key={f.key}>
-                <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>
+                <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 6 }}>
                   {f.label}
                   {f.optional && <span style={{ color: 'var(--n50)' }}> (optional)</span>}
                 </div>
@@ -136,19 +136,19 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                   <Button hierarchy="secondary" size="sm" onClick={findSender} disabled={finding}>
                     {finding ? 'Checking senders…' : 'Find a working sender'}
                   </Button>
-                  <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 6, lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 6, lineHeight: 1.5 }}>
                     The sender must be an active user in <em>this</em> tenant. This checks your users and saves the first one
                     LeadSquared accepts — without sending any email.
                   </div>
                   {senderNote && (
-                    <div style={{ fontSize: 11.5, fontWeight: 600, marginTop: 6, color: senderNote.tone === 'good' ? 'var(--success-700)' : 'var(--danger-500)', overflowWrap: 'anywhere' }}>
+                    <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, marginTop: 6, color: senderNote.tone === 'good' ? 'var(--success-700)' : 'var(--danger-500)', overflowWrap: 'anywhere' }}>
                       {senderNote.text}
                     </div>
                   )}
                 </div>
               )}
               {id === 'lsq' && (
-                <div style={{ marginBottom: 12, padding: 10, background: 'var(--n10)', borderRadius: 'var(--radius-md)', fontSize: 11.5, color: 'var(--n70)', lineHeight: 1.6 }}>
+                <div style={{ marginBottom: 12, padding: 10, background: 'var(--n10)', borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-label-2)', color: 'var(--n70)', lineHeight: 1.6 }}>
                   <strong style={{ display: 'block', marginBottom: 4 }}>SMS / WhatsApp delivery</strong>
                   <strong>Trigger (default):</strong> the app posts a <em>WebinarAgent Channel Trigger</em> activity per send. One-time in your
                   tenant: Settings → Automation → Add Program → trigger “On activity: WebinarAgent Channel Trigger” → action Send SMS /
@@ -169,13 +169,13 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                   <a
                     href="/api/auth/linkedin/connect"
                     style={{
-                      display: 'inline-flex', alignItems: 'center', height: 32, padding: '0 12px', fontSize: 12.5, fontWeight: 600,
+                      display: 'inline-flex', alignItems: 'center', height: 32, padding: '0 12px', fontSize: 'var(--fs-label-1)', fontWeight: 600,
                       background: '#0A66C2', color: '#fff', borderRadius: 'var(--radius-md)', textDecoration: 'none',
                     }}
                   >
                     Connect with LinkedIn
                   </a>
-                  <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 6, lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 6, lineHeight: 1.5 }}>
                     Authorizes your Page for Events, registration forms and Lead Sync (r_events · rw_events · leadgen automation). Tokens are stored server-side only.
                   </div>
                 </div>
@@ -184,7 +184,7 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                 {testing ? 'Testing…' : 'Test connection'}
               </Button>
               {testResult && (
-                <div style={{ marginTop: 10, fontSize: 12.5, fontWeight: 600, color: testResult.ok ? 'var(--success-700)' : 'var(--danger-500)', overflowWrap: 'anywhere' }}>
+                <div style={{ marginTop: 10, fontSize: 'var(--fs-label-1)', fontWeight: 600, color: testResult.ok ? 'var(--success-700)' : 'var(--danger-500)', overflowWrap: 'anywhere' }}>
                   {testResult.detail}
                 </div>
               )}

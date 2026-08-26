@@ -128,8 +128,8 @@ export function LinkedInPanel({
   return (
     <>
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>LinkedIn touches · manual</div>
-        <div style={{ fontSize: 12, color: 'var(--n60)', lineHeight: 1.5, marginBottom: 10 }}>
+        <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>LinkedIn touches · manual</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.5, marginBottom: 10 }}>
           {queue.length} draft{queue.length === 1 ? '' : 's'} ready ·{' '}
           <span style={{ color: 'var(--success-700)' }}>{verifiedCount} Apollo-verified</span>
           {uncheckedCount > 0 && ` · ${uncheckedCount} unchecked`}
@@ -140,20 +140,20 @@ export function LinkedInPanel({
           {verifying ? 'Verifying with Apollo…' : queue.some((q) => !q.checkStatus) ? 'Verify queue with Apollo' : 'Re-verify queue'}
         </Button>
         {verifySummary && (
-          <div style={{ fontSize: 11.5, color: verifySummary.startsWith('No') || verifySummary.includes('errors') ? 'var(--warning-700)' : 'var(--n70)', marginBottom: 12, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: verifySummary.startsWith('No') || verifySummary.includes('errors') ? 'var(--warning-700)' : 'var(--n70)', marginBottom: 12, lineHeight: 1.5 }}>
             {verifySummary}
           </div>
         )}
 
-        <div style={{ fontSize: 11.5, color: 'var(--n60)', marginBottom: 12 }}>
+        <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginBottom: 12 }}>
           Sends are manual by design — scripted LinkedIn outreach breaches their terms. Apollo verification keeps the queue honest.
         </div>
 
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-          <span style={{ fontSize: 11.5, color: 'var(--n60)' }}>
+          <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>
             {sentCount} of {queue.length} sent
           </span>
-          {pending.length > 0 && <span style={{ fontSize: 11.5, color: 'var(--n50)' }}>{pending.length} pending</span>}
+          {pending.length > 0 && <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>{pending.length} pending</span>}
         </div>
         <div style={{ height: 6, background: 'var(--n20)', borderRadius: 'var(--radius-full)', overflow: 'hidden', marginBottom: 12 }}>
           <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent-500)', borderRadius: 'var(--radius-full)' }} />
@@ -186,8 +186,8 @@ export function LinkedInPanel({
           >
             <div style={{ flexShrink: 0, padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--n90)' }}>LinkedIn send queue</div>
-                <div style={{ fontSize: 12, color: 'var(--n60)', marginTop: 2 }}>
+                <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>LinkedIn send queue</div>
+                <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 2 }}>
                   Manual send · {sentCount} of {queue.length} sent
                 </div>
               </div>
@@ -200,8 +200,8 @@ export function LinkedInPanel({
                 <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 16 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)' }}>{current.name}</div>
-                      <div style={{ fontSize: 12, color: 'var(--n60)' }}>
+                      <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>{current.name}</div>
+                      <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>
                         {current.title} · {current.account}
                       </div>
                     </div>
@@ -216,7 +216,7 @@ export function LinkedInPanel({
                       {current.checkStatus === 'not_found' && <Badge color="error" text="Not found on Apollo" dot />}
                       {current.checkStatus === 'error' && <Badge color="warning" text="Verification lookup failed" dot />}
                       {current.checkStatus !== 'verified' && (
-                        <span style={{ fontSize: 11, color: 'var(--warning-700)', lineHeight: 1.4 }}>{current.checkNote}</span>
+                        <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--warning-700)', lineHeight: 1.4 }}>{current.checkNote}</span>
                       )}
                     </div>
                   )}
@@ -227,10 +227,10 @@ export function LinkedInPanel({
                       ) : (
                         <Badge color="blue light" text="Personalized for this person" />
                       )}
-                      <span style={{ fontSize: 11, color: 'var(--n50)' }}>Edit it on the Personalize tab.</span>
+                      <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>Edit it on the Personalize tab.</span>
                     </div>
                   )}
-                  <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: 14, fontSize: 13, color: 'var(--n80)', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: 14 }}>
+                  <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: 14, fontSize: 'var(--fs-label-1)', color: 'var(--n80)', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: 14 }}>
                     {current.message}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -238,7 +238,7 @@ export function LinkedInPanel({
                       Copy message &amp; open LinkedIn
                     </Button>
 
-                    <div style={{ fontSize: 11.5, color: 'var(--n60)', lineHeight: 1.55 }}>
+                    <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', lineHeight: 1.55 }}>
                       {curSteps.opened
                         ? 'Paste it into the message box (⌘V), read it over, and press Send in LinkedIn. Then confirm below.'
                         : current.slug
@@ -250,7 +250,7 @@ export function LinkedInPanel({
                       <button
                         type="button"
                         onClick={() => window.open(profileUrl(current.slug!), '_blank', 'noopener')}
-                        style={{ alignSelf: 'flex-start', background: 'none', border: 'none', padding: 0, fontSize: 11.5, fontWeight: 600, color: 'var(--accent-500)', cursor: 'pointer', textDecoration: 'underline' }}
+                        style={{ alignSelf: 'flex-start', background: 'none', border: 'none', padding: 0, fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--accent-500)', cursor: 'pointer', textDecoration: 'underline' }}
                       >
                         Open their profile instead
                       </button>
@@ -271,12 +271,12 @@ export function LinkedInPanel({
                             {savingProfile ? 'Saving…' : 'Save'}
                           </Button>
                         </div>
-                        {profileError && <div style={{ fontSize: 11.5, color: 'var(--danger-500)', marginTop: 6 }}>{profileError}</div>}
+                        {profileError && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--danger-500)', marginTop: 6 }}>{profileError}</div>}
                       </div>
                     )}
 
                     <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12 }}>
-                      <div style={{ fontSize: 11.5, color: 'var(--n50)', marginBottom: 8, lineHeight: 1.5 }}>
+                      <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginBottom: 8, lineHeight: 1.5 }}>
                         LinkedIn doesn&apos;t tell us when a message actually goes out — confirm here and the queue moves on.
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
@@ -306,18 +306,19 @@ export function LinkedInPanel({
                 </div>
 
               <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Queue</div>
+                <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Queue</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {queue.map((q, i) => (
                     <div
                       key={q.id}
                       onClick={() => setIndex(i)}
+                      className={i === index ? undefined : 'lsq-row'}
                       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: i === index ? 'var(--n10)' : 'transparent' }}
                     >
-                      <span style={{ width: 18, fontSize: 11.5, color: 'var(--n50)', flexShrink: 0 }}>{i + 1}</span>
-                      <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--n90)', overflowWrap: 'anywhere' }}>{q.name}</span>
+                      <span style={{ width: 18, fontSize: 'var(--fs-label-2)', color: 'var(--n50)', flexShrink: 0 }}>{i + 1}</span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n90)', overflowWrap: 'anywhere' }}>{q.name}</span>
                       {q.personalized && (q.personalizedInvalid ? <Badge color="error" text="Invalid" /> : <Badge color="blue light" text="Personalized" />)}
-                      <span style={{ fontSize: 11.5, color: 'var(--n60)' }}>{q.account}</span>
+                      <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>{q.account}</span>
                       <Badge
                         color={progress[q.id] === 'sent' ? 'success' : progress[q.id] === 'skipped' ? 'gray' : 'blue'}
                         text={progress[q.id] === 'sent' ? 'Sent' : progress[q.id] === 'skipped' ? 'Skipped' : 'Queued'}

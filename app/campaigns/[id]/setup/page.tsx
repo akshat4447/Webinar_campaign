@@ -5,7 +5,6 @@ import { LeadImportCard } from './LeadImportCard';
 import { CampaignDetailsForm } from './CampaignDetailsForm';
 import { EnrichmentCard } from './EnrichmentCard';
 import { LinkedInPublishCard } from './LinkedInPublishCard';
-import { SingleLeadLookupCard } from './SingleLeadLookupCard';
 import { getEnrichmentStats } from '@/lib/actions/enrichment';
 import { getServerNow } from '@/lib/actions/clock';
 import { resolveIntegrationField } from '@/lib/integrationConfig';
@@ -31,7 +30,6 @@ export default async function SetupPage({ params }: { params: Promise<{ id: stri
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <CampaignDetailsForm campaign={campaign} serverNow={serverNow} />
           <LeadImportCard campaignId={id} existingContactCount={contactCount} existingScoredCount={scoredCount} />
-          <SingleLeadLookupCard campaignId={id} />
           <EnrichmentCard campaignId={id} stats={enrichmentStats} />
         </div>
 
@@ -50,18 +48,18 @@ export default async function SetupPage({ params }: { params: Promise<{ id: stri
           />
 
           <Card>
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent-500)', flexShrink: 0 }} />
               Agent activity log
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {activityLog.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--n60)' }}>No activity yet — import contacts to get started.</div>}
+              {activityLog.length === 0 && <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>No activity yet — import contacts to get started.</div>}
               {activityLog.map((log) => (
                 <div key={log.id} style={{ display: 'flex', gap: 10 }}>
                   <div style={{ width: 6, height: 6, borderRadius: '50%', background: log.dot, marginTop: 6, flexShrink: 0 }} />
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 12.5, color: 'var(--n70)', lineHeight: 1.5, overflowWrap: 'anywhere' }}>{log.text}</div>
-                    <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 1 }}>{log.createdAt.toLocaleTimeString('en-GB', { hour12: false })}</div>
+                    <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.5, overflowWrap: 'anywhere' }}>{log.text}</div>
+                    <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 1 }}>{log.createdAt.toLocaleTimeString('en-GB', { hour12: false })}</div>
                   </div>
                 </div>
               ))}
@@ -70,12 +68,12 @@ export default async function SetupPage({ params }: { params: Promise<{ id: stri
 
           <Card>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--accent-500)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#fff' }}>
+              <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--accent-500)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 'var(--fs-label-2)', fontWeight: 700, color: '#fff' }}>
                 AI
               </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--n90)' }}>Ready to score audience</div>
+              <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>Ready to score audience</div>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--n60)', lineHeight: 1.55, marginBottom: 14, overflowWrap: 'anywhere' }}>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.55, marginBottom: 14, overflowWrap: 'anywhere' }}>
               Claude will match personas by title, function and seniority across all imported accounts, then score relevance to
               this webinar&apos;s topic.
             </div>

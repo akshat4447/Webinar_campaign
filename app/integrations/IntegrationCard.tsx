@@ -50,7 +50,7 @@ export function IntegrationCard({ ig, testResult }: { ig: Integration; testResul
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: 14,
+            fontSize: 'var(--fs-body)',
             fontWeight: 700,
             flexShrink: 0,
           }}
@@ -58,17 +58,17 @@ export function IntegrationCard({ ig, testResult }: { ig: Integration; testResul
           {ig.initial}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)' }}>{ig.name}</div>
-          <div style={{ fontSize: 11, color: 'var(--n60)' }}>{ig.role}</div>
+          <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>{ig.name}</div>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>{ig.role}</div>
         </div>
         <Badge color={testResult ? badge.color : ig.statusColor} text={testResult ? badge.text : ig.statusLabel} dot />
       </div>
-      <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 2, overflowWrap: 'anywhere' }}>Last operation: {ig.lastOp}</div>
-      <div style={{ fontSize: 11, color: 'var(--n50)', fontFamily: 'monospace', marginBottom: 6, overflowWrap: 'anywhere' }}>{ig.endpoint}</div>
+      <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 2, overflowWrap: 'anywhere' }}>Last operation: {ig.lastOp}</div>
+      <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', fontFamily: 'monospace', marginBottom: 6, overflowWrap: 'anywhere' }}>{ig.endpoint}</div>
       {testResult && !testResult.ok && (
-        <div style={{ fontSize: 12, color: 'var(--danger-500)', marginBottom: 8, overflowWrap: 'anywhere' }}>{testResult.detail}</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)', marginBottom: 8, overflowWrap: 'anywhere' }}>{testResult.detail}</div>
       )}
-      {!testResult && ig.hasError && <div style={{ fontSize: 12, color: 'var(--danger-500)', marginBottom: 8 }}>{ig.error}</div>}
+      {!testResult && ig.hasError && <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)', marginBottom: 8 }}>{ig.error}</div>}
       <div style={{ display: 'flex', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <Button hierarchy="secondary" size="sm" fullWidth onClick={() => setPanelOpen(true)}>

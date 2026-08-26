@@ -38,8 +38,8 @@ export function ConfirmDialog({
           padding: '20px 22px',
         }}
       >
-        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>{title}</div>
-        <div style={{ fontSize: 13, color: 'var(--n70)', lineHeight: 1.55, marginBottom: 20 }}>{message}</div>
+        <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>{title}</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.55, marginBottom: 20 }}>{message}</div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <Button hierarchy="secondary" size="sm" onClick={onClose} disabled={busy}>
             Cancel

@@ -62,14 +62,14 @@ export function LinkedInPublishCard(props: {
   return (
     <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--n90)', flex: 1 }}>LinkedIn Event</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', flex: 1 }}>LinkedIn Event</div>
         <Badge color={badge.color} text={badge.text} dot />
         {props.mode === 'sandbox' && <Badge color="gray" text="sandbox" />}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
         {rows.map(([label, value]) => (
-          <div key={label} style={{ display: 'flex', gap: 10, fontSize: 12, lineHeight: 1.5 }}>
+          <div key={label} style={{ display: 'flex', gap: 10, fontSize: 'var(--fs-label-1)', lineHeight: 1.5 }}>
             <div style={{ width: 86, color: 'var(--n50)', flexShrink: 0 }}>{label}</div>
             <div style={{ color: 'var(--n80)', overflowWrap: 'anywhere' }}>{value}</div>
           </div>
@@ -77,12 +77,12 @@ export function LinkedInPublishCard(props: {
       </div>
 
       {props.error && (
-        <div style={{ fontSize: 12, color: 'var(--danger-500)', marginBottom: 10, lineHeight: 1.5, overflowWrap: 'anywhere' }}>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)', marginBottom: 10, lineHeight: 1.5, overflowWrap: 'anywhere' }}>
           Last error: {props.error}
         </div>
       )}
       {result && (
-        <div style={{ fontSize: 12, color: result.ok ? 'var(--success-700)' : 'var(--danger-500)', marginBottom: 10, lineHeight: 1.5, overflowWrap: 'anywhere' }}>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: result.ok ? 'var(--success-700)' : 'var(--danger-500)', marginBottom: 10, lineHeight: 1.5, overflowWrap: 'anywhere' }}>
           {result.detail}
         </div>
       )}
@@ -105,7 +105,7 @@ export function LinkedInPublishCard(props: {
         )}
       </div>
 
-      <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 10, lineHeight: 1.55 }}>
+      <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 10, lineHeight: 1.55 }}>
         Creates the event, attaches the registration form and posts the announcement. Inviting members has no API — click “Invite connections” on the
         event page once (Control Center tracks it). Every registration then flows into this campaign automatically: scored by Claude, synced to LeadSquared.
         {props.mode === 'sandbox' && ' Sandbox mode simulates all LinkedIn calls until LINKEDIN_MODE=live.'}

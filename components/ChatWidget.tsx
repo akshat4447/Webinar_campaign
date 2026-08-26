@@ -75,12 +75,12 @@ export function ChatWidget() {
           }}
         >
           <div style={{ flexShrink: 0, background: 'var(--accent-500)', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#fff' }}>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 'var(--fs-label-2)', fontWeight: 700, color: '#fff' }}>
               AI
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700, color: '#fff' }}>Campaign Agent</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: '#fff' }}>Campaign Agent</div>
+              <div style={{ fontSize: 'var(--fs-label-2)', color: 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--success-500)', flexShrink: 0 }} />
                 Online
               </div>
@@ -100,7 +100,7 @@ export function ChatWidget() {
                     color: msg.from === 'user' ? '#fff' : 'var(--n80)',
                     padding: '9px 13px',
                     borderRadius: 14,
-                    fontSize: 13,
+                    fontSize: 'var(--fs-label-1)',
                     lineHeight: 1.5,
                     overflowWrap: 'anywhere',
                   }}
@@ -135,7 +135,7 @@ export function ChatWidget() {
                 background: 'var(--n10)',
                 padding: '0 14px',
                 fontFamily: 'var(--font-body)',
-                fontSize: 13,
+                fontSize: 'var(--fs-label-1)',
                 color: 'var(--n90)',
                 outline: 'none',
               }}

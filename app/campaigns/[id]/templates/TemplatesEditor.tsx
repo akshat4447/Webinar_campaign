@@ -152,13 +152,13 @@ export function TemplatesEditor({
         {showAdd && (
           <div style={{ margin: '0 6px 10px 6px', padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <input className="lsq-input" type="text" placeholder="Step name (e.g. Post-demo follow-up)" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
-            <select className="lsq-select" value={newChannel} onChange={(e) => setNewChannel(e.target.value)} style={{ height: 32, fontSize: 12.5 }}>
+            <select className="lsq-select" value={newChannel} onChange={(e) => setNewChannel(e.target.value)} style={{ height: 32, fontSize: 'var(--fs-label-1)' }}>
               <option>Email</option>
               <option>LinkedIn</option>
               <option>SMS</option>
               <option>WhatsApp</option>
             </select>
-            {addError && <div style={{ fontSize: 11, color: 'var(--danger-500)' }}>{addError}</div>}
+            {addError && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--danger-500)' }}>{addError}</div>}
             <Button hierarchy="primary" size="sm" onClick={addTemplate} disabled={adding || !newLabel.trim()}>
               {adding ? 'Creating…' : 'Create step'}
             </Button>
@@ -168,6 +168,7 @@ export function TemplatesEditor({
           <div
             key={tpl.id}
             onClick={() => setSelectedId(tpl.id)}
+            className={tpl.id === selectedId ? undefined : 'lsq-row'}
             style={{
               padding: '10px 12px',
               borderRadius: 'var(--radius-sm)',
@@ -180,7 +181,7 @@ export function TemplatesEditor({
               opacity: tpl.hidden ? 0.55 : 1,
             }}
           >
-            <span style={{ fontSize: 13, fontWeight: 600, color: tpl.hidden ? 'var(--n50)' : tpl.id === selectedId ? 'var(--accent-700)' : 'var(--n80)', overflowWrap: 'anywhere' }}>
+            <span style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: tpl.hidden ? 'var(--n50)' : tpl.id === selectedId ? 'var(--accent-700)' : 'var(--n80)', overflowWrap: 'anywhere' }}>
               {tpl.label}
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -241,8 +242,8 @@ export function TemplatesEditor({
         <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 12, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)' }}>{selected.label}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color: dirty ? 'var(--warning-700)' : 'var(--success-700)' }}>
+              <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>{selected.label}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-label-2)', fontWeight: 600, color: dirty ? 'var(--warning-700)' : 'var(--success-700)' }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: dirty ? 'var(--warning-700)' : 'var(--success-500)', flexShrink: 0 }} />
                 {dirty ? 'Unsaved changes' : selected.savedAt ? `Saved ${new Date(selected.savedAt).toLocaleTimeString('en-GB', { hour12: false })}` : 'Not yet saved'}
               </div>
@@ -274,22 +275,22 @@ export function TemplatesEditor({
               </Button>
             </div>
           </div>
-          {rewriteError && <div style={{ fontSize: 12.5, color: 'var(--danger-500)', marginBottom: 12 }}>{rewriteError}</div>}
+          {rewriteError && <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)', marginBottom: 12 }}>{rewriteError}</div>}
           {selected.hasSubject && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>Subject</div>
+              <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 6 }}>Subject</div>
               <input className="lsq-input" type="text" value={selected.subject ?? ''} onChange={(e) => updateSelected({ subject: e.target.value })} />
             </div>
           )}
           <div>
-            <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>Message body</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 6 }}>Message body</div>
             <textarea className="lsq-input" rows={6} value={selected.body} onChange={(e) => updateSelected({ body: e.target.value })} />
           </div>
         </div>
 
         <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)', minWidth: 0 }}>
+            <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', minWidth: 0 }}>
               Message preview — sample contact: {sampleContact.name}, {sampleContact.account}
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -302,14 +303,14 @@ export function TemplatesEditor({
           </div>
           <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: 16 }}>
             {selected.hasSubject && (
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>{fillTemplate(selected.subject ?? '', campaignName, sampleContact, registrationLink)}</div>
+              <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>{fillTemplate(selected.subject ?? '', campaignName, sampleContact, registrationLink)}</div>
             )}
-            <div style={{ fontSize: 13, color: 'var(--n80)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{fillTemplate(selected.body, campaignName, sampleContact, registrationLink)}</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n80)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{fillTemplate(selected.body, campaignName, sampleContact, registrationLink)}</div>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 12, color: 'var(--n60)', maxWidth: '52ch' }}>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', maxWidth: '52ch' }}>
             This template goes to everyone as-is. To rewrite it per recipient — by seniority, function and industry — continue to
             Personalize.
           </div>

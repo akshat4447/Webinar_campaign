@@ -25,7 +25,7 @@ export default async function TemplatesPage({ params }: { params: Promise<{ id: 
   if (templates.length === 0) {
     return (
       <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
-        <div style={{ textAlign: 'center', color: 'var(--n60)', fontSize: 13, marginTop: 48 }}>No templates yet for this campaign.</div>
+        <div style={{ textAlign: 'center', color: 'var(--n60)', fontSize: 'var(--fs-label-1)', marginTop: 48 }}>No templates yet for this campaign.</div>
       </main>
     );
   }
@@ -35,7 +35,7 @@ export default async function TemplatesPage({ params }: { params: Promise<{ id: 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
         <Badge color={readiness.ok ? 'success' : 'warning'} text={readiness.ok ? 'All enabled steps are send-ready' : `${readiness.problems.length} step(s) need attention`} dot />
         {!readiness.ok && (
-          <span style={{ fontSize: 12, color: 'var(--warning-700)', overflowWrap: 'anywhere' }}>{readiness.problems.join(' · ')}</span>
+          <span style={{ fontSize: 'var(--fs-label-1)', color: 'var(--warning-700)', overflowWrap: 'anywhere' }}>{readiness.problems.join(' · ')}</span>
         )}
       </div>
       <TemplatesEditor

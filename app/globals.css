@@ -8,13 +8,169 @@ body {
   margin: 0;
   background: var(--surface-page);
   font-family: var(--font-body);
+  font-size: var(--fs-body);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-a { color: var(--text-link); text-decoration: none; }
+a { color: var(--text-link); text-decoration: none; transition: var(--transition-colors); }
 a:hover { color: var(--accent-700); text-decoration: underline; }
+
+/* ---------- focus ----------------------------------------------------------
+   Every focusable thing gets a visible ring. :focus-visible only, so a mouse
+   click doesn't leave a ring behind but keyboard navigation always shows one. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-xs);
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--border-focus), var(--focus-ring-tight);
+}
+
+/* ---------- interactive surfaces ------------------------------------------
+   Utility classes exist because inline styles cannot express :hover, :active
+   or :focus-visible at all — which is why almost nothing in the app used to
+   respond to the cursor. */
+
+/* A raised container. `lsq-card--interactive` adds lift only where the whole
+   card is genuinely clickable. */
+.lsq-card {
+  background: var(--surface-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  transition: var(--transition-colors), var(--transition-transform);
+}
+.lsq-card--interactive { cursor: pointer; }
+.lsq-card--interactive:hover {
+  box-shadow: var(--shadow-panel);
+  transform: translateY(-1px);
+}
+.lsq-card--interactive:active { transform: translateY(0); }
+
+/* A row in a list that can be selected — queue entries, recipients, log rows. */
+.lsq-row {
+  transition: var(--transition-colors);
+  cursor: pointer;
+}
+.lsq-row:hover { background: var(--surface-hover); }
+
+/* Quiet control that only reveals itself on hover of its parent — kebab menus,
+   inline edit affordances. */
+.lsq-reveal { opacity: 0; transition: opacity var(--dur-fast) var(--ease-standard); }
+.lsq-reveal:focus-visible,
+*:hover > .lsq-reveal,
+.lsq-reveal[data-open='true'] { opacity: 1; }
+
+/* ---------- buttons --------------------------------------------------------
+   Hover, active and disabled all live here rather than in the component, so
+   they exist at all — a React inline style cannot express a pseudo-class. */
+
+.lsq-btn {
+  font-family: var(--font-body);
+  font-weight: var(--fw-semibold);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  white-space: nowrap;
+  transition: var(--transition-colors), var(--transition-transform);
+}
+.lsq-btn:active:not(:disabled) { transform: translateY(1px); }
+.lsq-btn:disabled {
+  background: var(--n20);
+  color: var(--text-tertiary);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.lsq-btn--sm { height: 32px; padding: 0 var(--space-12); font-size: var(--fs-label-1); }
+.lsq-btn--md { height: 40px; padding: 0 var(--space-16); font-size: var(--fs-button-2); }
+
+.lsq-btn--primary { background: var(--accent-500); color: var(--text-inverse); }
+.lsq-btn--primary:hover:not(:disabled) { background: var(--accent-700); }
+
+.lsq-btn--secondary { background: var(--surface-card); color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--border-default); }
+.lsq-btn--secondary:hover:not(:disabled) { background: var(--surface-hover); box-shadow: inset 0 0 0 1px var(--border-strong); }
+
+.lsq-btn--secondary-color { background: var(--surface-card); color: var(--accent-500); box-shadow: inset 0 0 0 1px var(--accent-500); }
+.lsq-btn--secondary-color:hover:not(:disabled) { background: var(--accent-50); }
+
+.lsq-btn--tertiary { background: transparent; color: var(--text-secondary); }
+.lsq-btn--tertiary:hover:not(:disabled) { background: var(--surface-hover); color: var(--text-primary); }
+
+.lsq-btn--destructive-outline { background: var(--surface-card); color: var(--danger-500); box-shadow: inset 0 0 0 1px var(--danger-500); }
+.lsq-btn--destructive-outline:hover:not(:disabled) { background: var(--danger-100); }
+
+/* ---------- form controls -------------------------------------------------- */
+
+select.lsq-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--surface-card);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23465972' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  border: none;
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  padding: 0 32px 0 12px;
+  font-family: var(--font-body);
+  font-size: var(--fs-label-1);
+  color: var(--text-primary);
+  transition: var(--transition-colors);
+}
+select.lsq-select:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--border-strong); }
+select.lsq-select:disabled { color: var(--text-disabled); background-color: var(--surface-subtle); cursor: not-allowed; }
+
+input.lsq-input, textarea.lsq-input {
+  width: 100%;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+  padding: 9px 12px;
+  font-family: var(--font-body);
+  font-size: var(--fs-label-1);
+  color: var(--text-primary);
+  outline: none;
+  transition: var(--transition-colors);
+}
+input.lsq-input:hover:not(:disabled), textarea.lsq-input:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+input.lsq-input::placeholder, textarea.lsq-input::placeholder { color: var(--text-tertiary); }
+input.lsq-input:disabled, textarea.lsq-input:disabled {
+  background: var(--surface-subtle);
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+textarea.lsq-input { resize: vertical; line-height: var(--lh-relaxed); }
+
+/* ---------- data display --------------------------------------------------- */
+
+table td, table th { overflow-wrap: anywhere; }
+
+/* Figures that stack in columns must not jitter between rows. */
+.lsq-num { font-variant-numeric: tabular-nums; }
+
+/* ---------- skeletons ------------------------------------------------------ */
+
+.lsq-skeleton {
+  background: linear-gradient(90deg, var(--n20) 25%, var(--n30) 37%, var(--n20) 63%);
+  background-size: 400% 100%;
+  border-radius: var(--radius-xs);
+  animation: lsq-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes lsq-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
 
 @keyframes lsq-pulse {
   0% { box-shadow: 0 0 0 0 rgba(70, 202, 123, 0.45); }
@@ -24,29 +180,21 @@ a:hover { color: var(--accent-700); text-decoration: underline; }
 
 @keyframes lsq-spin { to { transform: rotate(360deg); } }
 
+/* ---------- scrollbars ----------------------------------------------------- */
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: var(--n30); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: var(--n30); border-radius: var(--radius-xs); }
+::-webkit-scrollbar-thumb:hover { background: var(--n40); }
 
-table td, table th { overflow-wrap: anywhere; }
-
-select.lsq-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23465972' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
+/* ---------- reduced motion -------------------------------------------------
+   Respects the OS setting: colour and shadow feedback stays (it carries
+   meaning), movement and looping animation stop. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .lsq-card--interactive:hover { transform: none; }
 }
-
-input.lsq-input, textarea.lsq-input {
-  width: 100%;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: #fff;
-  box-shadow: inset 0 0 0 1px var(--border-default);
-  padding: 9px 12px;
-  font-family: var(--font-body);
-  font-size: 13.5px;
-  color: var(--n90);
-  outline: none;
-}
-textarea.lsq-input { resize: vertical; line-height: 1.5; }

@@ -94,9 +94,9 @@ export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaig
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 14 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)' }}>Webinar details</div>
+        <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>Webinar details</div>
         {autosave !== 'idle' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 600, color: autosave === 'saving' ? 'var(--warning-700)' : 'var(--success-700)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-label-2)', fontWeight: 600, color: autosave === 'saving' ? 'var(--warning-700)' : 'var(--success-700)' }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: autosave === 'saving' ? 'var(--warning-700)' : 'var(--success-500)', flexShrink: 0 }} />
             {autosave === 'saving' ? 'Saving…' : 'Saved'}
           </div>
@@ -106,7 +106,7 @@ export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaig
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16 }}>
         {/* Event link first — pasting it is the natural first action */}
         <div>
-          <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>Zoom webinar or event link</div>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 6 }}>Zoom webinar or event link</div>
           <input
             className="lsq-input"
             type="url"
@@ -116,29 +116,29 @@ export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaig
             onChange={(e) => setZoomLink(e.target.value)}
             onBlur={saveLink}
           />
-          {linkState && 'error' in linkState && <div style={{ fontSize: 11.5, color: 'var(--danger-500)', marginTop: 6 }}>{linkState.error}</div>}
+          {linkState && 'error' in linkState && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--danger-500)', marginTop: 6 }}>{linkState.error}</div>}
           {linkState && 'kind' in linkState && linkState.kind === 'zoom' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
               <Badge color="success" text="Zoom link recognised" />
-              <span style={{ fontSize: 11.5, color: 'var(--n60)' }}>Used as the join link in reminder emails.</span>
+              <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>Used as the join link in reminder emails.</span>
             </div>
           )}
           {linkState && 'kind' in linkState && linkState.kind === 'other' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
               <Badge color="blue" text={linkState.host ?? 'Custom host'} />
-              <span style={{ fontSize: 11.5, color: 'var(--n60)' }}>Not a Zoom URL — saved anyway and used as the join link.</span>
+              <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>Not a Zoom URL — saved anyway and used as the join link.</span>
             </div>
           )}
         </div>
 
         <div>
-          <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>Webinar topic</div>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 6 }}>Webinar topic</div>
           <input className="lsq-input" type="text" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => save(() => updateCampaignName(campaign.id, name))} />
         </div>
 
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-            <div style={{ fontSize: 12, color: 'var(--n60)' }}>Webinar description</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>Webinar description</div>
             <Button hierarchy="secondary-color" size="sm" onClick={improve} disabled={improving}>
               {improving ? 'Improving…' : '✦ Improve with AI'}
             </Button>
@@ -152,29 +152,29 @@ export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaig
             onBlur={() => save(() => updateCampaignDescription(campaign.id, description))}
           />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 6 }}>
-            <span style={{ fontSize: 11, color: 'var(--n50)' }}>Claude uses this when scoring relevance and writing templates.</span>
-            <span style={{ fontSize: 11, color: 'var(--n50)', fontVariantNumeric: 'tabular-nums' }}>{description.length} chars</span>
+            <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>Claude uses this when scoring relevance and writing templates.</span>
+            <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', fontVariantNumeric: 'tabular-nums' }}>{description.length} chars</span>
           </div>
-          {improveError && <div style={{ fontSize: 11.5, color: 'var(--danger-500)', marginTop: 6 }}>{improveError}</div>}
+          {improveError && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--danger-500)', marginTop: 6 }}>{improveError}</div>}
         </div>
 
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-            <div style={{ fontSize: 12, color: 'var(--n60)' }}>Date &amp; time</div>
-            <div style={{ fontSize: 11.5, color: 'var(--n50)' }}>{display}</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>Date &amp; time</div>
+            <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>{display}</div>
           </div>
           <input className="lsq-input" type="datetime-local" value={when} onChange={(e) => saveWhen(e.target.value)} style={{ height: 38 }} />
           {isPast && (
-            <div style={{ fontSize: 11.5, color: 'var(--warning-700)', marginTop: 6 }}>
+            <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--warning-700)', marginTop: 6 }}>
               This date is in the past — reminder steps would all be overdue the moment the cadence launches.
             </div>
           )}
           {reminders && !isPast && (
             <div style={{ marginTop: 10, background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+              <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
                 Reminders resolve to
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 18px', fontSize: 11.5, color: 'var(--n70)' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 18px', fontSize: 'var(--fs-label-2)', color: 'var(--n70)' }}>
                 <span>
                   <strong style={{ color: 'var(--n90)' }}>T-3d</strong> {fmt(reminders.t3)}
                 </span>
@@ -185,13 +185,13 @@ export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaig
                   <strong style={{ color: 'var(--n90)' }}>T-1h</strong> {fmt(reminders.t1h)}
                 </span>
               </div>
-              <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 6 }}>Change any of these per-step on the Schedule tab.</div>
+              <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 6 }}>Change any of these per-step on the Schedule tab.</div>
             </div>
           )}
         </div>
 
         <div>
-          <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>Registration link (bot-led sign-up)</div>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 6 }}>Registration link (bot-led sign-up)</div>
           <input
             className="lsq-input"
             type="text"
@@ -210,8 +210,8 @@ export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaig
             onBlur={saveRegistrationLink}
             placeholder="lsq.co/w/your-webinar-slug"
           />
-          {regLinkError && <div style={{ fontSize: 11.5, color: 'var(--danger-500)', marginTop: 6 }}>{regLinkError}</div>}
-          <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 6 }}>
+          {regLinkError && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--danger-500)', marginTop: 6 }}>{regLinkError}</div>}
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 6 }}>
             Sent in every invite/nudge/reminder. Changing it flags any already-personalized copy as using an old link — repair it from the Personalize tab.
           </div>
         </div>

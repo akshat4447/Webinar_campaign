@@ -15,7 +15,7 @@ export function HistoricalSummary({ campaign }: { campaign: Campaign }) {
   return (
     <div>
       <Card style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 12.5, color: 'var(--n70)', lineHeight: 1.6 }}>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.6 }}>
           This campaign has no imported contacts in this build, so there&apos;s no live funnel to compute — these are its
           recorded historical results.
         </div>
@@ -23,8 +23,8 @@ export function HistoricalSummary({ campaign }: { campaign: Campaign }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14 }}>
         {stats.map((s) => (
           <Card key={s.label}>
-            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--n60)', letterSpacing: '0.03em', textTransform: 'uppercase' }}>{s.label}</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--n90)', marginTop: 6, letterSpacing: '-0.01em' }}>{s.value}</div>
+            <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', letterSpacing: '0.03em', textTransform: 'uppercase' }}>{s.label}</div>
+            <div style={{ fontSize: 'var(--fs-heading-2)', fontWeight: 700, color: 'var(--n90)', marginTop: 6, letterSpacing: '-0.01em' }}>{s.value}</div>
           </Card>
         ))}
       </div>

@@ -21,7 +21,7 @@ export function WorkspaceTabs({ campaignId, completedTabs = {} }: { campaignId: 
             href={`/campaigns/${campaignId}/${tab.id}`}
             style={{
               padding: '13px 2px',
-              fontSize: 13,
+              fontSize: 'var(--fs-label-1)',
               fontWeight: 600,
               color: isActive ? 'var(--accent-500)' : 'var(--n60)',
               borderBottom: isActive ? '2px solid var(--accent-500)' : '2px solid transparent',
@@ -39,7 +39,7 @@ export function WorkspaceTabs({ campaignId, completedTabs = {} }: { campaignId: 
                 borderRadius: '50%',
                 background: isActive ? 'var(--accent-500)' : isComplete ? 'var(--success-500)' : 'var(--n20)',
                 color: isActive || isComplete ? '#fff' : 'var(--n60)',
-                fontSize: 10,
+                fontSize: 'var(--fs-caption)',
                 fontWeight: 700,
                 display: 'flex',
                 alignItems: 'center',

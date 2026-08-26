@@ -99,7 +99,7 @@ export function DashboardClient({
   const toggle = (active: boolean): React.CSSProperties => ({
     padding: '6px 12px',
     borderRadius: 'var(--radius-sm)',
-    fontSize: 12,
+    fontSize: 'var(--fs-label-1)',
     fontWeight: 600,
     cursor: 'pointer',
     background: active ? '#fff' : 'transparent',
@@ -113,11 +113,11 @@ export function DashboardClient({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
         {kpis.map((k) => (
           <div key={k.label} style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{k.label}</div>
-            <div style={{ fontSize: 30, fontWeight: 700, color: toneColor[k.tone], marginTop: 6, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>
+            <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{k.label}</div>
+            <div style={{ fontSize: 'var(--fs-heading-2)', fontWeight: 700, color: toneColor[k.tone], marginTop: 6, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>
               {k.value}
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--n60)', marginTop: 3 }}>{k.sub}</div>
+            <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginTop: 3 }}>{k.sub}</div>
           </div>
         ))}
       </div>
@@ -126,17 +126,17 @@ export function DashboardClient({
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
           <div>
-            <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)' }}>Campaign funnel</div>
-            <div style={{ fontSize: 11.5, color: 'var(--n60)', marginTop: 2 }}>Percentages are conversion from the previous stage. Click any row for the records behind it.</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>Campaign funnel</div>
+            <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginTop: 2 }}>Percentages are conversion from the previous stage. Click any row for the records behind it.</div>
           </div>
-          <div onClick={() => setShowTable((s) => !s)} style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--accent-500)', cursor: 'pointer' }}>
+          <div onClick={() => setShowTable((s) => !s)} style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--accent-500)', cursor: 'pointer' }}>
             {showTable ? 'Show chart' : 'Show as table'}
           </div>
         </div>
 
         {showTable ? (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 420 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)', minWidth: 420 }}>
               <thead>
                 <tr>
                   <th style={th}>Stage</th>
@@ -167,7 +167,7 @@ export function DashboardClient({
                   onClick={() => setDrawer(drawers[f.label] ?? null)}
                   style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', borderRadius: 'var(--radius-sm)' }}
                 >
-                  <div style={{ width: 108, flexShrink: 0, fontSize: 12.5, color: 'var(--n70)' }}>{f.label}</div>
+                  <div style={{ width: 108, flexShrink: 0, fontSize: 'var(--fs-label-1)', color: 'var(--n70)' }}>{f.label}</div>
                   <div style={{ flex: 1, minWidth: 0, height: 22, background: 'var(--n10)', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
                     <div
                       style={{
@@ -178,12 +178,12 @@ export function DashboardClient({
                       }}
                     />
                   </div>
-                  <div style={{ width: 52, textAlign: 'right', fontSize: 13.5, fontWeight: 700, color: 'var(--n90)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{f.value}</div>
+                  <div style={{ width: 52, textAlign: 'right', fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{f.value}</div>
                   <div
                     style={{
                       width: 58,
                       textAlign: 'right',
-                      fontSize: 11.5,
+                      fontSize: 'var(--fs-label-2)',
                       fontWeight: 600,
                       color: f.stepConversion === null ? 'var(--n40)' : dropped ? 'var(--warning-700)' : 'var(--success-700)',
                       fontVariantNumeric: 'tabular-nums',
@@ -201,13 +201,13 @@ export function DashboardClient({
 
       {/* The advanced read: is the score predictive? */}
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)' }}>Is the score predictive?</div>
-        <div style={{ fontSize: 11.5, color: 'var(--n60)', marginTop: 2, marginBottom: 14 }}>
+        <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>Is the score predictive?</div>
+        <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginTop: 2, marginBottom: 14 }}>
           Outcomes grouped by the relevance score Claude assigned. If scoring is working, approval and attendance should fall as
           the band drops.
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 520 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)', minWidth: 520 }}>
             <thead>
               <tr>
                 <th style={th}>Score band</th>
@@ -235,7 +235,7 @@ export function DashboardClient({
                           background: shade.bg,
                           color: shade.fg,
                           fontWeight: 600,
-                          fontSize: 12,
+                          fontSize: 'var(--fs-label-1)',
                         }}
                       >
                         {b.approvalRate === null ? '—' : `${b.approvalRate}%`}
@@ -249,7 +249,7 @@ export function DashboardClient({
           </table>
         </div>
         {!attendanceImported && (
-          <div style={{ fontSize: 11.5, color: 'var(--n50)', marginTop: 10 }}>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 10 }}>
             Attendance is blank until a Zoom participants report is imported from Control Center.
           </div>
         )}
@@ -257,16 +257,16 @@ export function DashboardClient({
 
       {channelBreakdown.length > 0 && (
         <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Delivery by channel</div>
-          <div style={{ fontSize: 11.5, color: 'var(--n60)', marginBottom: 14 }}>
+          <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Delivery by channel</div>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginBottom: 14 }}>
             Every step counted, not just the invite — the funnel above stays invite-only so its stage percentages remain meaningful.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
             {channelBreakdown.map((c) => (
               <div key={c.label} style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '12px 14px' }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{c.label}</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--n90)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{c.sent}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--n60)', marginTop: 4 }}>
+                <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{c.label}</div>
+                <div style={{ fontSize: 'var(--fs-heading-2)', fontWeight: 700, color: 'var(--n90)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{c.sent}</div>
+                <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginTop: 4 }}>
                   sent
                   {c.queued > 0 && <span> · {c.queued} queued</span>}
                   {c.failed > 0 && <span style={{ color: 'var(--danger-500)' }}> · {c.failed} failed</span>}
@@ -279,19 +279,19 @@ export function DashboardClient({
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr)', gap: 16 }}>
         <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)', marginBottom: 14 }}>Real sends by cadence step</div>
+          <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 14 }}>Real sends by cadence step</div>
           {stepBreakdown.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: 'var(--n60)' }}>No sends have gone out yet — launch the cadence from Schedule.</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>No sends have gone out yet — launch the cadence from Schedule.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {stepBreakdown.map((row) => (
                 <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 124, fontSize: 12.5, color: 'var(--n70)', flexShrink: 0 }}>{row.label}</div>
+                  <div style={{ width: 124, fontSize: 'var(--fs-label-1)', color: 'var(--n70)', flexShrink: 0 }}>{row.label}</div>
                   <div style={{ flex: 1, background: 'var(--n10)', borderRadius: 4, height: 14, overflow: 'hidden' }}>
                     <div style={{ width: `${Math.max(1.5, row.pct)}%`, height: '100%', background: 'var(--accent-500)', borderRadius: '0 4px 4px 0' }} />
                   </div>
-                  <div style={{ width: 34, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--n90)', fontVariantNumeric: 'tabular-nums' }}>{row.count}</div>
-                  <div style={{ width: 58, textAlign: 'right', fontSize: 11.5, color: row.failed ? 'var(--danger-500)' : 'var(--n40)', fontVariantNumeric: 'tabular-nums' }}>
+                  <div style={{ width: 34, textAlign: 'right', fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', fontVariantNumeric: 'tabular-nums' }}>{row.count}</div>
+                  <div style={{ width: 58, textAlign: 'right', fontSize: 'var(--fs-label-2)', color: row.failed ? 'var(--danger-500)' : 'var(--n40)', fontVariantNumeric: 'tabular-nums' }}>
                     {row.failed ? `${row.failed} failed` : '—'}
                   </div>
                 </div>
@@ -301,24 +301,24 @@ export function DashboardClient({
         </div>
 
         <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)', marginBottom: 14 }}>Attended vs. no-show</div>
+          <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 14 }}>Attended vs. no-show</div>
           {!attendanceImported ? (
-            <div style={{ fontSize: 12.5, color: 'var(--n60)' }}>Import a Zoom attendance report from Control Center to see this.</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>Import a Zoom attendance report from Control Center to see this.</div>
           ) : (
             <>
               <div style={{ display: 'flex', height: 14, borderRadius: 4, overflow: 'hidden', gap: 2 }}>
                 <div style={{ width: `${attendPct}%`, background: 'var(--accent-500)', borderRadius: '4px 0 0 4px' }} />
                 <div style={{ flex: 1, background: 'var(--n20)', borderRadius: '0 4px 4px 0' }} />
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 12, color: 'var(--n60)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>
                 <span>
-                  <strong style={{ color: 'var(--accent-500)', fontSize: 15 }}>{attended}</strong> attended
+                  <strong style={{ color: 'var(--accent-500)', fontSize: 'var(--fs-body)' }}>{attended}</strong> attended
                 </span>
                 <span>
-                  <strong style={{ color: 'var(--n70)', fontSize: 15 }}>{noShow}</strong> no-show
+                  <strong style={{ color: 'var(--n70)', fontSize: 'var(--fs-body)' }}>{noShow}</strong> no-show
                 </span>
               </div>
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-subtle)', fontSize: 11.5, color: 'var(--n60)' }}>
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-subtle)', fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>
                 {attendPct}% of approved contacts attended.
               </div>
             </>
@@ -328,7 +328,7 @@ export function DashboardClient({
 
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)' }}>Segment breakdown</div>
+          <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>Segment breakdown</div>
           <div style={{ display: 'flex', background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: 3, gap: 2 }}>
             {(['persona', 'scoreband', 'source', 'vertical'] as BreakdownMode[]).map((m) => (
               <div key={m} onClick={() => setBreakdownMode(m)} style={toggle(breakdownMode === m)}>
@@ -340,13 +340,13 @@ export function DashboardClient({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {breakdownData[breakdownMode].slice(0, 8).map((row) => (
             <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 190, fontSize: 12.5, color: 'var(--n70)', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.label}>
+              <div style={{ width: 190, fontSize: 'var(--fs-label-1)', color: 'var(--n70)', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.label}>
                 {row.label}
               </div>
               <div style={{ flex: 1, background: 'var(--n10)', borderRadius: 4, height: 14, overflow: 'hidden' }}>
                 <div style={{ width: `${Math.max(1.5, row.pct)}%`, height: '100%', background: 'var(--accent-500)', borderRadius: '0 4px 4px 0' }} />
               </div>
-              <div style={{ width: 34, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--n90)', fontVariantNumeric: 'tabular-nums' }}>{row.count}</div>
+              <div style={{ width: 34, textAlign: 'right', fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', fontVariantNumeric: 'tabular-nums' }}>{row.count}</div>
             </div>
           ))}
         </div>
@@ -355,12 +355,12 @@ export function DashboardClient({
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', gap: 12 }}>
           <div>
-            <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)' }}>Top accounts by best-scoring contact</div>
-            <div style={{ fontSize: 11.5, color: 'var(--n60)', marginTop: 2 }}>Where the SDR team should start.</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>Top accounts by best-scoring contact</div>
+            <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginTop: 2 }}>Where the SDR team should start.</div>
           </div>
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 560 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)', minWidth: 560 }}>
             <thead>
               <tr>
                 <th style={{ ...th, paddingLeft: 20 }}>Account</th>
@@ -397,7 +397,7 @@ export function DashboardClient({
 const th: React.CSSProperties = {
   padding: '0 12px 8px 0',
   textAlign: 'left',
-  fontSize: 10.5,
+  fontSize: 'var(--fs-label-2)',
   fontWeight: 600,
   color: 'var(--n60)',
   textTransform: 'uppercase',

@@ -23,7 +23,7 @@ export function Badge({
         borderRadius: 'var(--radius-full)',
         background: bg,
         color: fg,
-        fontSize: 11.5,
+        fontSize: 'var(--fs-label-2)',
         fontWeight: 700,
         whiteSpace: 'nowrap',
       }}

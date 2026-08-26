@@ -122,11 +122,11 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
           />
 
           <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--n90)', marginBottom: 10 }}>Bot-led sign-up</div>
-            <div style={{ fontSize: 12.5, color: 'var(--n70)', lineHeight: 1.55, marginBottom: 12 }}>
+            <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 10 }}>Bot-led sign-up</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.55, marginBottom: 12 }}>
               Every send carries a pre-filled registration link — one click and the contact is registered, no form to complete.
             </div>
-            <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', fontSize: 11.5, color: 'var(--n60)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+            <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', fontSize: 'var(--fs-label-2)', color: 'var(--n60)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
               {campaign.registrationLink}?c=contact-id&amp;pf=1
             </div>
           </div>

@@ -29,18 +29,18 @@ export default async function IntegrationsPage() {
     <main style={{ flex: 1, overflowY: 'auto', padding: '32px 40px 48px 40px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--n90)', letterSpacing: '-0.01em' }}>Integrations</div>
-          <div style={{ fontSize: 13, color: 'var(--n60)', marginTop: 3 }}>Manage the connections the agent uses to run campaigns end to end</div>
+          <div style={{ fontSize: 'var(--fs-heading-2)', fontWeight: 700, color: 'var(--n90)', letterSpacing: '-0.01em' }}>Integrations</div>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 3 }}>Manage the connections the agent uses to run campaigns end to end</div>
         </div>
       </div>
 
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '14px 20px', marginBottom: 20 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>Delivery settings</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>Delivery settings</div>
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
           {delivery.map((d) => (
             <div key={d.label}>
-              <div style={{ fontSize: 11, color: 'var(--n50)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{d.label}</div>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--n80)', marginTop: 2 }}>{d.value}</div>
+              <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{d.label}</div>
+              <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n80)', marginTop: 2 }}>{d.value}</div>
             </div>
           ))}
         </div>
@@ -54,11 +54,10 @@ export default async function IntegrationsPage() {
         ))}
       </div>
 
-      <div style={{ marginTop: 24, fontSize: 11.5, color: 'var(--n50)', lineHeight: 1.6, maxWidth: 760 }}>
-        Build note — LeadSquared and Claude make live API calls. Zoom attendance comes from a real exported participants report
-        rather than the Zoom API. Apollo&apos;s contact lookup and LinkedIn&apos;s automated mode run on simulated responses in this
-        build; the persona enrichment layered on top of them is real Claude output, and inferred contact details are held back
-        from sending until a human verifies them.
+      <div style={{ marginTop: 24, fontSize: 'var(--fs-label-2)', color: 'var(--n50)', lineHeight: 1.6, maxWidth: 760 }}>
+        Build note — LeadSquared, Claude and Apollo all make live API calls. Zoom attendance comes from a real exported
+        participants report rather than the Zoom API. LinkedIn outreach is manual by design; its Events API is real. Contact
+        details that were inferred rather than supplied are held back from sending until a human verifies them.
       </div>
     </main>
   );

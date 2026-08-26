@@ -48,11 +48,11 @@ export default async function CampaignLayout({
         }}
       >
         <div style={{ minWidth: 0 }}>
-          <Link href="/" style={{ fontSize: 12, color: 'var(--n60)', cursor: 'pointer', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}>
+          <Link href="/" style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', cursor: 'pointer', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}>
             <Icon name="arrow-right" size={12} style={{ transform: 'rotate(180deg)', color: 'var(--n60)' }} />
             All webinars
           </Link>
-          <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--n90)', letterSpacing: '-0.01em', overflowWrap: 'anywhere' }}>{campaign.name}</div>
+          <div style={{ fontSize: 'var(--fs-heading-4)', fontWeight: 700, color: 'var(--n90)', letterSpacing: '-0.01em', overflowWrap: 'anywhere' }}>{campaign.name}</div>
         </div>
         <StageBadge />
       </header>

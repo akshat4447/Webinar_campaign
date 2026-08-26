@@ -163,7 +163,7 @@ export function ControlPanel({ campaign, attentionItems: initialItems, nextSendD
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)' }}>Campaign control</div>
+          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>Campaign control</div>
           <Badge color={badge.color} text={badge.text} dot />
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -184,34 +184,34 @@ export function ControlPanel({ campaign, attentionItems: initialItems, nextSendD
           </Button>
         </div>
         {status === 'stopped' && (
-          <div style={{ fontSize: 11.5, color: 'var(--n50)', marginTop: 8 }}>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 8 }}>
             This cadence was stopped — that&apos;s a one-way action, so retrying failed sends and running due sends are disabled here. Start a new cadence from the Schedule tab.
           </div>
         )}
         {(status === 'paused' || status === 'not_started') && (
-          <div style={{ fontSize: 11.5, color: 'var(--n50)', marginTop: 8 }}>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 8 }}>
             {status === 'paused' ? 'Resume the cadence to run due sends.' : 'Launch the cadence from Schedule to enable due-send checks.'}
           </div>
         )}
-        {notice && <div style={{ fontSize: 12, color: 'var(--n70)', marginTop: 10 }}>{notice}</div>}
+        {notice && <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', marginTop: 10 }}>{notice}</div>}
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 4 }}>Next automated action</div>
-          <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--n90)' }}>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 4 }}>Next automated action</div>
+          <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n90)' }}>
             {nextSendDueAt ? `Send due ${new Date(nextSendDueAt).toLocaleString('en-GB', { hour12: false })}` : 'Nothing queued'}
           </div>
         </div>
       </div>
 
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Needs attention</div>
-        <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 14 }}>{items.length} item(s) need review</div>
+        <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Needs attention</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 14 }}>{items.length} item(s) need review</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {items.map((na) => (
             <div key={na.id} style={{ display: 'flex', gap: 12, alignItems: 'start', padding: '12px 14px', borderRadius: 'var(--radius-md)', background: 'var(--n10)' }}>
               <Icon name={na.icon} size={16} style={{ color: na.color === 'error' ? 'var(--danger-500)' : 'var(--warning-700)', flexShrink: 0, marginTop: 1 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--n90)', marginBottom: 2 }}>{na.title}</div>
-                <div style={{ fontSize: 12, color: 'var(--n60)', lineHeight: 1.5, marginBottom: 8, overflowWrap: 'anywhere' }}>{na.detail}</div>
+                <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n90)', marginBottom: 2 }}>{na.title}</div>
+                <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.5, marginBottom: 8, overflowWrap: 'anywhere' }}>{na.detail}</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {na.actionsCsv.split(',').map((a) => (
                     <Button key={a} hierarchy="tertiary" size="sm" onClick={() => resolve(na.id, a)} disabled={busy}>
@@ -230,7 +230,7 @@ export function ControlPanel({ campaign, attentionItems: initialItems, nextSendD
               </div>
             </div>
           ))}
-          {items.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--n60)', padding: '8px 0' }}>Nothing needs attention right now.</div>}
+          {items.length === 0 && <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', padding: '8px 0' }}>Nothing needs attention right now.</div>}
         </div>
       </div>
 
@@ -252,22 +252,22 @@ export function ControlPanel({ campaign, attentionItems: initialItems, nextSendD
           <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 460, maxHeight: 'calc(100vh - 48px)', overflowY: 'auto', background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-panel)', zIndex: 1201, padding: '20px 22px' }}>
             {diagnosisError ? (
               <>
-                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>Couldn&apos;t diagnose this</div>
-                <div style={{ fontSize: 13, color: 'var(--danger-500)', lineHeight: 1.55, marginBottom: 16 }}>{diagnosisError}</div>
+                <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>Couldn&apos;t diagnose this</div>
+                <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)', lineHeight: 1.55, marginBottom: 16 }}>{diagnosisError}</div>
               </>
             ) : (
               diagnosis && (
                 <>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--accent-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 10, fontWeight: 700, color: '#fff' }}>C</div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--n90)' }}>{diagnosis.title}</div>
+                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--accent-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 'var(--fs-caption)', fontWeight: 700, color: '#fff' }}>C</div>
+                    <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>{diagnosis.title}</div>
                   </div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 14, marginBottom: 4 }}>What happened</div>
-                  <div style={{ fontSize: 13, color: 'var(--n80)', lineHeight: 1.55 }}>{diagnosis.result.explanation}</div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 14, marginBottom: 4 }}>Suggested fix</div>
-                  <div style={{ fontSize: 13, color: 'var(--n80)', lineHeight: 1.55, background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>{diagnosis.result.suggestedFix}</div>
+                  <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 14, marginBottom: 4 }}>What happened</div>
+                  <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n80)', lineHeight: 1.55 }}>{diagnosis.result.explanation}</div>
+                  <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 14, marginBottom: 4 }}>Suggested fix</div>
+                  <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n80)', lineHeight: 1.55, background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>{diagnosis.result.suggestedFix}</div>
                   {diagnosis.result.canAutoResolve && (
-                    <div style={{ fontSize: 11.5, color: 'var(--success-700)', marginTop: 10 }}>Claude thinks a plain retry is likely to work — try &quot;Retry failed sends&quot; above.</div>
+                    <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--success-700)', marginTop: 10 }}>Claude thinks a plain retry is likely to work — try &quot;Retry failed sends&quot; above.</div>
                   )}
                 </>
               )

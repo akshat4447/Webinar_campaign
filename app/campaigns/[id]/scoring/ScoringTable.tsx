@@ -85,12 +85,12 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)' }}>Scored invite list</div>
-            <div style={{ fontSize: 12, color: 'var(--n60)', marginTop: 2 }}>
+            <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>Scored invite list</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 2 }}>
               {filtered.length} of {contacts.length} contacts shown
             </div>
           </div>
-          <div style={{ fontSize: 12.5, color: 'var(--n70)', fontWeight: 600 }}>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', fontWeight: 600 }}>
             {approvedCount} of {contacts.length} approved
           </div>
         </div>
@@ -107,7 +107,7 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
             className="lsq-select"
             value={source}
             onChange={(e) => setSource(e.target.value)}
-            style={{ height: 34, borderRadius: 'var(--radius-sm)', boxShadow: 'inset 0 0 0 1px var(--border-default)', padding: '0 28px 0 10px', fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--n90)', background: '#fff', border: 'none' }}
+            style={{ height: 34, borderRadius: 'var(--radius-sm)', boxShadow: 'inset 0 0 0 1px var(--border-default)', padding: '0 28px 0 10px', fontFamily: 'var(--font-body)', fontSize: 'var(--fs-label-1)', color: 'var(--n90)', background: '#fff', border: 'none' }}
           >
             <option value="all">All sources</option>
             <option value="LinkedIn">LinkedIn</option>
@@ -119,17 +119,17 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', height: 34, borderRadius: 'var(--radius-sm)', boxShadow: 'inset 0 0 0 1px var(--border-default)', cursor: 'pointer', background: missingOnly ? 'var(--accent-50)' : 'transparent' }}
           >
             <Checkbox checked={missingOnly} onChange={setMissingOnly} size={16} />
-            <span style={{ fontSize: 12.5, color: 'var(--n70)' }}>Missing info only</span>
+            <span style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)' }}>Missing info only</span>
           </div>
         </div>
 
         {unverifiedCount > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--warning-100)', borderRadius: 'var(--radius-md)', padding: '12px 14px', flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--warning-700)', marginBottom: 2 }}>
+              <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--warning-700)', marginBottom: 2 }}>
                 {unverifiedCount} inferred email{unverifiedCount === 1 ? '' : 's'} need verification
               </div>
-              <div style={{ fontSize: 12, color: 'var(--n70)', lineHeight: 1.5 }}>
+              <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.5 }}>
                 Pattern-guessed from a name and company by enrichment — not supplied by the source. They can&apos;t be sent to
                 until you confirm them.
               </div>
@@ -142,7 +142,7 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse', fontSize: 13 }}>
+        <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)' }}>
           <thead>
             <tr style={{ textAlign: 'left' }}>
               <th style={{ padding: '10px 20px', width: 20 }}>
@@ -168,7 +168,7 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
                       <Avatar name={c.name} />
                       <div>
                         <div style={{ fontWeight: 600, color: 'var(--n90)' }}>{c.name}</div>
-                        <div style={{ fontSize: 11.5, color: c.emailSimulated && !c.emailVerified ? 'var(--warning-700)' : 'var(--n60)' }}>
+                        <div style={{ fontSize: 'var(--fs-label-2)', color: c.emailSimulated && !c.emailVerified ? 'var(--warning-700)' : 'var(--n60)' }}>
                           {c.seniority} ·{' '}
                           {c.emailSimulated
                             ? c.emailVerified
@@ -184,12 +184,12 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
                   <td style={{ padding: 12, color: 'var(--n70)' }}>
                     {c.account}
                     <br />
-                    <span style={{ fontSize: 11.5, color: 'var(--n60)' }}>{c.vertical}</span>
+                    <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>{c.vertical}</span>
                   </td>
                   <td style={{ padding: 12, color: 'var(--n70)' }}>
                     {c.title}
                     <br />
-                    <span style={{ fontSize: 11.5, color: 'var(--n60)' }}>{c.function}</span>
+                    <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>{c.function}</span>
                   </td>
                   <td style={{ padding: 12 }}>
                     <Badge color={sourceColor(c.source)} text={c.source} />
@@ -206,8 +206,8 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
                       <div style={{ background: 'var(--n20)', borderRadius: 'var(--radius-full)', height: 6, overflow: 'hidden', width: 70, flexShrink: 0 }}>
                         <div style={{ width: `${score}%`, height: '100%', background: scoreColor(score), borderRadius: 'var(--radius-full)' }} />
                       </div>
-                      <span style={{ fontSize: 12.5, fontWeight: 700, color: scoreColor(score), width: 22, flexShrink: 0 }}>{score}</span>
-                      {score >= threshold && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--success-700)', flexShrink: 0 }}>AUTO</span>}
+                      <span style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: scoreColor(score), width: 22, flexShrink: 0 }}>{score}</span>
+                      {score >= threshold && <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 700, color: 'var(--success-700)', flexShrink: 0 }}>AUTO</span>}
                     </div>
                   </td>
                   <td style={{ padding: '12px 20px', textAlign: 'center' }}>
@@ -218,7 +218,7 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
             })}
           </tbody>
         </table>
-        {filtered.length === 0 && <div style={{ padding: '28px 20px', textAlign: 'center', fontSize: 13, color: 'var(--n60)' }}>No contacts match these filters.</div>}
+        {filtered.length === 0 && <div style={{ padding: '28px 20px', textAlign: 'center', fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>No contacts match these filters.</div>}
       </div>
 
       <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
@@ -233,7 +233,7 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
 
 const thStyle: React.CSSProperties = {
   padding: '10px 12px',
-  fontSize: 11,
+  fontSize: 'var(--fs-label-2)',
   fontWeight: 600,
   color: 'var(--n60)',
   textTransform: 'uppercase',
@@ -276,11 +276,11 @@ function PhoneCell({ contactId, initial, onChange }: { contactId: string; initia
         onKeyDown={(e) => {
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
         }}
-        style={{ width: 140, height: 28, fontSize: 12 }}
+        style={{ width: 140, height: 28, fontSize: 'var(--fs-label-1)' }}
       />
-      {state === 'saving' && <div style={{ fontSize: 10.5, color: 'var(--n60)', marginTop: 2 }}>saving…</div>}
-      {state === 'saved' && <div style={{ fontSize: 10.5, color: 'var(--success-700)', marginTop: 2 }}>saved ✓</div>}
-      {state === 'error' && <div style={{ fontSize: 10.5, color: 'var(--danger-500)', marginTop: 2 }}>{error}</div>}
+      {state === 'saving' && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginTop: 2 }}>saving…</div>}
+      {state === 'saved' && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--success-700)', marginTop: 2 }}>saved ✓</div>}
+      {state === 'error' && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--danger-500)', marginTop: 2 }}>{error}</div>}
     </div>
   );
 }

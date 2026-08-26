@@ -29,7 +29,7 @@ export function Sidebar({
     background: active ? 'var(--accent-50)' : 'transparent',
     color: active ? 'var(--accent-500)' : 'var(--n70)',
     textDecoration: 'none',
-    fontSize: 13,
+    fontSize: 'var(--fs-label-1)',
     fontWeight: 600,
   });
 
@@ -55,8 +55,8 @@ export function Sidebar({
           </svg>
         </div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)', lineHeight: 1.2 }}>Campaign Agent</div>
-          <div style={{ fontSize: 11, color: 'var(--n60)', lineHeight: 1.2, marginTop: 1 }}>Webinar Intelligence</div>
+          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)', lineHeight: 1.2 }}>Campaign Agent</div>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', lineHeight: 1.2, marginTop: 1 }}>Webinar Intelligence</div>
         </div>
       </div>
 
@@ -86,15 +86,15 @@ export function Sidebar({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--success-500)', animation: 'lsq-pulse 2s infinite' }} />
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--n80)', letterSpacing: '0.03em' }}>AGENT ONLINE</span>
+          <span style={{ fontSize: 'var(--fs-label-2)', fontWeight: 700, color: 'var(--n80)', letterSpacing: '0.03em' }}>AGENT ONLINE</span>
         </div>
-        <div style={{ fontSize: 11.5, color: 'var(--n60)', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', lineHeight: 1.5 }}>
           {totalCount} {totalCount === 1 ? 'webinar' : 'webinars'} across {liveCount} live, {draftCount} draft, {completedCount} completed.
         </div>
       </div>
 
       <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 6, padding: '16px 8px 2px 8px' }}>
-        <span style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '0.08em', color: 'var(--n50)', textTransform: 'uppercase' }}>Built on</span>
+        <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, letterSpacing: '0.08em', color: 'var(--n50)', textTransform: 'uppercase' }}>Built on</span>
         <svg width="108" height="19.8" viewBox="0 0 578 106" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M0 -0.000643553V43.7142H43.5897V88.043H86.7982V-0.000643553H0Z" fill="#0C9AFC" />
           <path d="M100.433 26.8136C96.9467 26.8136 96.9467 21.2945 100.433 21.2945H106.709C107.929 21.2945 108.888 22.2582 108.888 23.3975V82.5238H111.329C114.815 82.5238 114.815 88.043 111.329 88.043H100.869C97.3826 88.043 97.3826 82.5238 100.869 82.5238H103.31V26.8136H100.433" fill="#172738" />

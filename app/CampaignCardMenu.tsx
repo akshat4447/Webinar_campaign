@@ -39,6 +39,8 @@ export function CampaignCardMenu({ campaignId, campaignName, archived }: { campa
   return (
     <div
       ref={ref}
+      className="lsq-reveal"
+      data-open={open || confirmDelete ? 'true' : 'false'}
       style={{ position: 'absolute', top: 10, right: 10, zIndex: 5 }}
       onClick={(e) => {
         e.preventDefault();
@@ -49,17 +51,14 @@ export function CampaignCardMenu({ campaignId, campaignName, archived }: { campa
         type="button"
         aria-label="Campaign actions"
         onClick={() => setOpen((v) => !v)}
+        className="lsq-btn lsq-btn--tertiary"
         style={{
           width: 26,
           height: 26,
-          border: 'none',
+          padding: 0,
           borderRadius: 'var(--radius-sm)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          background: open ? 'var(--n20)' : 'rgba(255,255,255,0.85)',
-          color: 'var(--n70)',
+          background: open ? 'var(--n20)' : 'var(--surface-card)',
+          color: 'var(--text-secondary)',
         }}
       >
         <Icon name="more" size={16} />
@@ -74,16 +73,15 @@ export function CampaignCardMenu({ campaignId, campaignName, archived }: { campa
             background: '#fff',
             borderRadius: 'var(--radius-md)',
             boxShadow: 'var(--shadow-panel)',
-            padding: 4,
+            padding: 'var(--space-4)',
             minWidth: 140,
           }}
         >
           <button
             type="button"
             onClick={toggleArchive}
-            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'transparent', fontSize: 12.5, fontWeight: 600, color: 'var(--n80)', cursor: 'pointer' }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--n10)')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            className="lsq-row"
+            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'transparent', fontSize: 'var(--fs-label-1)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-primary)' }}
           >
             {archived ? 'Unarchive' : 'Archive'}
           </button>
@@ -93,9 +91,8 @@ export function CampaignCardMenu({ campaignId, campaignName, archived }: { campa
               setOpen(false);
               setConfirmDelete(true);
             }}
-            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'transparent', fontSize: 12.5, fontWeight: 600, color: 'var(--danger-500)', cursor: 'pointer' }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--n10)')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            className="lsq-row"
+            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'transparent', fontSize: 'var(--fs-label-1)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-danger)' }}
           >
             Delete
           </button>

@@ -245,8 +245,8 @@ export function PersonalizeClient({
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)' }}>Personalize a step</div>
-            <div style={{ fontSize: 12, color: 'var(--n60)', marginTop: 2, maxWidth: '64ch' }}>
+            <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>Personalize a step</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 2, maxWidth: '64ch' }}>
               Each message is rewritten from the approved template for one person, using their title, seniority, function, industry
               and why they scored as they did. The offer and the registration link stay exactly as the template has them.
             </div>
@@ -273,7 +273,7 @@ export function PersonalizeClient({
                   padding: '7px 12px',
                   borderRadius: 'var(--radius-full)',
                   cursor: 'pointer',
-                  fontSize: 12.5,
+                  fontSize: 'var(--fs-label-1)',
                   fontWeight: 600,
                   background: active ? 'var(--accent-500)' : 'var(--n10)',
                   color: active ? '#fff' : 'var(--n70)',
@@ -284,7 +284,7 @@ export function PersonalizeClient({
                 {s.count > 0 && (
                   <span
                     style={{
-                      fontSize: 10.5,
+                      fontSize: 'var(--fs-label-2)',
                       fontWeight: 700,
                       padding: '1px 6px',
                       borderRadius: 'var(--radius-full)',
@@ -301,7 +301,7 @@ export function PersonalizeClient({
         </div>
 
         {!hasDescription && (
-          <div style={{ marginTop: 12, fontSize: 11.5, color: 'var(--warning-700)' }}>
+          <div style={{ marginTop: 12, fontSize: 'var(--fs-label-2)', color: 'var(--warning-700)' }}>
             This campaign has no description yet — adding one on Setup gives the AI much more to work with than the topic alone.
           </div>
         )}
@@ -309,7 +309,7 @@ export function PersonalizeClient({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
           {confirming ? (
             <>
-              <span style={{ fontSize: 12.5, color: 'var(--warning-700)', fontWeight: 600 }}>
+              <span style={{ fontSize: 'var(--fs-label-1)', color: 'var(--warning-700)', fontWeight: 600 }}>
                 {rows.length} recipients — this makes ~{Math.ceil(rows.length / 5)} Claude calls. Continue?
               </span>
               <Button hierarchy="secondary" size="sm" onClick={() => setConfirming(false)}>
@@ -359,7 +359,7 @@ export function PersonalizeClient({
               flexWrap: 'wrap',
             }}
           >
-            <div style={{ fontSize: 12.5, color: 'var(--warning-700)', minWidth: 0 }}>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--warning-700)', minWidth: 0 }}>
               The registration link changed since this copy was written — {staleLinkCount} message{staleLinkCount === 1 ? '' : 's'} still point
               {staleLinkCount === 1 ? 's' : ''} at the old one. Current link: <strong>{currentLink}</strong>
             </div>
@@ -370,22 +370,22 @@ export function PersonalizeClient({
         )}
 
         {notice && (
-          <div style={{ marginTop: 12, fontSize: 12.5, color: notice.tone === 'good' ? 'var(--success-700)' : 'var(--danger-500)' }}>{notice.text}</div>
+          <div style={{ marginTop: 12, fontSize: 'var(--fs-label-1)', color: notice.tone === 'good' ? 'var(--success-700)' : 'var(--danger-500)' }}>{notice.text}</div>
         )}
 
         {showTemplate && (
           <div style={{ marginTop: 12, background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: 14 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+            <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
               Base template · {activeStepLabel}
             </div>
-            {templateSubject && <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--n90)', marginBottom: 6 }}>{templateSubject}</div>}
-            <div style={{ fontSize: 12.5, color: 'var(--n70)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{templateBody}</div>
+            {templateSubject && <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 6 }}>{templateSubject}</div>}
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{templateBody}</div>
           </div>
         )}
       </div>
 
       {rows.length === 0 ? (
-        <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '32px 24px', textAlign: 'center', fontSize: 13, color: 'var(--n60)' }}>
+        <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '32px 24px', textAlign: 'center', fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>
           No approved contacts yet — approve some on the Scoring tab, then personalize.
         </div>
       ) : (
@@ -393,8 +393,8 @@ export function PersonalizeClient({
           {/* Recipient list */}
           <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', overflow: 'hidden' }}>
             <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--n90)' }}>Recipients</span>
-              <span style={{ fontSize: 11.5, color: invalidCount > 0 ? 'var(--danger-500)' : 'var(--n60)' }}>
+              <span style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>Recipients</span>
+              <span style={{ fontSize: 'var(--fs-label-2)', color: invalidCount > 0 ? 'var(--danger-500)' : 'var(--n60)' }}>
                 {generatedCount} of {rows.length} written{invalidCount > 0 ? ` · ${invalidCount} invalid` : ''}
               </span>
             </div>
@@ -407,6 +407,7 @@ export function PersonalizeClient({
                   <div
                     key={r.contactId}
                     onClick={() => setSelectedId(r.contactId)}
+                    className={active ? undefined : 'lsq-row'}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -420,8 +421,8 @@ export function PersonalizeClient({
                   >
                     <Avatar name={r.name} size={30} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--n90)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--n60)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n90)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                      <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {r.seniority} · {r.account}
                       </div>
                     </div>
@@ -432,7 +433,7 @@ export function PersonalizeClient({
                     ) : meta ? (
                       <Badge color={meta.color} text={meta.label} />
                     ) : (
-                      <span style={{ fontSize: 10.5, color: 'var(--n50)' }}>—</span>
+                      <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>—</span>
                     )}
                   </div>
                 );
@@ -444,8 +445,8 @@ export function PersonalizeClient({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {!selected ? null : !selected.message ? (
               <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '28px 24px', textAlign: 'center' }}>
-                <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)', marginBottom: 6 }}>Nothing written for {selected.name} yet</div>
-                <div style={{ fontSize: 12.5, color: 'var(--n60)', marginBottom: 16 }}>Generate the whole step, or just this one recipient.</div>
+                <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 6 }}>Nothing written for {selected.name} yet</div>
+                <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 16 }}>Generate the whole step, or just this one recipient.</div>
                 <Button hierarchy="secondary" size="sm" onClick={() => regenerate(selected.contactId)} disabled={busyRow === selected.contactId}>
                   {busyRow === selected.contactId ? 'Writing…' : 'Write this one'}
                 </Button>
@@ -456,7 +457,7 @@ export function PersonalizeClient({
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)' }}>{selected.name}</div>
+                        <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>{selected.name}</div>
                         {/* The one thing this tab was missing entirely: a real
                             pass/fail signal on the actual rendered content, not
                             just its draft/edited/reviewed workflow status. */}
@@ -464,7 +465,7 @@ export function PersonalizeClient({
                           <Badge color={selectedValidation.valid ? 'success' : 'error'} text={selectedValidation.valid ? 'Valid' : 'Invalid'} dot />
                         )}
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--n60)' }}>
+                      <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>
                         {selected.title} · {selected.account} · {selected.vertical}
                         {selected.score !== null ? ` · score ${selected.score}` : ''}
                       </div>
@@ -504,13 +505,13 @@ export function PersonalizeClient({
 
                   {selectedValidation && !selectedValidation.valid && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: '10px 12px', marginBottom: 14 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--danger-500)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 700, color: 'var(--danger-500)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                         Fix before sending — {selected.name.split(' ')[0]}&apos;s message would send exactly as shown below, unresolved tokens and all
                       </div>
                       {selectedValidation.issues
                         .filter((i) => i.severity === 'error')
                         .map((issue, i) => (
-                          <div key={i} style={{ fontSize: 12, color: 'var(--n70)' }}>
+                          <div key={i} style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)' }}>
                             • {issue.message}
                           </div>
                         ))}
@@ -519,26 +520,26 @@ export function PersonalizeClient({
 
                   {selected.message.rationale && (
                     <div style={{ display: 'flex', gap: 9, background: 'var(--accent-50)', borderRadius: 'var(--radius-md)', padding: '10px 12px', marginBottom: 14 }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent-700)', letterSpacing: '0.05em', flexShrink: 0, paddingTop: 2 }}>ANGLE</span>
-                      <span style={{ fontSize: 12.5, color: 'var(--n80)', lineHeight: 1.5 }}>{selected.message.rationale}</span>
+                      <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 700, color: 'var(--accent-700)', letterSpacing: '0.05em', flexShrink: 0, paddingTop: 2 }}>ANGLE</span>
+                      <span style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n80)', lineHeight: 1.5 }}>{selected.message.rationale}</span>
                     </div>
                   )}
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                     <Badge color="success" text="This personalized version is what sends" dot />
-                    <span style={{ fontSize: 11, color: 'var(--n50)' }}>
+                    <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>
                       Use “Use basic template” to fall back to the shared copy for this person.
                     </span>
                   </div>
                   {activeChannel === 'email' && (
                     <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>Subject</div>
+                      <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 6 }}>Subject</div>
                       <input className="lsq-input" type="text" value={selected.message.subject ?? ''} onChange={(e) => patchSelected({ subject: e.target.value })} />
                     </div>
                   )}
                   <div>
                     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <div style={{ fontSize: 12, color: 'var(--n60)' }}>
+                      <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>
                         {activeChannel === 'linkedin'
                           ? 'LinkedIn message'
                           : activeChannel === 'sms'
@@ -547,7 +548,7 @@ export function PersonalizeClient({
                           ? 'WhatsApp message'
                           : 'Email body'}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--n50)', fontVariantNumeric: 'tabular-nums' }}>
+                      <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', fontVariantNumeric: 'tabular-nums' }}>
                         {selected.message.body.length} chars · {selected.message.body.trim().split(/\s+/).length} words
                       </div>
                     </div>
@@ -557,7 +558,7 @@ export function PersonalizeClient({
 
                 {/* What the AI was given — makes the personalization auditable */}
                 <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 20px' }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--n90)', marginBottom: 10 }}>Signals used for {selected.name.split(' ')[0]}</div>
+                  <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 10 }}>Signals used for {selected.name.split(' ')[0]}</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: selected.personaNote ? 10 : 0 }}>
                     <Signal label="Seniority" value={selected.seniority} />
                     <Signal label="Function" value={selected.function} />
@@ -566,11 +567,11 @@ export function PersonalizeClient({
                     <Signal label="Channel" value={activeChannel === 'linkedin' ? 'LinkedIn DM' : activeChannel === 'sms' ? 'SMS' : activeChannel === 'whatsapp' ? 'WhatsApp' : 'Email'} />
                   </div>
                   {selected.personaNote && (
-                    <div style={{ fontSize: 12, color: 'var(--n70)', lineHeight: 1.55, background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: '9px 11px' }}>
+                    <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.55, background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: '9px 11px' }}>
                       <strong style={{ color: 'var(--n90)' }}>Persona note:</strong> {selected.personaNote}
                     </div>
                   )}
-                  <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 10, lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 10, lineHeight: 1.5 }}>
                     Years of experience and LinkedIn profile content aren&apos;t available in this build, so the AI is told not to
                     invent them — it personalizes on the signals above and the campaign brief for {campaignName}.
                   </div>
@@ -588,7 +589,7 @@ export function PersonalizeClient({
           template when none exists), so moving on doesn't require every step
           to be personalized first. */}
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 12, color: 'var(--n60)', maxWidth: '56ch' }}>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', maxWidth: '56ch' }}>
           {generatedCount > 0
             ? `${generatedCount} of ${rows.length} recipients have personalized copy for this step. Steps left on the shared template send that instead.`
             : 'No personalized copy yet for this step — that\u2019s fine, it will send the shared template until you generate some.'}
@@ -616,8 +617,8 @@ export function PersonalizeClient({
 function Signal({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: '5px 9px' }}>
-      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
-      <span style={{ fontSize: 12, color: 'var(--n90)', fontWeight: 600, marginLeft: 6 }}>{value}</span>
+      <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
+      <span style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n90)', fontWeight: 600, marginLeft: 6 }}>{value}</span>
     </div>
   );
 }

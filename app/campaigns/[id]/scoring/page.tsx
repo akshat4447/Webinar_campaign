@@ -13,7 +13,7 @@ export default async function ScoringPage({ params }: { params: Promise<{ id: st
   if (contacts.length === 0) {
     return (
       <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
-        <div style={{ textAlign: 'center', color: 'var(--n60)', fontSize: 13, marginTop: 48 }}>No contacts imported yet — go to Setup first.</div>
+        <div style={{ textAlign: 'center', color: 'var(--n60)', fontSize: 'var(--fs-label-1)', marginTop: 48 }}>No contacts imported yet — go to Setup first.</div>
       </main>
     );
   }
@@ -45,9 +45,9 @@ export default async function ScoringPage({ params }: { params: Promise<{ id: st
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(196px, 1fr))', gap: 14, marginBottom: 18 }}>
         {discoveryStats.map((stat) => (
           <div key={stat.label} style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
-            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--n60)', letterSpacing: '0.03em', textTransform: 'uppercase' }}>{stat.label}</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--n90)', marginTop: 6, letterSpacing: '-0.01em' }}>{stat.value}</div>
-            <div style={{ fontSize: 12, color: 'var(--n60)', marginTop: 2 }}>{stat.sub}</div>
+            <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', letterSpacing: '0.03em', textTransform: 'uppercase' }}>{stat.label}</div>
+            <div style={{ fontSize: 'var(--fs-heading-2)', fontWeight: 700, color: 'var(--n90)', marginTop: 6, letterSpacing: '-0.01em' }}>{stat.value}</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 2 }}>{stat.sub}</div>
           </div>
         ))}
       </div>

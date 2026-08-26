@@ -36,14 +36,14 @@ export function LinkedInInviteCard(props: {
   return (
     <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--n90)', flex: 1 }}>LinkedIn Event</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', flex: 1 }}>LinkedIn Event</div>
         <Badge color="success" text={`${props.registrations} registered`} dot />
         {props.invited && <Badge color="gray" text="invites sent" />}
       </div>
 
       {!props.invited ? (
         <>
-          <div style={{ fontSize: 12.5, color: 'var(--n70)', lineHeight: 1.55, marginBottom: 12 }}>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.55, marginBottom: 12 }}>
             One manual step remains — inviting members has no API. Open the event page and click{' '}
             <strong>“Invite connections”</strong>, then mark it done here.
           </div>
@@ -57,14 +57,14 @@ export function LinkedInInviteCard(props: {
           </div>
         </>
       ) : (
-        <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: props.pendingRegistrations > 0 ? 10 : 0 }}>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: props.pendingRegistrations > 0 ? 10 : 0 }}>
           Invites marked done{props.registrations > 0 ? ` · ${props.registrations} registration(s) harvested into the funnel` : ' · registrations will stream in automatically'}.
         </div>
       )}
 
       {props.pendingRegistrations > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ fontSize: 12, color: 'var(--warning-700)', flex: 1 }}>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--warning-700)', flex: 1 }}>
             {props.pendingRegistrations} registration(s) waiting to be processed.
           </div>
           <Button size="sm" hierarchy="secondary" onClick={process} disabled={busy !== null}>

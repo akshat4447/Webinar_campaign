@@ -70,11 +70,11 @@ export function LsqActivityMappingCard() {
     <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '14px 20px', marginBottom: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
         <div>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--n90)' }}>Activity mapping — hooks for your LSQ Automations</div>
-          <div style={{ fontSize: 11.5, color: 'var(--n60)', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>Activity mapping — hooks for your LSQ Automations</div>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', lineHeight: 1.5 }}>
             Pick which activity type we post when a channel message goes out. Your automations then trigger on that activity.
           </div>
-          <div style={{ fontSize: 11, color: 'var(--warning-700)', lineHeight: 1.5, marginTop: 4 }}>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--warning-700)', lineHeight: 1.5, marginTop: 4 }}>
             Don&apos;t map a channel to an activity type whose automation <em>sends that same channel</em> — the app already sent it,
             so the automation sends a second copy. Email is sent directly by the app; leave it unmapped unless your automation only
             logs or scores.
@@ -82,7 +82,7 @@ export function LsqActivityMappingCard() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           {!loadingTypes && types.length > 0 && (
-            <span style={{ fontSize: 11, color: 'var(--n50)' }} title={sourcePath ?? undefined}>
+            <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }} title={sourcePath ?? undefined}>
               {types.length} types loaded
             </span>
           )}
@@ -95,8 +95,8 @@ export function LsqActivityMappingCard() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10, marginBottom: 10 }}>
         {CHANNELS.map(({ key, label }) => (
           <div key={key} style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--n80)', marginBottom: 6 }}>{label}</div>
-            <select className="lsq-select" style={{ width: '100%', height: 30, fontSize: 12 }} value={map[key]?.typeId ?? ''} onChange={(e) => setType(key, e.target.value)}>
+            <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n80)', marginBottom: 6 }}>{label}</div>
+            <select className="lsq-select" style={{ width: '100%', height: 30, fontSize: 'var(--fs-label-1)' }} value={map[key]?.typeId ?? ''} onChange={(e) => setType(key, e.target.value)}>
               <option value="">— none —</option>
               {types.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -113,7 +113,7 @@ export function LsqActivityMappingCard() {
         ))}
       </div>
 
-      <details style={{ fontSize: 11.5, color: 'var(--n60)', marginBottom: 10 }}>
+      <details style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginBottom: 10 }}>
         <summary style={{ cursor: 'pointer' }}>Advanced: trigger activity field schema names</summary>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
           {(['channel', 'stepKey', 'message'] as const).map((k) => (
@@ -129,11 +129,11 @@ export function LsqActivityMappingCard() {
         <Button hierarchy="primary" size="sm" onClick={save} disabled={saving}>
           {saving ? 'Saving…' : savedAt ? 'Saved ✓' : 'Save mapping'}
         </Button>
-        {savedAt && <span style={{ fontSize: 11, color: 'var(--n50)' }}>Saved {new Date(savedAt).toLocaleTimeString('en-GB', { hour12: false })}</span>}
+        {savedAt && <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>Saved {new Date(savedAt).toLocaleTimeString('en-GB', { hour12: false })}</span>}
         {!savedAt && !everSaved && !error && (
-          <span style={{ fontSize: 11, color: 'var(--n50)' }}>No mapping saved yet — nothing is posted per channel until you save one.</span>
+          <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>No mapping saved yet — nothing is posted per channel until you save one.</span>
         )}
-        {error && <span style={{ fontSize: 11.5, color: 'var(--danger-500)', overflowWrap: 'anywhere' }}>{error}</span>}
+        {error && <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--danger-500)', overflowWrap: 'anywhere' }}>{error}</span>}
       </div>
     </div>
   );

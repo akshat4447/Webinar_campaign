@@ -19,8 +19,8 @@ export default function CampaignError({ error, retry }: { error: Error & { diges
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '48px 36px', display: 'flex', justifyContent: 'center' }}>
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '28px 24px', maxWidth: 480, textAlign: 'center', height: 'fit-content' }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>Something went wrong on this tab</div>
-        <div style={{ fontSize: 13, color: 'var(--n60)', lineHeight: 1.55, marginBottom: 20, overflowWrap: 'anywhere' }}>
+        <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>Something went wrong on this tab</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.55, marginBottom: 20, overflowWrap: 'anywhere' }}>
           {error.message || 'An unexpected error interrupted this page.'}
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>

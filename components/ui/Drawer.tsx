@@ -33,8 +33,8 @@ export function Drawer({ content, onClose }: { content: DrawerContent | null; on
       >
         <div style={{ flexShrink: 0, padding: '18px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'start', gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--n90)', overflowWrap: 'anywhere' }}>{content.title}</div>
-            <div style={{ fontSize: 12, color: 'var(--n60)', marginTop: 3, overflowWrap: 'anywhere' }}>{content.subtitle}</div>
+            <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)', overflowWrap: 'anywhere' }}>{content.title}</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 3, overflowWrap: 'anywhere' }}>{content.subtitle}</div>
           </div>
           <div onClick={onClose} style={{ cursor: 'pointer', width: 28, height: 28, borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Icon name="close" size={16} style={{ color: 'var(--n60)' }} />
@@ -42,11 +42,11 @@ export function Drawer({ content, onClose }: { content: DrawerContent | null; on
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px 24px 20px' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)' }}>
               <thead>
                 <tr>
                   {content.columns.map((col) => (
-                    <th key={col} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10.5, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>
+                    <th key={col} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>
                       {col}
                     </th>
                   ))}
@@ -68,7 +68,7 @@ export function Drawer({ content, onClose }: { content: DrawerContent | null; on
           {content.notes && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
               {content.notes.map((note, i) => (
-                <div key={i} style={{ fontSize: 12, color: 'var(--n70)', lineHeight: 1.55, background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', overflowWrap: 'anywhere' }}>
+                <div key={i} style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.55, background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', overflowWrap: 'anywhere' }}>
                   {note}
                 </div>
               ))}

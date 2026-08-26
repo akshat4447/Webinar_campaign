@@ -78,8 +78,8 @@ export function CadenceGroups({
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)' }}>Cadence schedule</div>
-          <div style={{ fontSize: 11.5, color: 'var(--n60)', marginTop: 2 }}>
+          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>Cadence schedule</div>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginTop: 2 }}>
             Every step is editable. Pre-registration is timed from launch; reminders and follow-ups from the webinar date.
           </div>
         </div>
@@ -89,13 +89,13 @@ export function CadenceGroups({
       </div>
 
       {!webinarAt && (
-        <div style={{ background: 'var(--warning-100)', borderRadius: 'var(--radius-md)', padding: '11px 14px', fontSize: 12.5, color: 'var(--warning-700)' }}>
+        <div style={{ background: 'var(--warning-100)', borderRadius: 'var(--radius-md)', padding: '11px 14px', fontSize: 'var(--fs-label-1)', color: 'var(--warning-700)' }}>
           No webinar date set yet — reminder and post-webinar steps can&apos;t resolve to a real time until you set one on Setup.
         </div>
       )}
 
       {patchError && (
-        <div style={{ background: 'var(--danger-50, #fef2f2)', borderRadius: 'var(--radius-md)', padding: '10px 14px', fontSize: 12.5, color: 'var(--danger-500)' }}>
+        <div style={{ background: 'var(--danger-50, #fef2f2)', borderRadius: 'var(--radius-md)', padding: '10px 14px', fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)' }}>
           {patchError}
         </div>
       )}
@@ -106,8 +106,8 @@ export function CadenceGroups({
         return (
           <div key={group}>
             <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{group}</div>
-              {GROUP_BLURB[group] && <div style={{ fontSize: 11.5, color: 'var(--n50)', marginTop: 3 }}>{GROUP_BLURB[group]}</div>}
+              <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{group}</div>
+              {GROUP_BLURB[group] && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 3 }}>{GROUP_BLURB[group]}</div>}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -134,27 +134,27 @@ export function CadenceGroups({
                           padding: '6px 8px',
                         }}
                       >
-                        <div style={{ fontSize: 12, fontWeight: 700, color: schedulable ? 'var(--n90)' : 'var(--n60)' }}>{offsetLabel(step)}</div>
-                        <div style={{ fontSize: 10, color: 'var(--n50)', marginTop: 1 }}>
+                        <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: schedulable ? 'var(--n90)' : 'var(--n60)' }}>{offsetLabel(step)}</div>
+                        <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--n50)', marginTop: 1 }}>
                           {resolved ? fmt(resolved) : step.anchor === 'event' ? 'no fixed time' : 'needs a date'}
                         </div>
-                        {schedulable && <div style={{ fontSize: 9.5, color: 'var(--accent-500)', marginTop: 3, fontWeight: 600 }}>{isEditing ? 'Editing' : 'Edit timing'}</div>}
+                        {schedulable && <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--accent-500)', marginTop: 3, fontWeight: 600 }}>{isEditing ? 'Editing' : 'Edit timing'}</div>}
                       </div>
 
                       <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border-subtle)', flexShrink: 0 }} />
 
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--n90)' }}>{step.title}</span>
+                          <span style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n90)' }}>{step.title}</span>
                           <Badge color={channelColor(step.channel)} text={step.channel} />
                           {step.isRoadmap && <Badge color="warning" text="Roadmap" />}
                           {step.key === 'linkedin' && <Badge color="gray" text="Manual or bot" />}
                           {step.anchor === 'event' && !step.isRoadmap && <Badge color="gray" text="Event-triggered" />}
                         </div>
-                        <div style={{ fontSize: 12, color: 'var(--n60)', overflowWrap: 'anywhere', marginBottom: 4 }}>{step.desc}</div>
+                        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', overflowWrap: 'anywhere', marginBottom: 4 }}>{step.desc}</div>
 
                         {(isAutomated || counts) && (
-                          <div style={{ fontSize: 11, color: 'var(--n50)' }}>
+                          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>
                             Sent {counts?.sent ?? 0} · Queued {counts?.queued ?? 0} ·{' '}
                             <span style={{ color: counts?.failed ? 'var(--danger-500)' : 'var(--n50)' }}>Failed {counts?.failed ?? 0}</span>
                           </div>
@@ -163,7 +163,7 @@ export function CadenceGroups({
                         {isEditing && (
                           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
                             <div>
-                              <div style={{ fontSize: 11, color: 'var(--n60)', marginBottom: 4 }}>Offset</div>
+                              <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginBottom: 4 }}>Offset</div>
                               <input
                                 className="lsq-input"
                                 type="number"
@@ -173,7 +173,7 @@ export function CadenceGroups({
                               />
                             </div>
                             <div>
-                              <div style={{ fontSize: 11, color: 'var(--n60)', marginBottom: 4 }}>Unit</div>
+                              <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginBottom: 4 }}>Unit</div>
                               <select
                                 className="lsq-select"
                                 value={step.offsetUnit}
@@ -185,7 +185,7 @@ export function CadenceGroups({
                               </select>
                             </div>
                             <div>
-                              <div style={{ fontSize: 11, color: 'var(--n60)', marginBottom: 4 }}>Relative to</div>
+                              <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginBottom: 4 }}>Relative to</div>
                               <select
                                 className="lsq-select"
                                 value={step.anchor}
@@ -196,14 +196,14 @@ export function CadenceGroups({
                                 <option value="webinar">webinar start</option>
                               </select>
                             </div>
-                            <div style={{ fontSize: 11.5, color: 'var(--n60)', paddingBottom: 9 }}>
+                            <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', paddingBottom: 9 }}>
                               Negative values run <strong style={{ color: 'var(--n80)' }}>before</strong> the anchor — that&apos;s how T-3d works.
                             </div>
                           </div>
                         )}
                       </div>
 
-                      {step.isRoadmap && <div style={{ fontSize: 11.5, color: 'var(--n50)', flexShrink: 0 }}>Behind cadence engine</div>}
+                      {step.isRoadmap && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', flexShrink: 0 }}>Behind cadence engine</div>}
                       {step.toggleable && <Checkbox checked={step.enabled} onChange={() => toggle(step)} size={16} />}
                     </div>
                   </div>
@@ -223,7 +223,7 @@ const selectStyle: React.CSSProperties = {
   boxShadow: 'inset 0 0 0 1px var(--border-default)',
   padding: '0 30px 0 10px',
   fontFamily: 'var(--font-body)',
-  fontSize: 12.5,
+  fontSize: 'var(--fs-label-1)',
   color: 'var(--n90)',
   background: '#fff',
   border: 'none',

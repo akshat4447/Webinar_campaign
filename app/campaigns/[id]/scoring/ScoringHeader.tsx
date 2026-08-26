@@ -44,12 +44,12 @@ export function ScoringHeader({ campaign }: { campaign: Campaign }) {
     <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 20px', marginBottom: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#fff' }}>
+          <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 'var(--fs-label-2)', fontWeight: 700, color: '#fff' }}>
             C
           </div>
           <div>
-            <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--n90)' }}>Scored by Claude</div>
-            <div style={{ fontSize: 12, color: 'var(--n60)' }}>Approval threshold: {threshold} · {criteria.slice(0, 60)}{criteria.length > 60 ? '…' : ''}</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>Scored by Claude</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>Approval threshold: {threshold} · {criteria.slice(0, 60)}{criteria.length > 60 ? '…' : ''}</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -61,19 +61,19 @@ export function ScoringHeader({ campaign }: { campaign: Campaign }) {
           </Button>
         </div>
       </div>
-      {rescoreNotice && <div style={{ fontSize: 12, color: 'var(--n70)', marginTop: 10 }}>{rescoreNotice}</div>}
+      {rescoreNotice && <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', marginTop: 10 }}>{rescoreNotice}</div>}
       {open && (
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>Scoring prompt</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 6 }}>Scoring prompt</div>
             <textarea className="lsq-input" rows={2} value={prompt} onChange={(e) => setPrompt(e.target.value)} onBlur={() => saveConfig({ prompt })} />
           </div>
           <div>
-            <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>Approval criteria</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 6 }}>Approval criteria</div>
             <textarea className="lsq-input" rows={2} value={criteria} onChange={(e) => setCriteria(e.target.value)} onBlur={() => saveConfig({ criteria })} />
           </div>
           <div>
-            <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>Auto-approval threshold — {threshold}</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 6 }}>Auto-approval threshold — {threshold}</div>
             <input
               type="range"
               min={0}
@@ -85,7 +85,7 @@ export function ScoringHeader({ campaign }: { campaign: Campaign }) {
               style={{ width: '100%', accentColor: 'var(--accent-500)' }}
             />
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--n50)' }}>Changing the threshold here re-approves contacts only on the next re-score — it doesn&apos;t retroactively flip existing approvals.</div>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>Changing the threshold here re-approves contacts only on the next re-score — it doesn&apos;t retroactively flip existing approvals.</div>
         </div>
       )}
     </div>

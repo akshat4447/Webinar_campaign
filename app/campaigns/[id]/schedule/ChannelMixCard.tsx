@@ -38,8 +38,8 @@ export function ChannelMixCard({
 
   return (
     <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Channel mix</div>
-      <div style={{ fontSize: 12, color: 'var(--n60)', lineHeight: 1.5, marginBottom: 12 }}>
+      <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Channel mix</div>
+      <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.5, marginBottom: 12 }}>
         Choose which channels this cadence uses. Disabling one parks its queued sends immediately.
       </div>
 
@@ -88,8 +88,8 @@ export function ChannelMixCard({
                 />
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--n90)' }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--n50)' }}>{hint}</div>
+                <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n90)' }}>{label}</div>
+                <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>{hint}</div>
               </div>
               <Badge color={on ? 'success' : 'gray'} text={on ? `${mix[key].enabled}/${mix[key].total} on` : 'off'} dot />
             </div>

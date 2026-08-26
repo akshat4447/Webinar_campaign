@@ -27,9 +27,9 @@ export function ZoomPanel({ campaignId }: { campaignId: string }) {
 
   return (
     <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--n90)', marginBottom: 10 }}>Zoom attendance (CSV import, no API)</div>
+      <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 10 }}>Zoom attendance (CSV import, no API)</div>
       {result?.ok ? (
-        <div style={{ fontSize: 12.5, color: 'var(--success-700)', lineHeight: 1.6 }}>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--success-700)', lineHeight: 1.6 }}>
           ✓ {result.attendedCount} attended · {result.noShowCount} no-show — real attend/no-show sends queued and pushed to
           LeadSquared as engagement activities.
         </div>
@@ -48,8 +48,8 @@ export function ZoomPanel({ campaignId }: { campaignId: string }) {
           <Button hierarchy="secondary" size="sm" fullWidth onClick={() => inputRef.current?.click()} disabled={busy}>
             {busy ? 'Importing…' : 'Upload attendance report (.csv)'}
           </Button>
-          {result && !result.ok && <div style={{ fontSize: 12, color: 'var(--danger-500)', marginTop: 8 }}>{result.error}</div>}
-          <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 8, lineHeight: 1.5 }}>
+          {result && !result.ok && <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)', marginTop: 8 }}>{result.error}</div>}
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 8, lineHeight: 1.5 }}>
             Export the Participants Report from Zoom after the webinar and drop it here.
           </div>
         </>

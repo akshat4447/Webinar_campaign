@@ -61,12 +61,12 @@ export function LaunchCadenceCard({
   if (cadenceStatus === 'stopped') {
     return (
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--n90)', marginBottom: 6 }}>This cadence was stopped</div>
-        <div style={{ fontSize: 12, color: 'var(--n60)', lineHeight: 1.5, marginBottom: 14 }}>
+        <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 6 }}>This cadence was stopped</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.5, marginBottom: 14 }}>
           Stopping can&apos;t be undone, but you can start a new cadence run for the same {approvedCount} approved contact{approvedCount === 1 ? '' : 's'}. Any send still queued from the stopped run is marked skipped first.
         </div>
         {restarting ? (
-          <div style={{ fontSize: 12.5, color: 'var(--n60)' }}>Resetting…</div>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>Resetting…</div>
         ) : (
           <Button hierarchy="secondary" size="md" fullWidth onClick={() => setConfirmingRestart(true)}>
             Start a new cadence
@@ -89,8 +89,8 @@ export function LaunchCadenceCard({
   if (cadenceStatus !== 'not_started') {
     return (
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--n90)', marginBottom: 6 }}>Cadence already launched</div>
-        <div style={{ fontSize: 12, color: 'var(--n60)', lineHeight: 1.5, marginBottom: 14 }}>Manage pause/resume/stop from Control Center.</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 6 }}>Cadence already launched</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.5, marginBottom: 14 }}>Manage pause/resume/stop from Control Center.</div>
         <Button hierarchy="secondary" size="md" fullWidth onClick={() => router.push(`/campaigns/${campaignId}/control`)}>
           Go to Control Center
         </Button>
@@ -101,10 +101,10 @@ export function LaunchCadenceCard({
   return (
     <div style={{ background: 'var(--n90)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Ready to launch</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: '#fff' }}>Ready to launch</div>
         <Badge color={sendMode === 'sandbox' ? 'warning' : 'error'} text={sendMode === 'sandbox' ? 'Sandbox sends' : 'LIVE sends'} />
       </div>
-      <div style={{ fontSize: 12, color: '#9CA3AF', lineHeight: 1.5, marginBottom: 14 }}>
+      <div style={{ fontSize: 'var(--fs-label-1)', color: '#9CA3AF', lineHeight: 1.5, marginBottom: 14 }}>
         {approvedCount} approved contact{approvedCount === 1 ? '' : 's'} will get real invite/nudge/final-call emails sent via
         LeadSquared.{' '}
         {sendMode === 'sandbox'
@@ -113,10 +113,10 @@ export function LaunchCadenceCard({
       </div>
 
       {result ? (
-        <div style={{ fontSize: 12.5, color: '#fff', lineHeight: 1.5 }}>{result}</div>
+        <div style={{ fontSize: 'var(--fs-label-1)', color: '#fff', lineHeight: 1.5 }}>{result}</div>
       ) : confirming ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 12, color: '#fff', fontWeight: 600 }}>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: '#fff', fontWeight: 600 }}>
             Confirm: send to {approvedCount} contacts in {sendMode} mode?
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -133,7 +133,7 @@ export function LaunchCadenceCard({
           Launch cadence
         </Button>
       )}
-      {approvedCount === 0 && !result && <div style={{ fontSize: 11.5, color: '#F59E0B', marginTop: 8 }}>No approved contacts yet — approve some in Scoring first.</div>}
+      {approvedCount === 0 && !result && <div style={{ fontSize: 'var(--fs-label-2)', color: '#F59E0B', marginTop: 8 }}>No approved contacts yet — approve some in Scoring first.</div>}
     </div>
   );
 }

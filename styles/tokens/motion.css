@@ -1,0 +1,22 @@
+/* Motion + focus tokens.
+
+   The Figma export defines colour, type, spacing and shadow but carries no
+   motion or focus-ring values, so these are added here in the same shape as
+   the rest of the system. Kept deliberately small — one duration for state
+   changes, one slightly longer for surfaces that appear, and a single easing —
+   so every interaction in the product feels like the same product. */
+:root{
+  /* State changes the user causes directly (hover, press, colour shifts). */
+  --dur-fast:120ms;
+  /* Surfaces entering or leaving (panels, dropdowns, drawers). */
+  --dur-medium:180ms;
+  /* Decelerating curve: quick to respond, settles softly. */
+  --ease-standard:cubic-bezier(0.2,0,0.2,1);
+
+  --transition-colors:color var(--dur-fast) var(--ease-standard),background-color var(--dur-fast) var(--ease-standard),box-shadow var(--dur-fast) var(--ease-standard),border-color var(--dur-fast) var(--ease-standard);
+  --transition-transform:transform var(--dur-fast) var(--ease-standard);
+
+  /* Focus ring — 2px accent halo over a white gap so it reads on any surface. */
+  --focus-ring:0 0 0 2px var(--n0),0 0 0 4px var(--border-focus);
+  --focus-ring-tight:0 0 0 2px var(--border-focus);
+}

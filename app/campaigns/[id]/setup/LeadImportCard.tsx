@@ -138,7 +138,7 @@ export function LeadImportCard({
   const tabBtn = (active: boolean): React.CSSProperties => ({
     padding: '6px 12px',
     borderRadius: 'var(--radius-sm)',
-    fontSize: 12,
+    fontSize: 'var(--fs-label-1)',
     fontWeight: 600,
     cursor: 'pointer',
     background: active ? '#fff' : 'transparent',
@@ -149,7 +149,7 @@ export function LeadImportCard({
   return (
     <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--n90)' }}>Lead import</div>
+        <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>Lead import</div>
         <div style={{ display: 'flex', background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: 3, gap: 2 }}>
           <div onClick={() => setMode('csv')} style={tabBtn(mode === 'csv')}>
             Upload CSV
@@ -201,15 +201,15 @@ export function LeadImportCard({
               <Icon name="upload" size={18} style={{ color: 'var(--accent-500)' }} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--n90)', overflowWrap: 'anywhere' }}>
+              <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n90)', overflowWrap: 'anywhere' }}>
                 {busy ? 'Parsing…' : result?.ok ? `${result.rowCount} contacts imported` : 'Drop a .csv here or click to choose a file'}
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--n50)', marginTop: 4, overflowWrap: 'anywhere' }}>
+              <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 4, overflowWrap: 'anywhere' }}>
                 {result?.ok
                   ? `${result.headers?.length ?? 0} columns detected · ${result.dupes ?? 0} duplicates merged · ${result.withEmail ?? 0} with a usable email`
                   : 'Columns for name, email, company and title are detected automatically.'}
               </div>
-              {result && !result.ok && <div style={{ fontSize: 12, color: 'var(--danger-500)', marginTop: 4 }}>{result.error}</div>}
+              {result && !result.ok && <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)', marginTop: 4 }}>{result.error}</div>}
             </div>
             {result?.ok && <Badge color="success" text="Parsed" />}
           </div>
@@ -233,15 +233,15 @@ export function LeadImportCard({
             <Button hierarchy="secondary-color" size="sm" onClick={runCheck} disabled={checking}>
               {checking ? 'Checking…' : '\u2726 Check fields against LeadSquared'}
             </Button>
-            <span style={{ fontSize: 11.5, color: 'var(--n60)' }}>
+            <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>
               Pairs your columns with real LSQ fields and type-checks the values before anything is written.
             </span>
           </div>
 
-          {check && !check.ok && <div style={{ fontSize: 12, color: 'var(--danger-500)' }}>{check.error}</div>}
+          {check && !check.ok && <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)' }}>{check.error}</div>}
 
           {check?.ok && (
-            <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: 12, fontSize: 12 }}>
+            <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: 12, fontSize: 'var(--fs-label-1)' }}>
               <div style={{ color: 'var(--n60)', marginBottom: 8 }}>
                 Matched against {check.lsqFieldCount} LeadSquared fields.
               </div>
@@ -275,7 +275,7 @@ export function LeadImportCard({
           )}
 
           <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 6 }}>
               Destination list in LeadSquared {destSaving && <span style={{ color: 'var(--n50)' }}>&middot; saving…</span>}
             </div>
             <select
@@ -283,7 +283,7 @@ export function LeadImportCard({
               value={destListId}
               onFocus={() => { if (!destLists) void loadDestLists(); }}
               onChange={(e) => void chooseDestList(e.target.value)}
-              style={{ width: '100%', height: 34, fontSize: 12.5 }}
+              style={{ width: '100%', height: 34, fontSize: 'var(--fs-label-1)' }}
             >
               <option value="">Create a new list for this campaign (default)</option>
               {destLists?.map((l) => (
@@ -292,7 +292,7 @@ export function LeadImportCard({
                 </option>
               ))}
             </select>
-            <div style={{ fontSize: 11, color: 'var(--n50)', marginTop: 5 }}>
+            <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 5 }}>
               Only static lists are listed &mdash; dynamic lists are query-driven and reject additions.
             </div>
           </div>
@@ -302,15 +302,15 @@ export function LeadImportCard({
       {mode === 'lsq' ? (
         <div style={{ display: 'flex', gap: 10, alignItems: 'end' }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, color: 'var(--n60)', marginBottom: 6 }}>Source list</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 6 }}>Source list</div>
             {listsError ? (
-              <div style={{ fontSize: 12.5, color: 'var(--danger-500)' }}>{listsError}</div>
+              <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)' }}>{listsError}</div>
             ) : (
               <select
                 className="lsq-select"
                 value={selectedListId}
                 onChange={(e) => setSelectedListId(e.target.value)}
-                style={{ width: '100%', height: 38, borderRadius: 'var(--radius-sm)', boxShadow: 'inset 0 0 0 1px var(--border-default)', padding: '0 32px 0 12px', fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--n90)', background: '#fff', border: 'none' }}
+                style={{ width: '100%', height: 38, borderRadius: 'var(--radius-sm)', boxShadow: 'inset 0 0 0 1px var(--border-default)', padding: '0 32px 0 12px', fontFamily: 'var(--font-body)', fontSize: 'var(--fs-label-1)', color: 'var(--n90)', background: '#fff', border: 'none' }}
               >
                 {lists === null && <option>Loading lists…</option>}
                 {lists?.length === 0 && <option>No lists found</option>}
@@ -329,14 +329,14 @@ export function LeadImportCard({
       ) : null}
 
       {mode === 'lsq' && result && (
-        <div style={{ marginTop: 12, fontSize: 12.5, color: result.ok ? 'var(--success-700)' : 'var(--danger-500)' }}>
+        <div style={{ marginTop: 12, fontSize: 'var(--fs-label-1)', color: result.ok ? 'var(--success-700)' : 'var(--danger-500)' }}>
           {result.ok ? `✓ ${result.rowCount} contacts fetched from LeadSquared` : result.error}
         </div>
       )}
 
       <div style={{ marginTop: 16, display: 'flex', gap: 10, background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: '12px 14px' }}>
         <Icon name="InformationProperty1Outline" size={16} style={{ color: 'var(--n60)', flexShrink: 0, marginTop: 1 }} />
-        <div style={{ minWidth: 0, fontSize: 12, color: 'var(--n70)', lineHeight: 1.5 }}>
+        <div style={{ minWidth: 0, fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.5 }}>
           Gaps in the source data — missing titles, verticals, contact details — get filled by the enrichment step below.
         </div>
       </div>

@@ -1,3 +1,7 @@
+// Surface styling comes from .lsq-card in globals.css so every card shares one
+// definition. The lift-on-hover variant is applied only when the card is
+// actually clickable — a static panel that reacts to the cursor is misleading.
+
 export function Card({
   children,
   pad = true,
@@ -12,14 +16,8 @@ export function Card({
   return (
     <div
       onClick={onClick}
-      style={{
-        background: '#fff',
-        borderRadius: 'var(--radius-lg)',
-        boxShadow: 'var(--shadow-card)',
-        padding: pad ? '18px 20px' : 0,
-        cursor: onClick ? 'pointer' : undefined,
-        ...style,
-      }}
+      className={onClick ? 'lsq-card lsq-card--interactive' : 'lsq-card'}
+      style={{ padding: pad ? '18px 20px' : 0, ...style }}
     >
       {children}
     </div>

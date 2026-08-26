@@ -23,7 +23,7 @@ export default async function PersonalizePage({ params, searchParams }: { params
   if (available.length === 0) {
     return (
       <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
-        <div style={{ textAlign: 'center', color: 'var(--n60)', fontSize: 13, marginTop: 48 }}>No templates on this campaign yet — visit Templates first.</div>
+        <div style={{ textAlign: 'center', color: 'var(--n60)', fontSize: 'var(--fs-label-1)', marginTop: 48 }}>No templates on this campaign yet — visit Templates first.</div>
       </main>
     );
   }
@@ -72,7 +72,7 @@ export default async function PersonalizePage({ params, searchParams }: { params
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         <Badge color={readiness.ok ? 'success' : 'warning'} text={readiness.ok ? `Personalization ready — ${readiness.generatedTotal} draft(s) across ${available.length} steps` : `${readiness.problems.length} issue(s) to fix`} dot />
         {!readiness.ok && (
-          <span style={{ fontSize: 12, color: 'var(--warning-700)', overflowWrap: 'anywhere' }}>{readiness.problems.join(' · ')}</span>
+          <span style={{ fontSize: 'var(--fs-label-1)', color: 'var(--warning-700)', overflowWrap: 'anywhere' }}>{readiness.problems.join(' · ')}</span>
         )}
       </div>
       <PersonalizeClient

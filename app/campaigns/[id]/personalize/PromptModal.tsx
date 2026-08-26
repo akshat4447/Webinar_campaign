@@ -67,8 +67,8 @@ export function PromptModal({
       >
         <div style={{ flexShrink: 0, padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'start', gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--n90)' }}>How Claude drafts these messages</div>
-            <div style={{ fontSize: 12, color: 'var(--n60)', marginTop: 3 }}>{campaignName}</div>
+            <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>How Claude drafts these messages</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 3 }}>{campaignName}</div>
           </div>
           <div onClick={onClose} style={{ cursor: 'pointer', width: 28, height: 28, borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Icon name="close" size={16} style={{ color: 'var(--n60)' }} />
@@ -77,12 +77,12 @@ export function PromptModal({
 
         <div style={{ flex: 1, overflow: 'auto', padding: '18px 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+            <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
               Always true, regardless of what&apos;s below
             </div>
             <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {ALWAYS_TRUE.map((line, i) => (
-                <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12.5, color: 'var(--n70)', lineHeight: 1.5 }}>
+                <div key={i} style={{ display: 'flex', gap: 8, fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.5 }}>
                   <span style={{ flexShrink: 0 }}>•</span>
                   <span>{line}</span>
                 </div>
@@ -91,7 +91,7 @@ export function PromptModal({
           </div>
 
           <div>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+            <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
               Personalization instructions for this webinar
             </div>
             <textarea
@@ -101,7 +101,7 @@ export function PromptModal({
               onChange={(e) => setText(e.target.value)}
               style={{ width: '100%' }}
             />
-            <div style={{ fontSize: 11.5, color: 'var(--n50)', marginTop: 8, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 8, lineHeight: 1.5 }}>
               Applies to every step on this webinar — invite, nudge, follow-ups, and LinkedIn. Existing drafts aren&apos;t rewritten
               automatically; use Regenerate to apply new instructions.
             </div>
