@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Webinar Campaign Agent
 
-## Getting Started
+An agent that runs B2B webinar campaigns end-to-end: import and score an audience with Claude, personalize multi-channel outreach (Email · LinkedIn · SMS · WhatsApp through LeadSquared), publish an official **LinkedIn Event** with a registration form, ingest every signup back through **Lead Sync**, and sync everything to **LeadSquared** as real leads and activities.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 (App Router, Turbopack dev) · React 19 · TypeScript strict
+- Prisma 7 (`prisma-client` generator → `lib/generated/prisma`) on SQLite via `better-sqlite3`
+- Anthropic SDK (scoring, personalization, enrichment, error diagnosis)
+- Vitest · ESLint
+
+## Getting started
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local      # fill in real values
+npx prisma migrate deploy       # or: npx prisma migrate dev
+npm run db:seed                 # optional demo data
+npm run dev                     # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### `.env.local` keys (see `.env.example`)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Group | Keys |
+|---|---|
+| LeadSquared | `LSQ_ACCESS_KEY` `LSQ_SECRET_KEY` `LSQ_HOST` `LSQ_SENDER_EMAIL` |
+| Email safety | `SEND_MODE=sandbox\|live` · `SEND_ALLOWLIST_LEAD_EMAIL` |
+| Claude | `ANTHROPIC_API_KEY` |
+| LinkedIn Events | `LINKEDIN_MODE` `LINKEDIN_CLIENT_ID/SECRET` `LINKEDIN_REDIRECT_URI` `LINKEDIN_VERSION` `LINKEDIN_ORGANIZATION_URN` |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Everything can also be saved per-field from the **Integrations** page (DB wins over env). Never commit `.env.local`.
 
-## Learn More
+## Scripts
 
-To learn more about Next.js, take a look at the following resources:
+| Command | Purpose |
+|---|---|
+| `dev` / `build` / `start` / `lint` / `test` | standard |
+| `db:seed` · `demo:reset` · `demo:tidy` | demo data lifecycle |
+| `cadence:tick` | cron-style drain of due cadence sends (email/SMS/WA) |
+| `linkedin:process` | retry/drain the LinkedIn registration queue |
+| `backfill:templates` · `backfill:channels` | provision missing templates/steps on existing campaigns |
+| `refresh:templates` | push improved default copy to never-edited templates only |
+| `npx tsx scripts/e2e-journey.ts` | live end-to-end journey regression (sandbox-aware) |
+| `npx tsx scripts/deep-audit-db.ts` | per-campaign completeness snapshot |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Integrations & delivery modes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Integration | Mode switch | Notes |
+|---|---|---|
+| LeadSquared | always live | leads, lists, email, custom activities, SMS/WA strategies |
+| Claude | key required | scoring, personalization, enrichment |
+| Apollo | key required | pre-flight people-match before any LinkedIn touch |
+| LinkedIn Events | `LINKEDIN_MODE=sandbox\|live` | sandbox simulates every call; webhook still processes fixtures |
 
-## Deploy on Vercel
+Channel strategies for SMS/WhatsApp (**Integrations → LeadSquared**): `trigger` (default — the app posts a *WebinarAgent Channel Trigger* activity and an LSQ Automation program sends via your connected gateway) or `direct` (paste your tenant's endpoint path). Full guide embedded on that panel, plus [apidocs.leadsquared.com](https://apidocs.leadsquared.com/) and [help.leadsquared.com](https://help.leadsquared.com/).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## LinkedIn Event wiring (live mode)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Developer portal → create app, request **Events** product access + **Lead Sync**.
+2. Integrations → LinkedIn → save Client ID/Secret → **Connect with LinkedIn**.
+3. Point your Lead Sync webhook at `POST {origin}/api/webhooks/linkedin` and set `LINKEDIN_CLIENT_SECRET` — payloads are HMAC-verified (`X-LI-Signature`) and production fails closed without a secret.
+4. Publish from a campaign's Setup tab; registrations stream back automatically into Scoring → LeadSquared.
+
+## Project layout
+
+```
+app/                    routes (pages + api/auth/linkedin/*, api/webhooks/linkedin)
+lib/linkedin/           Events API client, OAuth, forms, webhook contract, orchestrator, ingest
+lib/channels.ts         pure channel routing + SMS segment math
+lib/channelDelivery.ts  trigger/direct strategies for SMS & WhatsApp
+lib/cadenceReadiness.ts green-status validation for Templates/Personalize
+scripts/                operational CLIs (ticks, drains, backfills, audits)
+```

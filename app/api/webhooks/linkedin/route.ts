@@ -22,17 +22,23 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const raw = await request.text();
 
-  let secret = '';
-  try {
-    secret = (await resolveIntegrationField('linkedin', 'clientSecret')) || process.env.LINKEDIN_CLIENT_SECRET || '';
-  } catch {
-    /* DB not reachable yet — fall through to unsigned handling below */
+  // Fail CLOSED outside development: a deployed receiver without a configured
+  // secret must reject everything rather than accept fabricated registrations.
+  const secret =
+    await resolveIntegrationField('linkedin', 'clientSecret').catch(() => undefined) ||
+    process.env.LINKEDIN_CLIENT_SECRET ||
+    '';
+  const isDev = process.env.NODE_ENV !== 'production';
+  if (isDev && !secret) {
+    console.warn('[linkedin-webhook] No clientSecret configured — accepting UNSIGNED payload (dev only).');
   }
   if (secret) {
     const signature = request.headers.get('x-li-signature') ?? '';
     if (!verifyLinkedInSignature(raw, secret, signature)) {
       return new Response('Invalid signature', { status: 401 });
     }
+  } else if (!isDev) {
+    return new Response('Webhook secret not configured — refusing unsigned payloads in production', { status: 500 });
   }
 
   const parsed = parseLeadActionPayload(raw);

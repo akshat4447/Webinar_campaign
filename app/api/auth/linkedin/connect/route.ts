@@ -1,7 +1,6 @@
 // Step 1 of OAuth: mint a CSRF state, persist it briefly, redirect to
 // LinkedIn's authorize URL with every scope this feature needs.
 import { randomUUID } from 'crypto';
-import { db } from '@/lib/db';
 import { resolveIntegrationField } from '@/lib/integrationConfig';
 import { buildAuthorizationUrl } from '@/lib/linkedin/auth';
 
@@ -18,12 +17,14 @@ export async function GET(request: Request) {
   }
 
   const state = randomUUID();
-  const now = new Date().toISOString();
-  await db.$transaction([
-    db.appSetting.upsert({ where: { key: 'integration.linkedin.oauthState' }, create: { key: 'integration.linkedin.oauthState', value: state }, update: { value: state } }),
-    db.appSetting.upsert({ where: { key: 'integration.linkedin.oauthStateAt' }, create: { key: 'integration.linkedin.oauthStateAt', value: now }, update: { value: now } }),
-  ]);
-
+  // CSRF state is bound to THIS browser via a short-lived HttpOnly cookie —
+  // never a shared server row, which two simultaneous connects would clobber.
+  const cookie = `li_oauth_state=${state}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`;
   const redirectUri = process.env.LINKEDIN_REDIRECT_URI || `${origin}/api/auth/linkedin/callback`;
-  return Response.redirect(buildAuthorizationUrl({ clientId, redirectUri, state }), 302);
+  const target = buildAuthorizationUrl({ clientId, redirectUri, state });
+
+  return new Response(null, {
+    status: 302,
+    headers: { Location: target, 'Set-Cookie': cookie },
+  });
 }

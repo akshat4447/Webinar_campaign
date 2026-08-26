@@ -303,9 +303,14 @@ model LinkedinRegistration {
   contactId       String?
 
   processedAt DateTime?
+  // Claim stamp for concurrent ingestion runners (webhook after(), CLI drain):
+  // a runner atomically flips this from null before working a row, so overlaps
+  // can't double-create contacts. Reset to null on retryable failure.
+  claimedAt DateTime?
   error       String?
   createdAt   DateTime  @default(now())
 
   @@index([processedAt])
+  @@index([claimedAt])
   @@index([campaignId])
 }

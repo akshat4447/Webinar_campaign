@@ -18,7 +18,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
   const [campaign, steps, approvedContacts, sendCounts, linkedinTemplate] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id } }),
     db.cadenceStep.findMany({ where: { campaignId: id } }),
-    db.contact.findMany({ where: { campaignId: id, approved: true }, take: 10 }),
+    db.contact.findMany({ where: { campaignId: id, approved: true }, orderBy: [{ score: 'desc' }, { name: 'asc' }] }),
     db.cadenceSend.groupBy({ by: ['stepKey', 'status'], where: { campaignId: id }, _count: true }),
     db.template.findUnique({ where: { campaignId_key: { campaignId: id, key: 'linkedin' } } }),
   ]);

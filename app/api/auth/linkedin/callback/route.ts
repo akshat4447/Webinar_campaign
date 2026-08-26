@@ -1,7 +1,6 @@
 // Step 2 of OAuth: validate state, exchange the code, store tokens, resolve
 // which administered Page to publish as, and land back on Integrations with a
 // human-readable result in the query string.
-import { db } from '@/lib/db';
 import { resolveIntegrationField, saveIntegrationConfig } from '@/lib/integrationConfig';
 import { exchangeCodeForToken, fetchAdministeredOrganizations } from '@/lib/linkedin/auth';
 
@@ -23,16 +22,17 @@ export async function GET(request: Request) {
   }
   if (!code || !state) return back(request, { connected: 'error', detail: 'Missing code/state from LinkedIn.' });
 
-  // CSRF check: the state we issued ≤10 minutes ago must match exactly.
-  const [storedState, storedAt] = await Promise.all([
-    db.appSetting.findUnique({ where: { key: 'integration.linkedin.oauthState' } }),
-    db.appSetting.findUnique({ where: { key: 'integration.linkedin.oauthStateAt' } }),
-  ]);
-  const fresh = storedAt && Date.now() - new Date(storedAt.value).getTime() < 10 * 60 * 1000;
-  if (!storedState?.value || storedState.value !== state || !fresh) {
+  // CSRF check: the state must match the HttpOnly cookie this browser received
+  // from /connect (single browser-bound token — no shared server row).
+  const cookieState = (request.headers.get('cookie') ?? '')
+    .split(';')
+    .map((c) => c.trim())
+    .find((c) => c.startsWith('li_oauth_state='))
+    ?.split('=')[1];
+
+  if (!state || !cookieState || cookieState !== state) {
     return back(request, { connected: 'error', detail: 'OAuth state mismatch or expired — start the connection again.' });
   }
-  await db.appSetting.deleteMany({ where: { key: { in: ['integration.linkedin.oauthState', 'integration.linkedin.oauthStateAt'] } } });
 
   try {
     const clientId = (await resolveIntegrationField('linkedin', 'clientId')) || process.env.LINKEDIN_CLIENT_ID!;

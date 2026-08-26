@@ -2,6 +2,10 @@ import { IntegrationCard } from './IntegrationCard';
 import { integrationsData } from '@/lib/demo-data';
 import { getTestResult, resolveIntegrationField } from '@/lib/integrationConfig';
 
+// Reads live DB credentials/test-results on every request — this page must
+// NEVER be statically prerendered with build-time values frozen into HTML.
+export const dynamic = 'force-dynamic';
+
 export default async function IntegrationsPage() {
   const cards = await Promise.all(integrationsData.map(async (ig) => ({ ig, testResult: await getTestResult(ig.id) })));
 

@@ -18,14 +18,13 @@ export async function markLinkedInSendAction(campaignId: string, contactId: stri
   const contact = await db.contact.findUnique({ where: { id: contactId }, select: { id: true } });
   if (!contact) return { ok: false, error: 'Contact no longer exists.' };
 
-  const existing = await db.cadenceSend.findFirst({ where: { campaignId, contactId, stepKey: STEP_KEY } });
-  const data = { status, sentAt: status === 'sent' ? new Date() : null, error: null };
-
-  if (existing) {
-    await db.cadenceSend.update({ where: { id: existing.id }, data });
-  } else {
-    await db.cadenceSend.create({ data: { campaignId, contactId, stepKey: STEP_KEY, dueAt: new Date(), ...data } });
-  }
+  // Upsert (not findFirst+create): two rapid calls for the same contact raced
+  // the unique constraint and the loser crashed with an unhandled P2002.
+  await db.cadenceSend.upsert({
+    where: { campaignId_contactId_stepKey: { campaignId, contactId, stepKey: STEP_KEY } },
+    update: { status, sentAt: status === 'sent' ? new Date() : null, error: null },
+    create: { campaignId, contactId, stepKey: STEP_KEY, dueAt: new Date(), status, sentAt: status === 'sent' ? new Date() : null, error: null },
+  });
   revalidateCampaign(campaignId);
   return { ok: true };
 }

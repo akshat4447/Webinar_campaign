@@ -42,15 +42,46 @@ export interface IngestBatchResult {
 }
 
 /**
- * Processes queued registrations oldest-first. A lowercase-email→contactId
- * index is built per campaign so dedupe is case-insensitive even though CSV
- * imports never normalized case.
+ * Processes queued registrations oldest-first, with a claim step so overlapping
+ * runners (webhook after() bursts + the CLI drain) can never double-process:
+ *
+ *   1. release claims stuck >5 min (crashed runner recovery)
+ *   2. inside one transaction: select unclaimed rows → atomically stamp
+ *      claimedAt on exactly those ids (loser of a race claims zero)
+ *   3. re-fetch the claimed rows fresh — dedupe maps are built AFTER claiming,
+ *      from a snapshot that already includes contacts created by other runners
  */
 export async function processPendingLinkedinRegistrations(limit = 25, campaignId?: string): Promise<IngestBatchResult> {
+  // Crash recovery: a runner that died mid-processing leaves rows claimed
+  // forever otherwise. Anything claimed >5 min ago with no processedAt is fair game.
+  const staleCutoff = new Date(Date.now() - 5 * 60 * 1000);
+  await db.linkedinRegistration.updateMany({
+    where: { claimedAt: { not: null, lt: staleCutoff }, processedAt: null },
+    data: { claimedAt: null },
+  });
+
+  const now = new Date();
+  const claimedIds = await db.$transaction(async (tx) => {
+    const candidates = await tx.linkedinRegistration.findMany({
+      where: { processedAt: null, claimedAt: null, ...(campaignId ? { campaignId } : {}) },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+      select: { id: true },
+    });
+    if (candidates.length === 0) return [];
+    await tx.linkedinRegistration.updateMany({
+      where: { id: { in: candidates.map((c) => c.id) }, claimedAt: null },
+      data: { claimedAt: now },
+    });
+    return candidates.map((c) => c.id);
+  });
+  if (claimedIds.length === 0) return { processed: 0, failed: 0, skipped: 0 };
+
+  // Fresh fetch AFTER claiming — includes campaign and reflects rows other
+  // runners finished while we were claiming.
   const rows = await db.linkedinRegistration.findMany({
-    where: { processedAt: null, ...(campaignId ? { campaignId } : {}) },
+    where: { id: { in: claimedIds }, claimedAt: now },
     orderBy: { createdAt: 'asc' },
-    take: limit,
     include: { campaign: true },
   });
 
@@ -95,7 +126,7 @@ async function processOne(
     // --- DELETED: member withdrew their registration -------------------------
     if (row.leadAction === 'DELETED') {
       await db.$transaction([
-        db.campaign.update({ where: { id: campaign.id }, data: { registrations: Math.max(0, (campaign.registrations ?? 0) - 1) } }),
+        db.$executeRaw`UPDATE "Campaign" SET "registrations" = MAX(COALESCE("registrations", 0) - 1, 0) WHERE "id" = ${campaign.id}`,
         db.linkedinRegistration.update({ where: { id: row.id }, data: { processedAt: new Date(), error: null } }),
       ]);
       await db.activityLogEntry.create({
@@ -213,7 +244,7 @@ async function processOne(
     }
 
     await db.$transaction([
-      db.campaign.update({ where: { id: campaign.id }, data: { registrations: (campaign.registrations ?? 0) + 1 } }),
+      db.$executeRaw`UPDATE "Campaign" SET "registrations" = COALESCE("registrations", 0) + 1 WHERE "id" = ${campaign.id}`,
       db.linkedinRegistration.update({
         where: { id: row.id },
         data: { contactId: contact.id, registrantName: fields.name, registrantEmail: fields.email, processedAt: new Date(), error: null },
@@ -230,7 +261,9 @@ async function processOne(
     return 'ok';
   } catch (err) {
     const message = String(err instanceof Error ? err.message : err).slice(0, 300);
-    await db.linkedinRegistration.update({ where: { id: row.id }, data: { error: message } });
+    // Release the claim on retryable failures so the next run picks the row up
+    // again; only data-terminal skips keep a processed stamp.
+    await db.linkedinRegistration.update({ where: { id: row.id }, data: { error: message, claimedAt: null } });
     if (campaign) {
       await upsertAttentionItem(campaign.id, {
         icon: 'ErrorProperty1Outline',
