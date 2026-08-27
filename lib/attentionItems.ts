@@ -14,3 +14,19 @@ export async function upsertAttentionItem(
     await db.attentionItem.create({ data: { campaignId, ...item } });
   }
 }
+
+// The other half of upsertAttentionItem, which was missing: retract a card once
+// the thing it warns about has actually succeeded. Without this, only the manual
+// Dismiss in Control Center ever cleared a card, so a fixed problem kept warning
+// indefinitely — a card would still be demanding "add a Phone in LeadSquared"
+// after the phone was added and the send had gone out.
+//
+// Matched by exact title, the same key upsertAttentionItem dedupes on, so a
+// success retracts precisely the card its own failure would have raised.
+export async function resolveAttentionItems(campaignId: string, titles: string[]) {
+  if (titles.length === 0) return;
+  await db.attentionItem.updateMany({
+    where: { campaignId, title: { in: titles }, resolvedAt: null },
+    data: { resolvedAt: new Date() },
+  });
+}

@@ -1,7 +1,7 @@
 import { db } from '@/lib/db';
 import { createOrUpdateLead, sendEmailToLead, LeadSquaredError } from '@/lib/leadsquared';
 import { resolveRecipient, sendModeLabel } from '@/lib/sendGuard';
-import { upsertAttentionItem } from '@/lib/attentionItems';
+import { upsertAttentionItem, resolveAttentionItems } from '@/lib/attentionItems';
 import { resolveStepDate } from '@/lib/stepSchedule';
 import { isWithinSendWindow } from '@/lib/sendWindow';
 import { validateRenderedMessage, validateRenderedMessageForChannel } from '@/lib/messageValidation';
@@ -328,6 +328,8 @@ async function processSingleSend(
       });
 
       await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'sent', sentAt: new Date() } });
+      // This send working retracts the card its own failure raises below.
+      await resolveAttentionItems(campaignId, [`Send failed for ${contact.name}`]);
 
       // Optional hook for THEIR automations: post the mapped "email sent"
       // activity if the operator mapped one for this channel (Integrations).
@@ -440,6 +442,12 @@ async function processChannelSend(
     });
 
     await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'sent', sentAt: new Date(), error: null } });
+    // Retract both cards this path can raise — the send failure and the earlier
+    // draft-validation warning, since a delivered message proves the draft passed.
+    await resolveAttentionItems(campaignId, [
+      `${channel.toUpperCase()} send failed for ${contact.name}`,
+      `${channel.toUpperCase()} draft for ${contact.name} failed validation`,
+    ]);
     await db.activityLogEntry.create({
       data: {
         campaignId,

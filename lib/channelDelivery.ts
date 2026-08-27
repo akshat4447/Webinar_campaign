@@ -142,19 +142,31 @@ export async function ensureTriggerActivityTypeId(): Promise<number> {
   throw lastErr ?? new Error('Could not create the trigger activity type.');
 }
 
-// The allowlist lead's phone, resolved once per process (same lead email is
-// used by every sandboxed email send).
-let cachedSandboxPhone: string | null | undefined;
+// The allowlist lead's phone (the same lead email receives every sandboxed
+// send), cached to avoid an LSQ round trip per message.
+//
+// ONLY a successful lookup is cached. Caching the miss — which this used to do
+// for the life of the process — made the error message a lie: it tells you to
+// add a Phone in LeadSquared, but every later send re-threw from cache without
+// re-reading, so the fix appeared not to work until the server was restarted.
+// A config problem the operator is actively fixing has to be re-checked.
+let cachedSandboxPhone: string | null = null;
 async function sandboxTargetPhone(): Promise<string> {
-  if (cachedSandboxPhone !== undefined) {
-    if (!cachedSandboxPhone) throw new Error('The SEND_ALLOWLIST_LEAD_EMAIL lead has no Phone in LeadSquared — add one so sandboxed SMS/WhatsApp sends have a target.');
-    return cachedSandboxPhone;
-  }
+  if (cachedSandboxPhone) return cachedSandboxPhone;
+
   const email = process.env.SEND_ALLOWLIST_LEAD_EMAIL;
   if (!email) throw new Error('SEND_ALLOWLIST_LEAD_EMAIL is not set — required while SEND_MODE=sandbox.');
+
   const lead = await getLeadByEmailAddress(email);
-  cachedSandboxPhone = lead?.Phone?.trim() || null;
-  return sandboxTargetPhone();
+  // LSQ exposes both; either is a usable SMS/WhatsApp target.
+  const phone = lead?.Phone?.trim() || lead?.Mobile?.trim() || '';
+  if (!phone) {
+    throw new Error(
+      `The allowlist lead (${email}) has no Phone or Mobile in LeadSquared — add one so sandboxed SMS/WhatsApp sends have a target. It is re-checked on the next send; no restart needed.`
+    );
+  }
+  cachedSandboxPhone = phone;
+  return phone;
 }
 
 export interface ChannelDeliveryInput {
