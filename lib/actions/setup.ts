@@ -110,6 +110,7 @@ async function replaceContacts(campaignId: string, rows: (ReturnType<typeof clas
       seniority: r.seniority,
       linkedinId: r.linkedinId || null,
       phone: r.phone || null,
+      whatsappOptIn: r.whatsappOptIn ?? false,
       extraFieldsJson: r.extras && Object.keys(r.extras).length > 0 ? JSON.stringify(r.extras) : null,
       missingInfo: r.missingInfo,
       source: r.source,
@@ -152,6 +153,9 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
     vertical: pickCol(headers, ['vertical', 'industry', 'sector']),
     linkedin: pickCol(headers, ['linkedin', 'li url', 'profile']),
     phone: pickCol(headers, ['phone', 'mobile', 'contact number', 'whatsapp']),
+    // Consent must come from the source data — the place the person actually
+    // agreed — not from an operator toggling a switch later.
+    waOptIn: pickCol(headers, ['whatsapp opt-in', 'whatsapp optin', 'whatsapp consent', 'wa opt-in', 'wa consent', 'opt-in', 'consent']),
   };
 
   // Any column not claimed by a first-class field above is retained rather than
@@ -187,6 +191,7 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
         vertical: get(ci.vertical) || 'Unassigned',
         linkedinId: get(ci.linkedin),
         phone: get(ci.phone) || null,
+        whatsappOptIn: /^(y|yes|true|1|opted.?in|granted)$/i.test(get(ci.waOptIn)),
         extras,
       })
     );

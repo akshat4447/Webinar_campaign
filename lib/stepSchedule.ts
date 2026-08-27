@@ -10,6 +10,8 @@ export interface StepSchedule {
 /** Default offsets per step key — the shape the seeded cadence starts from. */
 export const STEP_DEFAULTS: Record<string, StepSchedule> = {
   invite: { offsetValue: 0, offsetUnit: 'days', anchor: 'launch' },
+  smsInvite: { offsetValue: 0, offsetUnit: 'days', anchor: 'launch' },
+  waInvite: { offsetValue: 0, offsetUnit: 'days', anchor: 'launch' },
   linkedin: { offsetValue: 1, offsetUnit: 'days', anchor: 'launch' },
   nudge: { offsetValue: 4, offsetUnit: 'days', anchor: 'launch' },
   final: { offsetValue: 7, offsetUnit: 'days', anchor: 'launch' },

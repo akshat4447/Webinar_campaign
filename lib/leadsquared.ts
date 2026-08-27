@@ -393,15 +393,33 @@ export class UnsupportedChannelError extends Error {
 
 /** GET a single lead by email — used to resolve the sandbox allowlist phone. */
 export async function getLeadByEmailAddress(email: string): Promise<RawLsqLead | null> {
+  // Two details verified against the live API, both previously wrong here:
+  //  • the query parameter is `emailaddress`, not `email` — with the wrong name
+  //    LSQ answers 200 with an empty array, so every lookup silently "found
+  //    nothing" for leads that plainly existed;
+  //  • the response is a BARE ARRAY of flat lead objects, not
+  //    { Leads: [{ LeadPropertyList }] }.
+  // The Attribute/Value shape is still handled below because other retrieve
+  // endpoints on this API do return it.
   const result = await lsqFetch<unknown>('/LeadManagement.svc/Leads.GetByEmailAddress', {
-    query: { email },
+    query: { emailaddress: email },
   });
-  // LSQ returns { Leads: [...] } here (unlike Lists.Get's bare array).
-  const leads = (result as { Leads?: Array<{ LeadPropertyList: Array<{ Attribute: string; Value: string }> }> } | null)?.Leads ?? [];
-  const first = leads[0];
-  if (!first) return null;
+
+  const rows: unknown[] = Array.isArray(result)
+    ? result
+    : ((result as { Leads?: unknown[] } | null)?.Leads ?? []);
+  const first = rows[0];
+  if (!first || typeof first !== 'object') return null;
+
+  const obj = first as Record<string, unknown>;
+  if (Array.isArray(obj.LeadPropertyList)) {
+    const row: RawLsqLead = {};
+    for (const prop of obj.LeadPropertyList as Array<{ Attribute: string; Value: string }>) row[prop.Attribute] = prop.Value;
+    return row;
+  }
+
   const row: RawLsqLead = {};
-  for (const prop of first.LeadPropertyList) row[prop.Attribute] = prop.Value;
+  for (const [k, v] of Object.entries(obj)) row[k] = v == null ? '' : String(v);
   return row;
 }
 

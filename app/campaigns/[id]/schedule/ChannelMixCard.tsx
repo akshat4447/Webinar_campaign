@@ -9,19 +9,24 @@ import { Badge } from '@/components/ui/Badge';
 import { setChannelEnabledAction } from '@/lib/actions/channels';
 import type { MixChannel } from '@/lib/actions/channels';
 
-const CHANNELS: Array<{ key: MixChannel; label: string; hint: string }> = [
-  { key: 'email', label: 'Email', hint: 'invite · nudge · final · reminders · follow-ups' },
-  { key: 'linkedin', label: 'LinkedIn', hint: 'manual touch step (assisted by design)' },
-  { key: 'sms', label: 'SMS', hint: 'T-1h reminder via LeadSquared' },
-  { key: 'whatsapp', label: 'WhatsApp', hint: 'registration confirmation, opt-in required' },
+const CHANNELS: Array<{ key: MixChannel; label: string; hint: string; need: string }> = [
+  { key: 'email', label: 'Email', hint: 'invite · nudge · final · reminders · follow-ups', need: 'a verified email' },
+  { key: 'linkedin', label: 'LinkedIn', hint: 'manual touch step (assisted by design)', need: 'nothing — manual' },
+  { key: 'sms', label: 'SMS', hint: 'invite at launch · T-1h reminder', need: 'a mobile number' },
+  { key: 'whatsapp', label: 'WhatsApp', hint: 'invite at launch · registration confirmation', need: 'a mobile + opt-in' },
 ];
 
 export function ChannelMixCard({
   campaignId,
   initial,
+  reach,
+  approved,
 }: {
   campaignId: string;
   initial: Record<MixChannel, { enabled: number; total: number }>;
+  /** How many approved contacts each channel can actually reach. */
+  reach: Record<MixChannel, number>;
+  approved: number;
 }) {
   const router = useRouter();
   const [mix, setMix] = useState(initial);
@@ -44,7 +49,7 @@ export function ChannelMixCard({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {CHANNELS.map(({ key, label, hint }) => {
+        {CHANNELS.map(({ key, label, hint, need }) => {
           const on = mix[key].enabled > 0;
           return (
             <div
@@ -90,6 +95,20 @@ export function ChannelMixCard({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n90)' }}>{label}</div>
                 <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>{hint}</div>
+                {/* Turning a channel on is meaningless if nobody is contactable
+                    on it, so say who it can actually reach and what's missing. */}
+                <div
+                  style={{
+                    fontSize: 'var(--fs-label-2)',
+                    color: reach[key] === 0 ? 'var(--warning-700)' : 'var(--text-secondary)',
+                    marginTop: 2,
+                  }}
+                  className="lsq-num"
+                >
+                  {reach[key] === 0
+                    ? `reaches nobody yet — needs ${need}`
+                    : `reaches ${reach[key]} of ${approved} approved`}
+                </div>
               </div>
               <Badge color={on ? 'success' : 'gray'} text={on ? `${mix[key].enabled}/${mix[key].total} on` : 'off'} dot />
             </div>

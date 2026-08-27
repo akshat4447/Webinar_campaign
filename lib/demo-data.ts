@@ -119,6 +119,8 @@ export const cadenceStepsData: CadenceStep[] = [
   { id: 'noshow', group: 'Post-webinar · within 2 hrs', title: 'No-show follow-up', timing: '+0–2h', channel: 'Email', channelColor: 'blue', desc: '"Sorry we missed you" + recording', toggleable: true, sent: 0, scheduled: 0, remaining: 190, failed: 0 },
   { id: 'whatsapp', group: 'Reminders · registrants only', title: 'WhatsApp confirmation', timing: 'Instant', channel: 'WhatsApp', channelColor: 'warning', desc: 'Opt-in confirmation with the join link, fired when a LinkedIn Event registration lands', toggleable: true },
   { id: 'sms', group: 'Reminders · registrants only', title: 'SMS reminder', timing: 'T-1h', channel: 'SMS', channelColor: 'warning', desc: 'One-segment text with the join link — catches people who miss email', toggleable: true },
+  { id: 'smsInvite', group: 'Pre-registration', title: 'SMS invite', timing: 'Day 0', channel: 'SMS', channelColor: 'warning', desc: 'Text invite with the registration link — reaches contacts who have a mobile but no usable email', toggleable: true },
+  { id: 'waInvite', group: 'Pre-registration', title: 'WhatsApp invite', timing: 'Day 0', channel: 'WhatsApp', channelColor: 'success', desc: 'Invite over WhatsApp — only sent to contacts who have explicitly opted in', toggleable: true },
 ];
 
 export const cadenceGroupOrder = ['Pre-registration', 'Reminders · registrants only', 'Post-webinar · within 2 hrs'];
@@ -159,6 +161,8 @@ export const templatesData: Template[] = [
   { id: 'linkedin', label: 'LinkedIn touch', channel: 'LinkedIn', channelColor: 'gray blue', hasSubject: false, body: "Hi {{firstName}} — given your role at {{company}}, our upcoming session on {{topic}} should be directly relevant. Register here if useful: {{link}}" },
   { id: 'whatsapp', label: 'WhatsApp confirmation', channel: 'WhatsApp', channelColor: 'warning', hasSubject: false, body: 'Hi {{firstName}}! Your seat for {{topic}} is confirmed ✅ Join at the scheduled time: {{link}}' },
   { id: 'sms', label: 'SMS reminder', channel: 'SMS', channelColor: 'warning', hasSubject: false, body: '{{topic}} starts in 1 hour. Join link: {{link}}\nReply STOP to opt out.' },
+  { id: 'smsInvite', label: 'SMS invite', channel: 'SMS', channelColor: 'warning', hasSubject: false, body: "You're invited to {{topic}} — a free live session. Save your seat: {{link}}\nReply STOP to opt out." },
+  { id: 'waInvite', label: 'WhatsApp invite', channel: 'WhatsApp', channelColor: 'success', hasSubject: false, body: 'Hi {{firstName}}, we are running {{topic}} — a free live session for teams like {{company}}. Register here: {{link}}' },
   // t3/t1d/t1h are in AUTOMATED_STEP_KEYS (lib/cadence.ts) and get a CadenceStep
   // row from provisionCampaignDefaults — but until now had no Template row to
   // go with them. Every send for these three steps therefore permanently

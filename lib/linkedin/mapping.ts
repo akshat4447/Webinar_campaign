@@ -25,6 +25,7 @@ export interface ContactFieldsForCreate {
   seniority: string;
   source: string;
   missingInfo: boolean;
+  emailSimulated: boolean;
 }
 
 /**
@@ -33,7 +34,12 @@ export interface ContactFieldsForCreate {
  * `missingInfo` flags gaps that hurt personalization (no title/company),
  * following the spirit of the CSV importer's flag rather than its exact rule.
  */
-export function buildContactFields(registrant: NormalizedRegistrant, campaignVertical: string): ContactFieldsForCreate {
+export function buildContactFields(
+  registrant: NormalizedRegistrant,
+  campaignVertical: string,
+  /** True when the registrant is a sandbox fixture rather than a real Lead Sync record. */
+  simulated = false
+): ContactFieldsForCreate {
   const title = registrant.title.trim();
   return {
     name: registrant.name.trim(),
@@ -45,5 +51,9 @@ export function buildContactFields(registrant: NormalizedRegistrant, campaignVer
     seniority: seniorityFor(title),
     source: LINKEDIN_EVENT_SOURCE,
     missingInfo: !title || !registrant.company.trim(),
+    // A fabricated sandbox address must carry the same "inferred, unverified"
+    // marking as an Apollo-guessed one, or sendGuard would treat a made-up
+    // @example.com as a genuine recipient the moment SEND_MODE flips to live.
+    emailSimulated: simulated,
   };
 }

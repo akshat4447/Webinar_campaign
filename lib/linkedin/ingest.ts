@@ -180,7 +180,7 @@ async function processOne(
       return 'ok';
     }
 
-    const fields = buildContactFields(registrant, campaign.vertical);
+    const fields = buildContactFields(registrant, campaign.vertical, linkedinMode() !== 'live');
     const contact = await db.contact.create({ data: { campaignId: campaign.id, ...fields } });
 
     // Scoring is best-effort: a Claude outage must not lose the lead — it just

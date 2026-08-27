@@ -47,6 +47,21 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
     if (s.enabled) channelMix[ch].enabled++;
   }
 
+  // Reachability: enabling a channel is meaningless if nobody is contactable on
+  // it. Each channel has its own requirement — a verified inbox, a mobile, or
+  // explicit WhatsApp consent — so the card states how many it can actually
+  // reach rather than implying it covers the whole approved audience.
+  const approvedForReach = await db.contact.findMany({
+    where: { campaignId: id, approved: true },
+    select: { email: true, phone: true, whatsappOptIn: true, emailSimulated: true, emailVerified: true },
+  });
+  const reach = {
+    email: approvedForReach.filter((c) => c.email && !(c.emailSimulated && !c.emailVerified)).length,
+    linkedin: approvedForReach.length,
+    sms: approvedForReach.filter((c) => c.phone).length,
+    whatsapp: approvedForReach.filter((c) => c.phone && c.whatsappOptIn).length,
+  };
+
   // Every approved contact gets a LinkedIn touch. `slug` is their real profile
   // when one is on file (from the CSV's LinkedIn column or pasted in the queue);
   // `url` stays a name+company people-search so the flow still works without one.
@@ -102,7 +117,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
     <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 300px)', gap: 20, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <ChannelMixCard campaignId={id} initial={channelMix} />
+          <ChannelMixCard campaignId={id} initial={channelMix} reach={reach} approved={approvedForReach.length} />
           <ScheduleConfig campaign={campaign} />
           <CadenceGroups
             campaignId={id}

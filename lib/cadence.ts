@@ -17,7 +17,7 @@ import { deliverChannelMessage, sandboxTargetPhone, postSentActivityIfMapped, ty
 // import instead (see lib/attendance.ts). `linkedin` is human-or-bot, tracked
 // through its own queue. `whatsapp` joins `confirm` on the event side — it's
 // queued per-registration by lib/linkedin/ingest.ts, not at launch.
-export const AUTOMATED_STEP_KEYS = ['invite', 'nudge', 'final', 't3', 't1d', 't1h', 'sms'] as const;
+export const AUTOMATED_STEP_KEYS = ['invite', 'nudge', 'final', 't3', 't1d', 't1h', 'sms', 'smsInvite', 'waInvite'] as const;
 
 export function addDays(d: Date, days: number): Date {
   const next = new Date(d);
@@ -56,14 +56,24 @@ export async function launchCadence(campaignId: string) {
     .filter((s): s is { step: (typeof steps)[number]; dueAt: Date } => s.dueAt !== null);
   const unschedulable = steps.length - scheduled.length;
 
-  // Skip rather than queue-and-fail: no email at all, or an enrichment-inferred
-  // address a human hasn't verified yet (the send path would refuse it anyway).
-  const sendable = approvedContacts.filter((c) => c.email && !(c.emailSimulated && !c.emailVerified));
-  const withoutEmail = approvedContacts.filter((c) => !c.email).length;
-  const unverified = approvedContacts.filter((c) => c.email && c.emailSimulated && !c.emailVerified).length;
+  // Eligibility is per CHANNEL, not global. Requiring an email for every step
+  // meant an SMS step could never reach a contact who has a mobile but no
+  // usable inbox — which is exactly who an SMS invite exists for.
+  const emailable = (c: (typeof approvedContacts)[number]) => !!c.email && !(c.emailSimulated && !c.emailVerified);
+  const textable = (c: (typeof approvedContacts)[number]) => !!c.phone;
+  // WhatsApp additionally needs explicit opt-in: Meta requires it, and the
+  // send path refuses without it, so queueing would only manufacture failures.
+  const whatsappable = (c: (typeof approvedContacts)[number]) => !!c.phone && c.whatsappOptIn;
+
+  const eligibleFor = (channel: string) => {
+    const ch = channel.toLowerCase();
+    if (ch === 'sms') return approvedContacts.filter(textable);
+    if (ch === 'whatsapp') return approvedContacts.filter(whatsappable);
+    return approvedContacts.filter(emailable);
+  };
 
   const rows = scheduled.flatMap(({ step, dueAt }) =>
-    sendable.map((contact) => ({
+    eligibleFor(step.channel).map((contact) => ({
       campaignId,
       contactId: contact.id,
       stepKey: step.key,
@@ -72,9 +82,18 @@ export async function launchCadence(campaignId: string) {
     }))
   );
 
+  const usesSms = scheduled.some((s) => s.step.channel.toLowerCase() === 'sms');
+  const usesWhatsapp = scheduled.some((s) => s.step.channel.toLowerCase() === 'whatsapp');
+  const withoutEmail = approvedContacts.filter((c) => !c.email).length;
+  const unverified = approvedContacts.filter((c) => c.email && c.emailSimulated && !c.emailVerified).length;
+  const withoutPhone = approvedContacts.filter((c) => !c.phone).length;
+  const withoutOptIn = approvedContacts.filter((c) => c.phone && !c.whatsappOptIn).length;
+
   const skips = [
-    withoutEmail ? `${withoutEmail} with no email on file` : null,
+    withoutEmail ? `${withoutEmail} with no email on file (email steps)` : null,
     unverified ? `${unverified} with an unverified inferred email` : null,
+    usesSms && withoutPhone ? `${withoutPhone} with no mobile number (SMS steps)` : null,
+    usesWhatsapp && withoutOptIn ? `${withoutOptIn} without WhatsApp opt-in` : null,
     unschedulable ? `${unschedulable} step(s) with no resolvable date — set the webinar date on Setup` : null,
   ].filter(Boolean);
 
@@ -95,7 +114,7 @@ export async function launchCadence(campaignId: string) {
     await tx.activityLogEntry.create({
       data: {
         campaignId,
-        text: `Launched cadence for ${sendable.length} approved contacts across ${scheduled.length} scheduled steps (SEND_MODE=${sendModeLabel()})${skips.length ? ` — skipped ${skips.join('; ')}` : ''}`,
+        text: `Launched cadence: ${toCreate.length} send(s) queued across ${scheduled.length} step(s) for ${approvedContacts.length} approved contact(s) (SEND_MODE=${sendModeLabel()})${skips.length ? ` — skipped ${skips.join('; ')}` : ''}`,
         dot: 'var(--success-500)',
       },
     });

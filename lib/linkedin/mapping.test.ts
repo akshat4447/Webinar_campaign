@@ -40,3 +40,18 @@ describe('buildContactFields', () => {
     expect(sparse.seniority).toBe('IC'); // seniorityFor('')
   });
 });
+describe('buildContactFields — simulated marking', () => {
+  const registrant = { name: 'Priya Nair', email: 'Priya.Nair@Example.com', company: 'Acme', title: 'VP Marketing' };
+
+  it('marks a sandbox fixture as simulated so sendGuard holds it back', () => {
+    expect(buildContactFields(registrant, 'Lending', true).emailSimulated).toBe(true);
+  });
+
+  it('does not mark a real Lead Sync registrant as simulated', () => {
+    expect(buildContactFields(registrant, 'Lending', false).emailSimulated).toBe(false);
+  });
+
+  it('defaults to not-simulated when the flag is omitted', () => {
+    expect(buildContactFields(registrant, 'Lending').emailSimulated).toBe(false);
+  });
+});
