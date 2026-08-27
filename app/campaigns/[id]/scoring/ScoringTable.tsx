@@ -142,7 +142,7 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)' }}>
+        <table className="lsq-table" style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)' }}>
           <thead>
             <tr style={{ textAlign: 'left' }}>
               <th style={{ padding: '10px 20px', width: 20 }}>
@@ -206,7 +206,7 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
                       <div style={{ background: 'var(--n20)', borderRadius: 'var(--radius-full)', height: 6, overflow: 'hidden', width: 70, flexShrink: 0 }}>
                         <div style={{ width: `${score}%`, height: '100%', background: scoreColor(score), borderRadius: 'var(--radius-full)' }} />
                       </div>
-                      <span style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: scoreColor(score), width: 22, flexShrink: 0 }}>{score}</span>
+                      <span className="lsq-num" style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: scoreColor(score), width: 22, flexShrink: 0, textAlign: 'right' }}>{score}</span>
                       {score >= threshold && <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 700, color: 'var(--success-700)', flexShrink: 0 }}>AUTO</span>}
                     </div>
                   </td>

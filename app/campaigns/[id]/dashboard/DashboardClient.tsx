@@ -136,7 +136,7 @@ export function DashboardClient({
 
         {showTable ? (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)', minWidth: 420 }}>
+            <table className="lsq-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)', minWidth: 420 }}>
               <thead>
                 <tr>
                   <th style={th}>Stage</th>
@@ -207,7 +207,7 @@ export function DashboardClient({
           the band drops.
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)', minWidth: 520 }}>
+          <table className="lsq-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)', minWidth: 520 }}>
             <thead>
               <tr>
                 <th style={th}>Score band</th>
@@ -236,6 +236,7 @@ export function DashboardClient({
                           color: shade.fg,
                           fontWeight: 600,
                           fontSize: 'var(--fs-label-1)',
+                          fontVariantNumeric: 'tabular-nums',
                         }}
                       >
                         {b.approvalRate === null ? '—' : `${b.approvalRate}%`}
@@ -360,7 +361,7 @@ export function DashboardClient({
           </div>
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)', minWidth: 560 }}>
+          <table className="lsq-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-label-1)', minWidth: 560 }}>
             <thead>
               <tr>
                 <th style={{ ...th, paddingLeft: 20 }}>Account</th>

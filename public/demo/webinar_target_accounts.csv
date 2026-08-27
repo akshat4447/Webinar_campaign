@@ -1,25 +1,25 @@
-Full Name,Email,Company,Job Title,Industry
-Priya Nair,priya.nair@meridiancap.example,Meridian Capital Finance,VP - Marketing & Growth (APAC),Lending
-Rohan Bhatt,rohan.bhatt@meridiancap.example,Meridian Capital Finance,Head - Digital Lending Ops,Lending
-Ananya Rao,a.rao@northwindhealth.example,Northwind Health Partners,"Director, Patient Access & Engagement",Healthcare
-Karan Mehta,,Northwind Health Partners,IT Systems Administrator,Healthcare
-Simran Kaur,simran.k@brightedlabs.example,Bright Ed Labs,AGM Admissions,Education
-Vikram Iyer,vikram.iyer@vertexworks.example,Vertex Manufacturing Works,Plant Operations Lead,Manufacturing
-Ayesha Khan,ayesha.khan@lumensystems.example,Lumen Software Systems,"Sr. Mgr, Demand Generation",Technology
-Dev Malhotra,,Lumen Software Systems,Sales Enablement Lead,Technology
-Neha Kapoor,neha.kapoor@cascaderealty.example,Cascade Realty Group,Growth Marketer,Real Estate
-Arjun Desai,arjun.desai@fairhavenlending.example,Fairhaven Lending Co,Chief Revenue Officer,Lending
-Meera Krishnan,,Fairhaven Lending Co,"Asst. Vice President, Collections",Lending
-Sanjay Gupta,sanjay.g@orchidhealth.example,Orchid Health Network,"Regional Sales Head - West",Healthcare
-Divya Menon,divya.menon@summitlearning.example,Summit Learning Institute,"Manager, Student Recruitment",Education
-Rahul Verma,rahul.verma@ironlineind.example,Ironline Industrial,Operations Excellence Manager,Manufacturing
-Kavya Reddy,,Harbor Point Realty,Marketing Communications Lead,Real Estate
-Nikhil Joshi,nikhil.joshi@nimbusdata.example,Nimbus Data Technologies,CTO,Technology
-Pooja Shah,pooja.shah@meridiancap.example,Meridian Capital Finance,"Manager, Customer Lifecycle",Lending
-Aditya Rao,,Northwind Health Partners,Head of Clinical Operations,Healthcare
-Shreya Pillai,shreya.p@brightedlabs.example,Bright Ed Labs,Digital Marketing Executive,Education
-Manish Agarwal,manish.a@vertexworks.example,Vertex Manufacturing Works,"General Manager, Supply Chain",Manufacturing
-Ritu Chandra,ritu.chandra@lumensystems.example,Lumen Software Systems,VP Product,Technology
-Sameer Kulkarni,,Cascade Realty Group,Director of Sales,Real Estate
-Anjali Sharma,anjali.sharma@orchidhealth.example,Orchid Health Network,Patient Experience Specialist,Healthcare
-Vivek Nambiar,vivek.n@summitlearning.example,Summit Learning Institute,Dean of Admissions,Education
+Full Name,Email,Company,Job Title,Industry,Mobile,WhatsApp Opt-In
+Priya Nair,priya.nair@meridiancap.example,Meridian Capital Finance,VP - Marketing & Growth (APAC),Lending,+1-555-0100,Yes
+Rohan Bhatt,rohan.bhatt@meridiancap.example,Meridian Capital Finance,Head - Digital Lending Ops,Lending,+1-555-0101,Yes
+Ananya Rao,a.rao@northwindhealth.example,Northwind Health Partners,"Director, Patient Access & Engagement",Healthcare,+1-555-0102,No
+Karan Mehta,,Northwind Health Partners,IT Systems Administrator,Healthcare,+1-555-0103,Yes
+Simran Kaur,simran.k@brightedlabs.example,Bright Ed Labs,AGM Admissions,Education,,
+Vikram Iyer,vikram.iyer@vertexworks.example,Vertex Manufacturing Works,Plant Operations Lead,Manufacturing,+1-555-0105,No
+Ayesha Khan,ayesha.khan@lumensystems.example,Lumen Software Systems,"Sr. Mgr, Demand Generation",Technology,+1-555-0106,Yes
+Dev Malhotra,,Lumen Software Systems,Sales Enablement Lead,Technology,+1-555-0107,Yes
+Neha Kapoor,neha.kapoor@cascaderealty.example,Cascade Realty Group,Growth Marketer,Real Estate,+1-555-0108,No
+Arjun Desai,arjun.desai@fairhavenlending.example,Fairhaven Lending Co,Chief Revenue Officer,Lending,,
+Meera Krishnan,,Fairhaven Lending Co,"Asst. Vice President, Collections",Lending,+1-555-0110,Yes
+Sanjay Gupta,sanjay.g@orchidhealth.example,Orchid Health Network,Regional Sales Head - West,Healthcare,+1-555-0111,No
+Divya Menon,divya.menon@summitlearning.example,Summit Learning Institute,"Manager, Student Recruitment",Education,+1-555-0112,Yes
+Rahul Verma,rahul.verma@ironlineind.example,Ironline Industrial,Operations Excellence Manager,Manufacturing,+1-555-0113,Yes
+Kavya Reddy,,Harbor Point Realty,Marketing Communications Lead,Real Estate,,
+Nikhil Joshi,nikhil.joshi@nimbusdata.example,Nimbus Data Technologies,CTO,Technology,+1-555-0115,Yes
+Pooja Shah,pooja.shah@meridiancap.example,Meridian Capital Finance,"Manager, Customer Lifecycle",Lending,+1-555-0116,Yes
+Aditya Rao,,Northwind Health Partners,Head of Clinical Operations,Healthcare,+1-555-0117,No
+Shreya Pillai,shreya.p@brightedlabs.example,Bright Ed Labs,Digital Marketing Executive,Education,+1-555-0118,Yes
+Manish Agarwal,manish.a@vertexworks.example,Vertex Manufacturing Works,"General Manager, Supply Chain",Manufacturing,,
+Ritu Chandra,ritu.chandra@lumensystems.example,Lumen Software Systems,VP Product,Technology,+1-555-0120,No
+Sameer Kulkarni,,Cascade Realty Group,Director of Sales,Real Estate,+1-555-0121,Yes
+Anjali Sharma,anjali.sharma@orchidhealth.example,Orchid Health Network,Patient Experience Specialist,Healthcare,+1-555-0122,Yes
+Vivek Nambiar,vivek.n@summitlearning.example,Summit Learning Institute,Dean of Admissions,Education,+1-555-0123,No

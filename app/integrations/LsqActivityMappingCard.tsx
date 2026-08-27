@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { listLsqActivityTypesAction, getActivityMappingAction, saveLsqActivityMappingAction } from '@/lib/actions/integrations';
 
 type ChannelKey = 'email' | 'linkedin' | 'sms' | 'whatsapp';
@@ -66,6 +67,17 @@ export function LsqActivityMappingCard() {
     setMap((m) => ({ ...m, [ch]: Number.isFinite(id) && id > 0 ? { typeId: id } : null }));
   }
 
+  // The saved id may no longer exist in the tenant (renamed/deleted type). It
+  // still has to appear as a choice, or saving would silently drop the mapping.
+  function optionsFor(key: ChannelKey) {
+    const opts = types.map((t) => ({ value: String(t.id), label: t.name, hint: `#${t.id}` }));
+    const saved = map[key]?.typeId;
+    if (saved && !types.some((t) => t.id === saved)) {
+      opts.unshift({ value: String(saved), label: `#${saved} (not in this account)`, hint: '' });
+    }
+    return opts;
+  }
+
   return (
     <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '14px 20px', marginBottom: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -96,19 +108,12 @@ export function LsqActivityMappingCard() {
         {CHANNELS.map(({ key, label }) => (
           <div key={key} style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 10 }}>
             <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n80)', marginBottom: 6 }}>{label}</div>
-            <select className="lsq-select" style={{ width: '100%', height: 30, fontSize: 'var(--fs-label-1)' }} value={map[key]?.typeId ?? ''} onChange={(e) => setType(key, e.target.value)}>
-              <option value="">— none —</option>
-              {types.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} (#{t.id})
-                </option>
-              ))}
-              {/* A saved id that no longer exists in the tenant still needs to
-                  render, or saving would silently drop it. */}
-              {map[key]?.typeId && !types.some((t) => t.id === map[key]!.typeId) && (
-                <option value={map[key]!.typeId}>#{map[key]!.typeId} (not in this account)</option>
-              )}
-            </select>
+            <SearchableSelect
+              value={map[key]?.typeId ? String(map[key]!.typeId) : ''}
+              onChange={(v) => setType(key, v)}
+              placeholder={`Search ${types.length} activity types…`}
+              options={optionsFor(key)}
+            />
           </div>
         ))}
       </div>

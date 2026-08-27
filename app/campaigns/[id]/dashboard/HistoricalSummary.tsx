@@ -24,7 +24,7 @@ export function HistoricalSummary({ campaign }: { campaign: Campaign }) {
         {stats.map((s) => (
           <Card key={s.label}>
             <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', letterSpacing: '0.03em', textTransform: 'uppercase' }}>{s.label}</div>
-            <div style={{ fontSize: 'var(--fs-heading-2)', fontWeight: 700, color: 'var(--n90)', marginTop: 6, letterSpacing: '-0.01em' }}>{s.value}</div>
+            <div className="lsq-num" style={{ fontSize: 'var(--fs-heading-2)', fontWeight: 700, color: 'var(--n90)', marginTop: 6, letterSpacing: '-0.01em' }}>{s.value}</div>
           </Card>
         ))}
       </div>

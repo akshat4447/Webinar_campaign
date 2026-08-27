@@ -32,6 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the template. It holds only variable names and non-secret
+# defaults, and the blanket rule above was hiding it from every clone,
+# which is the one thing it exists not to do.
+!.env.example
 
 # vercel
 .vercel

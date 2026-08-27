@@ -33,6 +33,8 @@ async function main() {
     title: pickCol(headers, ['title', 'designation', 'role', 'position']),
     vertical: pickCol(headers, ['vertical', 'industry', 'sector']),
     linkedin: pickCol(headers, ['linkedin', 'li url', 'profile']),
+    phone: pickCol(headers, ['mobile', 'phone', 'contact number']),
+    waOptIn: pickCol(headers, ['whatsapp opt-in', 'whatsapp optin', 'whatsapp consent', 'opt-in', 'consent']),
   };
 
   const contacts = rows.slice(1).map((r) => {
@@ -44,6 +46,8 @@ async function main() {
       title: get(ci.title) || '—',
       vertical: get(ci.vertical) || 'Unassigned',
       linkedinId: get(ci.linkedin),
+      phone: get(ci.phone) || null,
+      whatsappOptIn: /^(y|yes|true|1)$/i.test(get(ci.waOptIn)),
     });
   });
 
@@ -75,6 +79,8 @@ async function main() {
       function: c.function,
       seniority: c.seniority,
       linkedinId: c.linkedinId || null,
+      phone: c.phone || null,
+      whatsappOptIn: c.whatsappOptIn ?? false,
       missingInfo: c.missingInfo,
       source: c.source,
     })),

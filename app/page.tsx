@@ -85,11 +85,11 @@ export default async function LandingPage({ searchParams }: { searchParams: Prom
                 <div style={{ display: 'flex', gap: 20, paddingTop: 12, marginTop: 'auto', borderTop: '1px solid var(--border-subtle)' }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', whiteSpace: 'nowrap' }}>{stats.l1}</div>
-                    <div style={{ fontSize: 'var(--fs-button-1)', fontWeight: 700, color: 'var(--n90)', marginTop: 2, overflowWrap: 'anywhere' }}>{stats.v1}</div>
+                    <div className="lsq-num" style={{ fontSize: 'var(--fs-button-1)', fontWeight: 700, color: 'var(--n90)', marginTop: 2, overflowWrap: 'anywhere' }}>{stats.v1}</div>
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', whiteSpace: 'nowrap' }}>{stats.l2}</div>
-                    <div style={{ fontSize: 'var(--fs-button-1)', fontWeight: 700, color: 'var(--n90)', marginTop: 2, overflowWrap: 'anywhere' }}>{stats.v2}</div>
+                    <div className="lsq-num" style={{ fontSize: 'var(--fs-button-1)', fontWeight: 700, color: 'var(--n90)', marginTop: 2, overflowWrap: 'anywhere' }}>{stats.v2}</div>
                   </div>
                 </div>
               </div>

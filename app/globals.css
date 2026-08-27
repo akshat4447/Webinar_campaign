@@ -56,6 +56,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 .lsq-row:hover { background: var(--surface-hover); }
 
+/* Dense data tables. Row highlight on hover aids scanning a long list without
+   implying the row is clickable (that's what .lsq-row's pointer cursor is for),
+   and tabular figures keep numeric columns aligned on the digit. */
+.lsq-table { border-collapse: collapse; }
+.lsq-table tbody tr { transition: var(--transition-colors); }
+.lsq-table tbody tr:hover { background: var(--surface-hover); }
+.lsq-table td.num,
+.lsq-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
 /* Quiet control that only reveals itself on hover of its parent — kebab menus,
    inline edit affordances. */
 .lsq-reveal { opacity: 0; transition: opacity var(--dur-fast) var(--ease-standard); }
