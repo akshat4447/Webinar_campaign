@@ -1,126 +1,323 @@
 import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { db } from '@/lib/db';
 import { statusMeta } from '@/lib/demo-data';
-import { getCampaignCardStats } from '@/lib/campaignCardStats';
+import { getCampaignCardStats, getListKpis } from '@/lib/campaignCardStats';
 import { getPersonaLearning } from '@/lib/personaLearning';
+import { campaignCadenceHref, campaignLandingHref, campaignPrimaryCta } from '@/lib/campaignRoutes';
 import { NewCampaignButton } from './NewCampaignButton';
 import { CampaignCardMenu } from './CampaignCardMenu';
 
-export default async function LandingPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
-  const { view } = await searchParams;
-  const archivedView = view === 'archived';
+type ViewId = 'all' | 'upcoming' | 'completed' | 'draft' | 'archived';
 
-  const [campaigns, activeCount, archivedCount, personaLearning] = await Promise.all([
-    db.campaign.findMany({ where: { archived: archivedView }, orderBy: { createdAt: 'asc' } }),
-    db.campaign.count({ where: { archived: false } }),
-    db.campaign.count({ where: { archived: true } }),
+const VIEWS: { id: ViewId; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'upcoming', label: 'Upcoming' },
+  { id: 'completed', label: 'Completed' },
+  { id: 'draft', label: 'Drafts' },
+  { id: 'archived', label: 'Archived' },
+];
+
+/** "Upcoming" means anything not yet finished — a draft is upcoming work even
+ *  though it has no date. Archived is a separate axis from status: a live or
+ *  completed campaign can be archived and its status is untouched either way. */
+function whereFor(view: ViewId) {
+  if (view === 'archived') return { archived: true };
+  if (view === 'upcoming') return { archived: false, status: { in: ['live', 'draft'] } };
+  if (view === 'completed') return { archived: false, status: 'completed' };
+  if (view === 'draft') return { archived: false, status: 'draft' };
+  return { archived: false };
+}
+
+function isViewId(value: string | undefined): value is ViewId {
+  return VIEWS.some((v) => v.id === value);
+}
+
+export default async function WebinarsPage(props: PageProps<'/'>) {
+  const { view: rawView } = await props.searchParams;
+  const view: ViewId = isViewId(typeof rawView === 'string' ? rawView : undefined)
+    ? (rawView as ViewId)
+    : 'all';
+
+  const [campaigns, counts, personaLearning] = await Promise.all([
+    db.campaign.findMany({ where: whereFor(view), orderBy: { createdAt: 'desc' } }),
+    Promise.all(VIEWS.map((v) => db.campaign.count({ where: whereFor(v.id) }))),
     getPersonaLearning(),
   ]);
-  const cards = await Promise.all(campaigns.map(async (c) => ({ campaign: c, stats: await getCampaignCardStats(c) })));
+
+  const cards = await Promise.all(
+    campaigns.map(async (c) => ({ campaign: c, stats: await getCampaignCardStats(c) }))
+  );
+
+  // Live attendance figures for the KPI row, so it agrees with the cards rather
+  // than relying only on the stored summary fields.
+  const attendanceRows = await db.contact.groupBy({
+    by: ['campaignId'],
+    where: { campaignId: { in: campaigns.map((c) => c.id) } },
+    _count: true,
+  });
+  const attendedByCampaign = new Map<string, { attended: number; approved: number }>();
+  await Promise.all(
+    attendanceRows.map(async (row) => {
+      const [attended, approved] = await Promise.all([
+        db.contact.count({ where: { campaignId: row.campaignId, attended: true } }),
+        db.contact.count({ where: { campaignId: row.campaignId, approved: true } }),
+      ]);
+      attendedByCampaign.set(row.campaignId, { attended, approved });
+    })
+  );
+  const kpis = getListKpis(campaigns, attendedByCampaign);
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '32px 40px 48px 40px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 16, flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ fontSize: 'var(--fs-heading-2)', fontWeight: 700, color: 'var(--n90)', letterSpacing: '-0.01em' }}>Webinars</div>
-          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 3 }}>Every campaign the agent is running, drafting, or has already closed out</div>
-        </div>
-        <NewCampaignButton />
-      </div>
+      <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+        <PageHeader
+          title="Your webinars"
+          subtitle="Create an event, bring the audience, and track it — all in one place."
+          actions={<NewCampaignButton />}
+        />
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
-        <Link
-          href="/"
+        <div
           style={{
-            padding: '7px 14px',
-            borderRadius: 'var(--radius-md)',
-            fontSize: 'var(--fs-label-1)',
-            fontWeight: 600,
-            textDecoration: 'none',
-            background: !archivedView ? 'var(--accent-50)' : 'transparent',
-            color: !archivedView ? 'var(--accent-700)' : 'var(--n60)',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: 14,
+            marginBottom: 28,
           }}
         >
-          All webinars ({activeCount})
-        </Link>
-        <Link
-          href="/?view=archived"
-          style={{
-            padding: '7px 14px',
-            borderRadius: 'var(--radius-md)',
-            fontSize: 'var(--fs-label-1)',
-            fontWeight: 600,
-            textDecoration: 'none',
-            background: archivedView ? 'var(--accent-50)' : 'transparent',
-            color: archivedView ? 'var(--accent-700)' : 'var(--n60)',
-          }}
-        >
-          Archived ({archivedCount})
-        </Link>
-      </div>
-
-      {cards.length === 0 && (
-        <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '32px 24px', textAlign: 'center', fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 24 }}>
-          {archivedView ? 'No archived webinars.' : 'No webinars yet — create one to get started.'}
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(268px, 1fr))', gap: 16 }}>
-        {cards.map(({ campaign: c, stats }) => {
-          const meta = statusMeta[c.status as keyof typeof statusMeta] ?? statusMeta.draft;
-          return (
-            <Link key={c.id} href={`/campaigns/${c.id}/${c.status === 'completed' ? 'dashboard' : 'setup'}`} style={{ textDecoration: 'none', position: 'relative', display: 'block' }}>
-              <CampaignCardMenu campaignId={c.id} campaignName={c.name} archived={c.archived} />
+          {kpis.map((k) => (
+            <div key={k.label} className="lsq-card" style={{ padding: '16px 18px' }}>
               <div
-                className="lsq-card lsq-card--interactive"
-                style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', height: '100%' }}
+                style={{
+                  fontSize: 'var(--fs-label-2)',
+                  fontWeight: 'var(--fw-bold)',
+                  color: 'var(--n50)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <Badge color={meta.color} text={meta.label} dot />
-                  <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>{c.vertical}</span>
-                </div>
-                <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)', marginBottom: 4, lineHeight: 1.35, overflowWrap: 'anywhere' }}>{c.name}</div>
-                <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 14 }}>{c.date}</div>
-                <div style={{ display: 'flex', gap: 20, paddingTop: 12, marginTop: 'auto', borderTop: '1px solid var(--border-subtle)' }}>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', whiteSpace: 'nowrap' }}>{stats.l1}</div>
-                    <div className="lsq-num" style={{ fontSize: 'var(--fs-button-1)', fontWeight: 700, color: 'var(--n90)', marginTop: 2, overflowWrap: 'anywhere' }}>{stats.v1}</div>
-                  </div>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', whiteSpace: 'nowrap' }}>{stats.l2}</div>
-                    <div className="lsq-num" style={{ fontSize: 'var(--fs-button-1)', fontWeight: 700, color: 'var(--n90)', marginTop: 2, overflowWrap: 'anywhere' }}>{stats.v2}</div>
-                  </div>
-                </div>
+                {k.label}
               </div>
-            </Link>
-          );
-        })}
-      </div>
-
-      <div style={{ marginTop: 24, background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
-        <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Approval rate by persona</div>
-        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 14 }}>
-          Share of scored contacts approved, by seniority and function, across every webinar with at least {3} scored contacts in
-          that persona — a track record to inform scoring criteria by hand, not an automatic feedback loop.
+              <div
+                className="lsq-num"
+                style={{
+                  fontSize: 'var(--fs-heading-2)',
+                  fontWeight: 'var(--fw-bold)',
+                  color: 'var(--n90)',
+                  marginTop: 8,
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                {k.value}
+              </div>
+            </div>
+          ))}
         </div>
-        {personaLearning.length === 0 ? (
-          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>Not enough scored contacts yet — run scoring on a campaign to see persona trends here.</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {personaLearning.map((row) => (
-              <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 200, fontSize: 'var(--fs-label-1)', color: 'var(--n70)', flexShrink: 0, overflowWrap: 'anywhere' }}>
-                  {row.label} <span style={{ color: 'var(--n50)' }}>({row.sampleSize})</span>
-                </div>
-                <div style={{ flex: 1, background: 'var(--n20)', borderRadius: 'var(--radius-full)', height: 8, overflow: 'hidden' }}>
-                  <div style={{ width: `${row.pct}%`, height: '100%', background: 'var(--accent-500)', borderRadius: 'var(--radius-full)' }} />
-                </div>
-                <div style={{ width: 40, textAlign: 'right', fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>{row.pct}%</div>
-              </div>
-            ))}
+
+        <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
+          {VIEWS.map((v, i) => {
+            const active = v.id === view;
+            return (
+              <Link
+                key={v.id}
+                href={v.id === 'all' ? '/' : `/?view=${v.id}`}
+                className="lsq-nav"
+                data-active={active ? 'true' : 'false'}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: 'var(--fs-label-1)',
+                  fontWeight: 'var(--fw-semibold)',
+                  textDecoration: 'none',
+                  background: active ? 'var(--accent-50)' : 'transparent',
+                  color: active ? 'var(--accent-700)' : 'var(--n60)',
+                }}
+              >
+                {v.label} ({counts[i]})
+              </Link>
+            );
+          })}
+        </div>
+
+        {cards.length === 0 && (
+          <div
+            className="lsq-card"
+            style={{
+              padding: '32px 24px',
+              textAlign: 'center',
+              fontSize: 'var(--fs-label-1)',
+              color: 'var(--n60)',
+              marginBottom: 24,
+            }}
+          >
+            {view === 'archived'
+              ? 'No archived webinars.'
+              : view === 'all'
+                ? 'No webinars yet — create one to get started.'
+                : 'No webinars match this filter.'}
           </div>
         )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+          {cards.map(({ campaign: c, stats }) => {
+            const meta = statusMeta[c.status as keyof typeof statusMeta] ?? statusMeta.draft;
+            return (
+              <div
+                key={c.id}
+                className="lsq-card"
+                style={{ padding: 20, display: 'flex', flexDirection: 'column' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <Badge color={meta.color} text={meta.label} dot />
+                  <span
+                    style={{
+                      fontSize: 'var(--fs-label-2)',
+                      color: 'var(--n50)',
+                      marginLeft: 'auto',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {c.vertical}
+                  </span>
+                  <CampaignCardMenu campaignId={c.id} campaignName={c.name} archived={c.archived} />
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 'var(--fs-button-1)',
+                    fontWeight: 'var(--fw-bold)',
+                    color: 'var(--n90)',
+                    marginBottom: 4,
+                    lineHeight: 1.35,
+                    overflowWrap: 'anywhere',
+                  }}
+                >
+                  {c.name}
+                </div>
+                <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 16 }}>{c.date}</div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 20,
+                    padding: '14px 0',
+                    borderTop: '1px solid var(--border-subtle)',
+                    borderBottom: '1px solid var(--border-subtle)',
+                    marginBottom: 14,
+                    marginTop: 'auto',
+                  }}
+                >
+                  {stats.map((s) => (
+                    <div key={s.label} style={{ minWidth: 0, flex: 1 }}>
+                      <div
+                        style={{
+                          fontSize: 'var(--fs-label-2)',
+                          fontWeight: 'var(--fw-semibold)',
+                          color: 'var(--n50)',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {s.label}
+                      </div>
+                      <div
+                        className="lsq-num"
+                        style={{
+                          fontSize: 'var(--fs-heading-4)',
+                          fontWeight: 'var(--fw-bold)',
+                          color: 'var(--n90)',
+                          marginTop: 2,
+                          overflowWrap: 'anywhere',
+                        }}
+                      >
+                        {s.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Link
+                    href={campaignLandingHref(c)}
+                    className="lsq-btn lsq-btn--primary lsq-btn--sm"
+                    style={{ flex: 1, textDecoration: 'none' }}
+                  >
+                    {campaignPrimaryCta(c.status)}
+                  </Link>
+                  <Link
+                    href={campaignCadenceHref(c.id)}
+                    className="lsq-btn lsq-btn--secondary lsq-btn--sm"
+                    style={{ textDecoration: 'none' }}
+                  >
+                    Cadence
+                  </Link>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Cross-campaign persona track record. Moves to /dashboard in C11. */}
+        <div className="lsq-card" style={{ marginTop: 24, padding: '18px 20px' }}>
+          <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 'var(--fw-bold)', color: 'var(--n90)', marginBottom: 4 }}>
+            Approval rate by persona
+          </div>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 14, maxWidth: '72ch' }}>
+            Share of scored contacts approved, by seniority and function, across every webinar with at least 3 scored
+            contacts in that persona — a track record to inform scoring criteria by hand, not an automatic feedback loop.
+          </div>
+          {personaLearning.length === 0 ? (
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>
+              Not enough scored contacts yet — run scoring on a campaign to see persona trends here.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {personaLearning.map((row) => (
+                <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div
+                    style={{
+                      width: 200,
+                      fontSize: 'var(--fs-label-1)',
+                      color: 'var(--n70)',
+                      flexShrink: 0,
+                      overflowWrap: 'anywhere',
+                    }}
+                  >
+                    {row.label} <span style={{ color: 'var(--n50)' }}>({row.sampleSize})</span>
+                  </div>
+                  <div
+                    style={{
+                      flex: 1,
+                      background: 'var(--n20)',
+                      borderRadius: 'var(--radius-full)',
+                      height: 8,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${row.pct}%`,
+                        height: '100%',
+                        background: 'var(--accent-500)',
+                        borderRadius: 'var(--radius-full)',
+                      }}
+                    />
+                  </div>
+                  <div
+                    className="lsq-num"
+                    style={{ width: 40, textAlign: 'right', fontSize: 'var(--fs-label-1)', fontWeight: 'var(--fw-bold)', color: 'var(--n90)' }}
+                  >
+                    {row.pct}%
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </main>
   );

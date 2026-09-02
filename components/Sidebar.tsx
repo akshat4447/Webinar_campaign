@@ -4,6 +4,43 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icon } from './ui/Icon';
 
+/** One nav destination. `match` decides highlighting, which is not always
+ *  "pathname equals href" — Webinars stays lit while you are inside a
+ *  campaign, because a campaign is a webinar. */
+interface NavItem {
+  href: string;
+  label: string;
+  icon: 'dashboard' | 'document' | 'template';
+  match: (pathname: string) => boolean;
+}
+
+const NAV: NavItem[] = [
+  { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', match: (p) => p === '/dashboard' },
+  {
+    href: '/',
+    label: 'Webinars',
+    icon: 'document',
+    // A campaign workspace and the wizard both live under Webinars.
+    match: (p) => p === '/' || p.startsWith('/campaigns'),
+  },
+  { href: '/templates', label: 'Templates', icon: 'template', match: (p) => p === '/templates' },
+];
+
+function navItemStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '9px 12px',
+    borderRadius: 'var(--radius-md)',
+    background: active ? 'var(--accent-50)' : 'transparent',
+    color: active ? 'var(--accent-700)' : 'var(--n60)',
+    textDecoration: 'none',
+    fontSize: 'var(--fs-label-1)',
+    fontWeight: 'var(--fw-semibold)',
+  };
+}
+
 export function Sidebar({
   totalCount,
   liveCount,
@@ -16,86 +53,144 @@ export function Sidebar({
   completedCount: number;
 }) {
   const pathname = usePathname();
-  const isLanding = pathname === '/';
   const isIntegrations = pathname === '/integrations';
-
-  const navItemStyle = (active: boolean): React.CSSProperties => ({
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    padding: '9px 12px',
-    borderRadius: 'var(--radius-md)',
-    cursor: 'pointer',
-    background: active ? 'var(--accent-50)' : 'transparent',
-    color: active ? 'var(--accent-500)' : 'var(--n70)',
-    textDecoration: 'none',
-    fontSize: 'var(--fs-label-1)',
-    fontWeight: 600,
-  });
 
   return (
     <aside
       style={{
-        width: 220,
+        width: 216,
         flexShrink: 0,
-        background: '#fff',
+        background: 'var(--surface-card)',
         borderRight: '1px solid var(--border-subtle)',
         display: 'flex',
         flexDirection: 'column',
         padding: '22px 14px',
         boxSizing: 'border-box',
+        overflowY: 'auto',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px 20px 8px' }}>
-        <div style={{ width: 34, height: 34, borderRadius: 'var(--radius-md)', overflow: 'hidden', flexShrink: 0 }}>
-          <svg width="34" height="34" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px 22px 8px' }}>
+        <div style={{ width: 30, height: 30, borderRadius: 7, overflow: 'hidden', flexShrink: 0 }}>
+<svg width="30" height="30" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect width="87.2732" height="87.2732" fill="#0C9AFC" />
             <path d="M0 43.3984H43.875V87.2735H0V43.3984Z" fill="#172738" />
             <path d="M43.875 43.3984H0L43.875 87.2735V43.3984Z" fill="#F5F5F5" />
-          </svg>
+            </svg>
         </div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)', lineHeight: 1.2 }}>Campaign Agent</div>
-          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', lineHeight: 1.2, marginTop: 1 }}>Webinar Intelligence</div>
+          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 'var(--fw-bold)', color: 'var(--n90)', lineHeight: 1.1 }}>
+            Webinar Studio
+          </div>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', lineHeight: 1.2 }}>Campaign workspace</div>
         </div>
       </div>
 
-      <Link href="/" style={{ ...navItemStyle(isLanding), marginTop: 4 }}>
-        <Icon name="AnyDocumentProperty1Outline" size={17} style={{ color: isLanding ? 'var(--accent-500)' : 'var(--n60)' }} />
-        All webinars
-      </Link>
+      <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {NAV.map((item) => {
+          const active = item.match(pathname);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="lsq-nav"
+              data-active={active ? 'true' : 'false'}
+              style={navItemStyle(active)}
+            >
+              <Icon name={item.icon} size={17} style={{ color: active ? 'var(--accent-700)' : 'var(--n60)' }} />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
 
-      <Link href="/integrations" style={{ ...navItemStyle(isIntegrations), marginTop: 2 }}>
-        <div style={{ width: 17, height: 17, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3, flexShrink: 0, color: isIntegrations ? 'var(--accent-500)' : 'var(--n60)' }}>
-          <span style={{ background: 'currentColor', borderRadius: 2 }} />
-          <span style={{ background: 'currentColor', borderRadius: 2, opacity: 0.55 }} />
-          <span style={{ background: 'currentColor', borderRadius: 2, opacity: 0.55 }} />
-          <span style={{ background: 'currentColor', borderRadius: 2 }} />
-        </div>
-        Integrations
-      </Link>
-
+      {/* Live agent status. Kept from the previous shell: it is the only place
+          in the app that answers "is anything running right now?" without
+          opening a campaign. */}
       <div
         style={{
           marginTop: 20,
-          padding: '14px 14px',
+          padding: 14,
           borderRadius: 'var(--radius-lg)',
           background: 'var(--n10)',
           border: '1px solid var(--border-subtle)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--success-500)', animation: 'lsq-pulse 2s infinite' }} />
-          <span style={{ fontSize: 'var(--fs-label-2)', fontWeight: 700, color: 'var(--n80)', letterSpacing: '0.03em' }}>AGENT ONLINE</span>
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: 'var(--success-500)',
+              animation: 'lsq-pulse 2s infinite',
+              flexShrink: 0,
+            }}
+          />
+          <span
+            style={{
+              fontSize: 'var(--fs-label-2)',
+              fontWeight: 'var(--fw-bold)',
+              color: 'var(--n80)',
+              letterSpacing: '0.03em',
+            }}
+          >
+            AGENT ONLINE
+          </span>
         </div>
         <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', lineHeight: 1.5 }}>
-          {totalCount} {totalCount === 1 ? 'webinar' : 'webinars'} across {liveCount} live, {draftCount} draft, {completedCount} completed.
+          {totalCount} {totalCount === 1 ? 'webinar' : 'webinars'} across {liveCount} live, {draftCount} draft,{' '}
+          {completedCount} completed.
         </div>
       </div>
 
-      <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 6, padding: '16px 8px 2px 8px' }}>
-        <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, letterSpacing: '0.08em', color: 'var(--n50)', textTransform: 'uppercase' }}>Built on</span>
-        <svg width="108" height="19.8" viewBox="0 0 578 106" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 2, paddingTop: 20 }}>
+        <Link
+          href="/integrations"
+          className="lsq-nav"
+          data-active={isIntegrations ? 'true' : 'false'}
+          style={navItemStyle(isIntegrations)}
+        >
+          <div
+            style={{
+              width: 17,
+              height: 17,
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 3,
+              flexShrink: 0,
+              color: isIntegrations ? 'var(--accent-700)' : 'var(--n60)',
+            }}
+          >
+            <span style={{ background: 'currentColor', borderRadius: 2 }} />
+            <span style={{ background: 'currentColor', borderRadius: 2, opacity: 0.55 }} />
+            <span style={{ background: 'currentColor', borderRadius: 2, opacity: 0.55 }} />
+            <span style={{ background: 'currentColor', borderRadius: 2 }} />
+          </div>
+          Integrations
+        </Link>
+
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            padding: '16px 8px 2px 8px',
+            marginTop: 8,
+            borderTop: '1px solid var(--border-subtle)',
+          }}
+        >
+          <span
+            style={{
+              fontSize: 'var(--fs-caption)',
+              fontWeight: 'var(--fw-semibold)',
+              letterSpacing: '0.08em',
+              color: 'var(--n50)',
+              textTransform: 'uppercase',
+            }}
+          >
+            Built on
+          </span>
+<svg width="108" height="19.8" viewBox="0 0 578 106" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M0 -0.000643553V43.7142H43.5897V88.043H86.7982V-0.000643553H0Z" fill="#0C9AFC" />
           <path d="M100.433 26.8136C96.9467 26.8136 96.9467 21.2945 100.433 21.2945H106.709C107.929 21.2945 108.888 22.2582 108.888 23.3975V82.5238H111.329C114.815 82.5238 114.815 88.043 111.329 88.043H100.869C97.3826 88.043 97.3826 82.5238 100.869 82.5238H103.31V26.8136H100.433" fill="#172738" />
           <path d="M121.353 62.5526H153.08C151.685 53.8804 146.63 47.1358 138.088 47.1358C129.633 47.1358 122.661 54.2309 121.353 62.5526V62.5526ZM139.221 88.4805C125.711 88.4805 115.862 78.0568 115.862 65.1807C115.862 52.5667 125.711 41.6172 138.175 41.6172C150.465 41.6172 158.397 52.0413 158.745 64.7421C158.745 66.3195 157.961 68.0712 156.043 68.0712H121.353C122.748 76.9182 130.244 82.9628 139.134 82.9628C142.272 82.9628 146.978 82.174 149.768 80.7723C151.859 79.7213 153.08 80.5966 153.603 81.5603C154.213 82.7872 153.951 84.4513 152.382 85.3277C148.896 87.3419 143.143 88.4805 139.221 88.4805" fill="#172738" />
@@ -109,7 +204,8 @@ export function Sidebar({
           <path d="M490.662 62.5526H522.389C520.995 53.8804 515.94 47.1358 507.397 47.1358C498.943 47.1358 491.97 54.2309 490.662 62.5526V62.5526ZM508.53 88.4805C495.021 88.4805 485.172 78.0568 485.172 65.1807C485.172 52.5667 495.021 41.6172 507.485 41.6172C519.775 41.6172 527.706 52.0413 528.055 64.7421C528.055 66.3195 527.271 68.0712 525.353 68.0712H490.662C492.058 76.9182 499.553 82.9628 508.444 82.9628C511.581 82.9628 516.288 82.174 519.077 80.7723C521.169 79.7213 522.389 80.5966 522.912 81.5603C523.522 82.7872 523.261 84.4513 521.692 85.3277C518.206 87.3419 512.453 88.4805 508.53 88.4805" fill="#0C9AFC" />
           <path d="M551.938 47.4861C542.438 47.4861 535.116 55.545 534.942 65.0926C534.767 74.4658 541.392 82.9628 552.026 82.9628C557.691 83.0496 568.673 78.5825 568.673 65.3558C568.673 56.0707 561.961 47.4861 551.938 47.4861V47.4861ZM570.765 88.0431C569.632 88.0431 568.673 87.0794 568.673 85.9406V80.3342C564.925 85.5902 558.998 88.4805 552.287 88.4805C539.387 88.4805 529.538 77.9692 529.538 65.1807C529.538 52.5667 539.3 42.0553 551.764 42.0553C563.967 42.0553 568.673 51.1649 568.673 51.1649V26.7262H567.453C563.967 26.7262 563.967 21.2947 567.453 21.2947H572.073C573.206 21.2947 574.165 22.2584 574.165 23.4852V82.524H575.384C578.871 82.524 578.871 88.0431 575.384 88.0431H570.765" fill="#0C9AFC" />
           <path d="M43.5897 88.043H0V43.714L43.5897 88.043Z" fill="#172738" />
-        </svg>
+          </svg>
+        </div>
       </div>
     </aside>
   );

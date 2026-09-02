@@ -41,11 +41,11 @@ export function CampaignCardMenu({ campaignId, campaignName, archived }: { campa
       ref={ref}
       className="lsq-reveal"
       data-open={open || confirmDelete ? 'true' : 'false'}
-      style={{ position: 'absolute', top: 10, right: 10, zIndex: 5 }}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-      }}
+      // Positioned by the card's own header row rather than absolutely: the
+      // card carries its own CTAs now, so it is no longer one big anchor that
+      // this had to sit on top of.
+      style={{ position: 'relative', flexShrink: 0 }}
+      onClick={(e) => e.stopPropagation()}
     >
       <button
         type="button"

@@ -196,24 +196,24 @@ it, must be reinstated.
 ### 5.1 Shell & navigation
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
-| NAV-1 | Sidebar, 216px, 3 nav items | `components/Sidebar.tsx` | MOVE | C2 | [ ] |
-| NAV-2 | "AGENT ONLINE" live block + campaign counts | sidebar, below nav | RESTORE | C2 | [ ] |
-| NAV-3 | "Built on LeadSquared" logo lockup | sidebar footer | RESTORE | C2 | [ ] |
-| NAV-4 | Integrations nav pinned to bottom | sidebar | MOVE | C2 | [ ] |
-| NAV-5 | Global chat widget + per-campaign history | floating, all routes | KEEP | C2 | [ ] |
-| NAV-6 | 6-tab campaign workspace | `campaigns/[id]/layout.tsx` | MOVE | C2 | [ ] |
-| NAV-7 | Toast notification system | new shared component | NEW | C2 | [ ] |
+| NAV-1 | Sidebar, 216px, 3 nav items | `components/Sidebar.tsx` | MOVE | C2 | [x] |
+| NAV-2 | "AGENT ONLINE" live block + campaign counts | sidebar, below nav | RESTORE | C2 | [x] |
+| NAV-3 | "Built on LeadSquared" logo lockup | sidebar footer | RESTORE | C2 | [x] |
+| NAV-4 | Integrations nav pinned to bottom | sidebar | MOVE | C2 | [x] |
+| NAV-5 | Global chat widget + per-campaign history | floating, all routes | KEEP | C2 | [x] |
+| NAV-6 | 6-tab campaign workspace | `campaigns/[id]/layout.tsx` | MOVE | C2B | [ ] |
+| NAV-7 | Toast notification system | new shared component | NEW | C2 | [x] |
 | NAV-8 | User profile chip | — | **DROPPED (D3)** | — | n/a |
 
 ### 5.2 Webinars list
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
-| LST-1 | Campaign cards, 3 stats, 2 CTAs | `app/page.tsx` | MOVE | C2 | [ ] |
-| LST-2 | 4-KPI summary row | `app/page.tsx` | NEW | C2 | [ ] |
-| LST-3 | All / Upcoming / Completed / Drafts filters | `app/page.tsx` | MOVE | C2 | [ ] |
-| LST-4 | Archived view | filter option | KEEP | C2 | [ ] |
-| LST-5 | Archive · Unarchive · Delete kebab menu | card corner | RESTORE | C2 | [ ] |
-| LST-6 | Cadence deep-link CTA | card | NEW | C2 | [ ] |
+| LST-1 | Campaign cards, 3 stats, 2 CTAs | `app/page.tsx` | MOVE | C2 | [x] |
+| LST-2 | 4-KPI summary row | `app/page.tsx` | NEW | C2 | [x] |
+| LST-3 | All / Upcoming / Completed / Drafts filters | `app/page.tsx` | MOVE | C2 | [x] |
+| LST-4 | Archived view | filter option | KEEP | C2 | [x] |
+| LST-5 | Archive · Unarchive · Delete kebab menu | card corner | RESTORE | C2 | [x] |
+| LST-6 | Cadence deep-link CTA | card | NEW | C2 | [x] |
 | LST-7 | Approval-rate-by-persona panel | → `/dashboard` | MOVE | C11 | [ ] |
 
 ### 5.3 Creation wizard
@@ -509,10 +509,17 @@ changelog entry written. Do not run two checkpoints in one pass.
 **Acceptance:** new tokens resolve; zero visual change; 112 tests pass;
 routing conventions confirmed against the bundled docs and recorded in §2.5.
 
-### [ ] C2 — Shell, navigation, list page
-**Scope:** NAV-1..7, LST-1..6.
-**Files:** `components/Sidebar.tsx`, `components/ui/Toast.tsx` (new), `app/layout.tsx`, `app/page.tsx`, `app/campaigns/[id]/layout.tsx`, `WorkspaceTabs.tsx`, route folder renames.
-**Acceptance:** every existing screen reachable under the new 6-tab IA; sidebar matches prototype spec but retains AGENT ONLINE + LSQ lockup + chat widget; card kebab menu works; KPI row computes from real data.
+### [x] C2 — Shell, navigation, list page
+**Scope:** NAV-1..5, NAV-7, LST-1..6.
+**Files:** `components/Sidebar.tsx`, `components/ui/{Toast,PageHeader,Placeholder}.tsx` (new), `components/ui/Icon.tsx`, `app/layout.tsx`, `app/page.tsx`, `app/CampaignCardMenu.tsx`, `app/{dashboard,templates}/page.tsx` (new), `lib/campaignCardStats.ts`, `lib/campaignRoutes.ts` (new), `app/globals.css`.
+**Acceptance:** sidebar matches the prototype but retains AGENT ONLINE, the LeadSquared lockup and the chat widget; 4-KPI row and 5 filter pills compute from real data; cards carry three stats, two CTAs and a working kebab menu; `/dashboard` and `/templates` reachable.
+
+### [ ] C2B — Campaign workspace tab restructure
+**Scope:** NAV-6. Split out of C2 to keep that checkpoint verifiable on its own.
+**Files:** route folder renames under `app/campaigns/[id]/`, `WorkspaceTabs.tsx`, `app/campaigns/[id]/layout.tsx`, `lib/campaignRoutes.ts`, `lib/demo-data.ts` (`workspaceTabs`).
+**Renames:** `dashboard`→`overview`, `scoring`→`audience`, `personalize`→`messaging`, `schedule`→`cadence`, `control`→`agent`; add `post-event`.
+**Transitional:** `setup` stays a tab until C6 moves campaign-detail editing into Overview; per-campaign `templates` stays until C4.
+**Acceptance:** all six prototype tabs present and every existing screen still reachable; `campaignRoutes.ts` is the only place tab hrefs are written; `next typegen` clean.
 
 ### [ ] C3 — Cadence engine unblock
 **Scope:** CAD-1, CAD-2, SAF-8.

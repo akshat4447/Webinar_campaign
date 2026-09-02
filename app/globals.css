@@ -56,6 +56,16 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 .lsq-row:hover { background: var(--surface-hover); }
 
+/* Sidebar / tab navigation link. The active state is set inline (it depends on
+   the current route), so this only carries the hover and press feedback that an
+   inline style cannot express. Hover must not fight the active background,
+   hence the :not() guard on the accent wash. */
+.lsq-nav {
+  transition: var(--transition-colors);
+}
+.lsq-nav:hover { color: var(--text-primary); }
+.lsq-nav:hover:not([data-active='true']) { background: var(--surface-hover); }
+
 /* Dense data tables. Row highlight on hover aids scanning a long list without
    implying the row is clickable (that's what .lsq-row's pointer cursor is for),
    and tabular figures keep numeric columns aligned on the digit. */
@@ -188,6 +198,13 @@ table td, table th { overflow-wrap: anywhere; }
 }
 
 @keyframes lsq-spin { to { transform: rotate(360deg); } }
+
+/* Toast entry. Rises a short distance rather than fading in place, so the eye
+   catches it at the bottom edge without the movement being the point. */
+@keyframes lsq-toast-in {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
 
 /* ---------- scrollbars ----------------------------------------------------- */
 

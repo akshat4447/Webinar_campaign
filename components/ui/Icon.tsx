@@ -15,7 +15,9 @@ type IconName =
   | 'eye'
   | 'eye-off'
   | 'chevron-down'
-  | 'trash';
+  | 'trash'
+  | 'dashboard'
+  | 'template';
 
 const paths: Record<IconName, React.ReactNode> = {
   document: (
@@ -95,6 +97,25 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M3 6h18" />
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
       <path d="M10 11v6M14 11v6" />
+    </>
+  ),
+  // Four unequal panes — reads as an overview of several things at once,
+  // which is what the cross-campaign dashboard is.
+  dashboard: (
+    <>
+      <rect x="3" y="3" width="7" height="9" rx="1" />
+      <rect x="14" y="3" width="7" height="5" rx="1" />
+      <rect x="14" y="12" width="7" height="9" rx="1" />
+      <rect x="3" y="16" width="7" height="5" rx="1" />
+    </>
+  ),
+  // A header band over a body and a sidebar — a page skeleton rather than a
+  // document, to distinguish templates from the 'document' glyph.
+  template: (
+    <>
+      <path d="M4 4h16v4H4z" />
+      <path d="M4 12h10v8H4z" />
+      <path d="M18 12h2v8h-2z" />
     </>
   ),
 };
