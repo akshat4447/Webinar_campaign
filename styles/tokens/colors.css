@@ -16,6 +16,20 @@
   --warning-100:#fbebb4;--warning-700:#8a6a10;
   --info-100:#f3f4fc;--info-500:#4659ea;
 
+  /* Channel brand — the one place a third-party's own colour is authoritative.
+     LinkedIn's blue is fixed by their brand guidelines; the wash is the tint
+     the channel icon tile sits on. */
+  --brand-linkedin:#0A66C2;--brand-linkedin-wash:#e8f0fe;
+
+  /* Chart series. Ordered by visual weight, not hue, so a 2-series chart uses
+     the two most distinguishable values. Semantic status colours are
+     deliberately NOT reused here — a bar must not read as "success". */
+  --chart-1:#0040DF;--chart-2:#411EED;--chart-3:#5F3FFF;
+
+  /* A softer warning tint than --warning-100, for badges that mark an
+     in-progress state rather than a problem needing attention. */
+  --warning-wash:#fff7db;
+
   /* Surfaces */
   --surface-page:var(--n20);--surface-card:var(--n0);--surface-subtle:var(--n10);
   --surface-hover:var(--n10);--surface-overlay:rgba(16,20,25,0.45);

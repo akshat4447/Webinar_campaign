@@ -75,8 +75,15 @@ App Router conventions from memory.
 Run before marking any checkpoint complete:
 
 ```bash
-npm run test && npx tsc --noEmit && npm run lint
+npx next typegen && npm run test && npx tsc --noEmit && npm run lint
 ```
+
+**`next typegen` is not optional.** This Next.js generates the global
+`PageProps<'/route'>` / `LayoutProps<'/route'>` helpers and `next-env.d.ts`
+from the `app/` directory tree. Adding, renaming or removing a route changes
+those types, so `tsc --noEmit` run on a stale generation will either pass
+wrongly or fail on routes that are in fact correct. `next dev` and `next build`
+also regenerate, but `typegen` is the cheap way to do it in a check.
 
 Plus, for checkpoints touching send/cadence/registration logic:
 
@@ -85,6 +92,22 @@ npx tsx scripts/e2e-journey.ts && npx tsx scripts/deep-audit-db.ts
 ```
 
 **Baseline to beat:** 112 tests passing across 12 files, clean `tsc`, clean lint.
+
+### 2.5 Routing conventions in this Next.js
+Confirmed against `node_modules/next/dist/docs/` during C1:
+
+- `params` and `searchParams` are **Promises** on both pages and layouts.
+  Always `await` them. Synchronous access is deprecated.
+- Type routes with the **global** helpers `PageProps<'/literal/[route]'>` and
+  `LayoutProps<'/literal'>`. They are generated, not imported. Using a literal
+  route string gives strict `params` keys and autocomplete; static routes
+  resolve `params` to `{}`.
+- Root layout is required and must render `html` and `body`.
+- A `page` file is what makes a segment publicly accessible; it is always the
+  leaf of its subtree, wrapped by `loading`, `error`, `template`, `layout`.
+- `searchParams` is a request-time API and opts a page into dynamic rendering.
+  It is a plain object, not `URLSearchParams`.
+- Route handlers live in `route.ts` and are the right shape for `/r/[token]`.
 
 ---
 
@@ -480,10 +503,11 @@ a **copy of the real `dev.db`**, not a fresh `demo:reset`.
 Each checkpoint ends with: acceptance criteria met, regression gate green,
 changelog entry written. Do not run two checkpoints in one pass.
 
-### [ ] C1 — Foundations
+### [x] C1 — Foundations
 **Scope:** read Next docs; add the 6 new tokens; verify baseline.
-**Files:** `styles/tokens/colors.css`
-**Acceptance:** new tokens resolve; zero visual change; 112 tests pass.
+**Files:** `styles/tokens/colors.css`, `docs/REVAMP-MASTER-PLAN.md`
+**Acceptance:** new tokens resolve; zero visual change; 112 tests pass;
+routing conventions confirmed against the bundled docs and recorded in §2.5.
 
 ### [ ] C2 — Shell, navigation, list page
 **Scope:** NAV-1..7, LST-1..6.
@@ -610,7 +634,7 @@ Before declaring the revamp complete, verify each of these by inspection:
 - [ ] Every `CadenceStep` in `dev.db` resolves to a `MessageTemplate`
 - [ ] `SEND_MODE` is still `sandbox` and visible in the UI
 - [ ] Test count ≥ 175 and all pass
-- [ ] `npx tsc --noEmit` clean, `npm run lint` clean
+- [ ] `npx next typegen && npx tsc --noEmit` clean, `npm run lint` clean
 - [ ] `scripts/e2e-journey.ts` passes end-to-end
 - [ ] The 6 new tokens are used, and no new raw hex literals were introduced
 - [ ] `docs/REVAMP-CHANGELOG.md` has an entry per checkpoint
