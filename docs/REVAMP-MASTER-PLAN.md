@@ -304,20 +304,20 @@ it, must be reinstated.
 |---|---|---|---|---|---|
 | CAD-1 | Channel-derived automation (engine fix F2) | `lib/cadence.ts` | NEW | C3 | [x] |
 | CAD-2 | `templateId` resolution (engine fix F2) | `lib/cadence.ts` | NEW | C4A | [x] |
-| CAD-3 | 3 groups, grouped step list | Cadence tab | MOVE | C5 | [ ] |
-| CAD-4 | Toggle step on/off | step row | KEEP | C5 | [ ] |
-| CAD-5 | **Add step** (any channel, any group) | group footer | NEW | C5 | [ ] |
-| CAD-6 | **Remove step** | step row | NEW | C5 | [ ] |
-| CAD-7 | Per-step template dropdown + Edit link | step row | NEW | C5 | [ ] |
-| CAD-8 | Timing editor (offset + unit + anchor) | step row | MOVE | C5 | [ ] |
-| CAD-9 | Reset schedule to defaults | tab header | RESTORE | C5 | [ ] |
-| CAD-10 | Send window (quiet hours) | tab header | RESTORE | C5 | [ ] |
-| CAD-11 | Frequency preset | tab header | RESTORE | C5 | [ ] |
-| CAD-12 | **Daily send limit** | tab header | RESTORE | C5 | [ ] |
-| CAD-13 | Channel mix card + reachability counts | tab header | RESTORE | C5 | [ ] |
-| CAD-14 | Per-step sent/queued/failed counts | step row | RESTORE | C5 | [ ] |
-| CAD-15 | Launch / restart cadence | tab header | MOVE | C5 | [ ] |
-| CAD-16 | LinkedIn assisted queue + Apollo verify + mark sent/skipped | Cadence tab panel | KEEP | C5 | [ ] |
+| CAD-3 | 3 groups, grouped step list | Cadence tab | MOVE | C5 | [x] |
+| CAD-4 | Toggle step on/off | step row | KEEP | C5 | [x] |
+| CAD-5 | **Add step** (any channel, any group) | group footer | NEW | C5 | [x] |
+| CAD-6 | **Remove step** | step row | NEW | C5 | [x] |
+| CAD-7 | Per-step template dropdown + Edit link | step row | NEW | C5 | [x] |
+| CAD-8 | Timing editor (offset + unit + anchor) | step row | MOVE | C5 | [x] |
+| CAD-9 | Reset schedule to defaults | tab header | RESTORE | C5 | [x] |
+| CAD-10 | Send window (quiet hours) | tab header | RESTORE | C5 | [x] |
+| CAD-11 | Frequency preset | tab header | RESTORE | C5 | [x] |
+| CAD-12 | **Daily send limit** | tab header | RESTORE | C5 | [x] |
+| CAD-13 | Channel mix card + reachability counts | tab header | RESTORE | C5 | [x] |
+| CAD-14 | Per-step sent/queued/failed counts | step row | RESTORE | C5 | [x] |
+| CAD-15 | Launch / restart cadence | tab header | MOVE | C5 | [x] |
+| CAD-16 | LinkedIn assisted queue + Apollo verify + mark sent/skipped | Cadence tab panel | KEEP | C5 | [x] |
 
 ### 5.8 Agent run (incl. Control Center — D2)
 | ID | Feature | Target home | Action | CP | Done |
@@ -399,11 +399,11 @@ it, must be reinstated.
 |---|---|---|---|---|
 | SAF-1 | `SEND_MODE=sandbox` redirect to allowlisted lead | RESTORE (surface in UI) | C12 | [ ] |
 | SAF-2 | Inferred-email quarantine blocks send until verified | KEEP | C7 | [ ] |
-| SAF-3 | Send window enforcement | KEEP | C5 | [ ] |
-| SAF-4 | Daily limit enforcement | KEEP | C5 | [ ] |
-| SAF-5 | `whatsappOptIn` gate | KEEP | C5 | [ ] |
-| SAF-6 | `smsOptOut` gate | KEEP | C5 | [ ] |
-| SAF-7 | Apollo pre-flight before LinkedIn touch | KEEP | C5 | [ ] |
+| SAF-3 | Send window enforcement | KEEP | C5 | [x] |
+| SAF-4 | Daily limit enforcement | KEEP | C5 | [x] |
+| SAF-5 | `whatsappOptIn` gate | KEEP | C5 | [x] |
+| SAF-6 | `smsOptOut` gate | KEEP | C5 | [x] |
+| SAF-7 | Apollo pre-flight before LinkedIn touch | KEEP | C5 | [x] |
 | SAF-8 | Send dedupe `@@unique([campaignId, contactId, stepKey])` | KEEP | C3 | [x] |
 | SAF-9 | `responseUrn` webhook idempotency | KEEP | C8 | [ ] |
 | SAF-10 | `claimedAt` concurrent-runner claim stamp | KEEP | C8 | [ ] |
@@ -542,7 +542,7 @@ intact so the migration is reversible.
 **Files:** `prisma/schema.prisma`, migration, `lib/messageTemplates.ts` (new), `app/templates/`, `lib/actions/templates.ts`
 **Acceptance:** library renders 4 channel tabs; all 18 TPL features work; migration preserves existing edited templates verified against a `dev.db` copy.
 
-### [ ] C5 — Cadence planner
+### [x] C5 — Cadence planner
 **Scope:** CAD-3..16, SAF-3..7.
 **Files:** `app/campaigns/[id]/cadence/`, `lib/actions/schedule.ts`
 **Acceptance:** add and remove steps; assign templates; edit timing; send window, frequency, daily limit and channel-mix all present and enforced; launch works.

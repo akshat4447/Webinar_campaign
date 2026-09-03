@@ -4,9 +4,20 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
-import { toggleCadenceStepAction, updateStepScheduleAction, resetScheduleAction } from '@/lib/actions/schedule';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import {
+  addCadenceStepAction,
+  removeCadenceStepAction,
+  resetScheduleAction,
+  setStepTemplateAction,
+  toggleCadenceStepAction,
+  updateStepScheduleAction,
+} from '@/lib/actions/schedule';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useToast } from '@/components/ui/Toast';
 import { offsetLabel, resolveStepDate } from '@/lib/stepSchedule';
-import { isAutomatableChannel } from '@/lib/channels';
+import { isAutomatableChannel, normalizeChannel } from '@/lib/channels';
 import type { CadenceStep } from '@/lib/generated/prisma/client';
 
 const GROUP_ORDER = ['Pre-registration', 'Reminders · registrants only', 'Post-webinar · within 2 hrs', 'Roadmap channels'];
@@ -30,17 +41,56 @@ export function CadenceGroups({
   countsByStep,
   launchAtIso,
   webinarAtIso,
+  templateOptions,
 }: {
   campaignId: string;
   steps: CadenceStep[];
   countsByStep: Record<string, { sent: number; queued: number; failed: number }>;
   launchAtIso: string;
   webinarAtIso: string | null;
+  /** Library + this campaign's overrides, grouped by routable channel. */
+  templateOptions: Record<string, { id: string; name: string; scope: string }[]>;
 }) {
   const [steps, setSteps] = useState(initialSteps);
+  const [seenSteps, setSeenSteps] = useState(initialSteps);
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [patchError, setPatchError] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<CadenceStep | null>(null);
+  const router = useRouter();
+  const { showToast } = useToast();
+
+  // Props are the source of truth after any add/remove, since the server
+  // decides keys and ids; local state only smooths the toggle/offset edits.
+  // This is React's sanctioned "adjust state during render" pattern — an
+  // effect would render the stale list once first, and a ref cannot be written
+  // during render at all.
+  if (seenSteps !== initialSteps) {
+    setSeenSteps(initialSteps);
+    setSteps(initialSteps);
+  }
+
+  async function addStep(group: string, channel: string) {
+    setBusy(true);
+    await addCadenceStepAction(campaignId, group, channel);
+    setBusy(false);
+    showToast('Step added — pick its message and timing.');
+    router.refresh();
+  }
+
+  async function removeStep(step: CadenceStep) {
+    setBusy(true);
+    const r = await removeCadenceStepAction(campaignId, step.id);
+    setBusy(false);
+    setConfirmRemove(null);
+    showToast(r.cancelled ? `Step removed — ${r.cancelled} queued send(s) cancelled.` : 'Step removed.');
+    router.refresh();
+  }
+
+  async function setTemplate(step: CadenceStep, templateId: string) {
+    setSteps((prev) => prev.map((s) => (s.id === step.id ? { ...s, templateId: templateId || null } : s)));
+    await setStepTemplateAction(campaignId, step.id, templateId || null);
+  }
 
   const launchAt = new Date(launchAtIso);
   const webinarAt = webinarAtIso ? new Date(webinarAtIso) : null;
@@ -156,6 +206,36 @@ export function CadenceGroups({
                         </div>
                         <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', overflowWrap: 'anywhere', marginBottom: 4 }}>{step.desc}</div>
 
+                        {(() => {
+                          const opts = templateOptions[normalizeChannel(step.channel)] ?? [];
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '6px 0 6px 0', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>Message:</span>
+                              <select
+                                className="lsq-select"
+                                aria-label={`Message for ${step.title}`}
+                                value={step.templateId ?? ''}
+                                disabled={busy}
+                                onChange={(e) => setTemplate(step, e.target.value)}
+                                style={{ height: 26, fontSize: 'var(--fs-label-2)', maxWidth: 240 }}
+                              >
+                                <option value="">Library default</option>
+                                {opts.map((o) => (
+                                  <option key={o.id} value={o.id}>
+                                    {o.name} · {o.scope}
+                                  </option>
+                                ))}
+                              </select>
+                              <Link
+                                href={`/templates?channel=${normalizeChannel(step.channel)}${step.templateId ? `&id=${step.templateId}` : ''}`}
+                                style={{ fontSize: 'var(--fs-label-2)', fontWeight: 'var(--fw-semibold)' }}
+                              >
+                                Edit
+                              </Link>
+                            </div>
+                          );
+                        })()}
+
                         {(isAutomated || counts) && (
                           <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>
                             Sent {counts?.sent ?? 0} · Queued {counts?.queued ?? 0} ·{' '}
@@ -208,14 +288,67 @@ export function CadenceGroups({
 
                       {step.isRoadmap && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', flexShrink: 0 }}>Behind cadence engine</div>}
                       {step.toggleable && <Checkbox checked={step.enabled} onChange={() => toggle(step)} size={16} />}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${step.title}`}
+                        title="Remove this step"
+                        disabled={busy}
+                        onClick={() => setConfirmRemove(step)}
+                        className="lsq-btn lsq-btn--tertiary"
+                        style={{ width: 26, height: 26, padding: 0, color: 'var(--danger-500)', flexShrink: 0, fontSize: 16, lineHeight: 1 }}
+                      >
+                        ×
+                      </button>
                     </div>
                   </div>
                 );
               })}
             </div>
+
+            {/* Sizing the cadence is the point of the planner: three emails or
+                twenty-five. The channel is chosen up front because it decides
+                which messages the step can even use. */}
+            {group !== 'Roadmap channels' && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
+                <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>Add step:</span>
+                {[
+                  { id: 'email', label: 'Email' },
+                  { id: 'whatsapp', label: 'WhatsApp' },
+                  { id: 'sms', label: 'SMS' },
+                  { id: 'linkedin', label: 'LinkedIn' },
+                ].map((ch) => (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => addStep(group, ch.id)}
+                    className="lsq-btn lsq-btn--secondary lsq-btn--sm"
+                    style={{ borderRadius: 'var(--radius-full)', height: 28, color: 'var(--accent-500)' }}
+                  >
+                    + {ch.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
+
+      {confirmRemove && (
+        <ConfirmDialog
+          title={`Remove “${confirmRemove.title}”?`}
+          message={
+            confirmRemove.createdByUser
+              ? 'This step was added by hand, so removing it deletes it. Any queued sends for it are cancelled.'
+              : 'This is a built-in step, so it can be brought back with “Reset to defaults”. Any queued sends for it are cancelled.'
+          }
+          confirmLabel="Remove step"
+          destructive
+          busy={busy}
+          onConfirm={() => removeStep(confirmRemove)}
+          onClose={() => setConfirmRemove(null)}
+        />
+      )}
     </>
   );
 }

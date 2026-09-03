@@ -18,7 +18,7 @@ export interface Readiness {
 }
 
 async function enabledStepsWithTemplates(campaignId: string) {
-  const steps = await db.cadenceStep.findMany({ where: { campaignId, enabled: true } });
+  const steps = await db.cadenceStep.findMany({ where: { campaignId, enabled: true, removedAt: null } });
   const templates = await db.template.findMany({ where: { campaignId, hidden: false } });
   const byKey = new Map(templates.map((t) => [t.key, t]));
   return steps

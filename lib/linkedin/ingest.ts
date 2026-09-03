@@ -232,7 +232,7 @@ async function processOne(
     // rather than at launch. The tick sends them once the cadence is running.
     const eventKeys = ['confirm', 'whatsapp'];
     const [eventSteps, eventTemplates] = await Promise.all([
-      db.cadenceStep.findMany({ where: { campaignId: campaign.id, key: { in: eventKeys }, enabled: true } }),
+      db.cadenceStep.findMany({ where: { campaignId: campaign.id, key: { in: eventKeys }, enabled: true, removedAt: null } }),
       db.template.findMany({ where: { campaignId: campaign.id, key: { in: eventKeys } }, select: { key: true } }),
     ]);
     const templateKeys = new Set(eventTemplates.map((t) => t.key));

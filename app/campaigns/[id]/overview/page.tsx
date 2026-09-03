@@ -20,7 +20,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
     // Template carries both the human label and the real channel, so the
     // dashboard no longer needs its own hardcoded copy of either.
     db.template.findMany({ where: { campaignId: id }, select: { key: true, label: true, channel: true } }),
-    db.cadenceStep.findMany({ where: { campaignId: id }, select: { key: true } }),
+    db.cadenceStep.findMany({ where: { campaignId: id, removedAt: null }, select: { key: true } }),
   ]);
 
   if (contacts.length === 0) {

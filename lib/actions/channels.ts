@@ -10,7 +10,7 @@ import { normalizeChannel } from '@/lib/channels';
 export type MixChannel = 'email' | 'linkedin' | 'sms' | 'whatsapp';
 
 export async function getChannelMixAction(campaignId: string): Promise<Record<MixChannel, { enabled: number; total: number }>> {
-  const steps = await db.cadenceStep.findMany({ where: { campaignId }, select: { channel: true, enabled: true } });
+  const steps = await db.cadenceStep.findMany({ where: { campaignId, removedAt: null }, select: { channel: true, enabled: true } });
   const mix: Record<MixChannel, { enabled: number; total: number }> = {
     email: { enabled: 0, total: 0 },
     linkedin: { enabled: 0, total: 0 },
@@ -27,7 +27,7 @@ export async function getChannelMixAction(campaignId: string): Promise<Record<Mi
 }
 
 export async function setChannelEnabledAction(campaignId: string, channel: MixChannel, enabled: boolean): Promise<{ ok: boolean; updated?: number; parked?: number }> {
-  const steps = await db.cadenceStep.findMany({ where: { campaignId }, select: { id: true, key: true, channel: true } });
+  const steps = await db.cadenceStep.findMany({ where: { campaignId, removedAt: null }, select: { id: true, key: true, channel: true } });
   const ids: string[] = [];
   const keys: string[] = [];
   for (const s of steps) {

@@ -22,7 +22,7 @@ import { resolveStepTemplate } from '@/lib/messageTemplates';
 
   let unresolved = 0;
   for (const c of campaigns) {
-    const steps = await db.cadenceStep.findMany({ where: { campaignId: c.id }, orderBy: { key: 'asc' } });
+    const steps = await db.cadenceStep.findMany({ where: { campaignId: c.id, removedAt: null }, orderBy: { key: 'asc' } });
     const rows: string[] = [];
     for (const s of steps) {
       const t = await resolveStepTemplate(c.id, s.key);

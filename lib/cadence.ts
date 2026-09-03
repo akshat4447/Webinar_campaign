@@ -36,7 +36,7 @@ export function renderMergeFields(str: string, opts: { firstName: string; compan
 export async function launchCadence(campaignId: string) {
   const [campaign, allLaunchSteps, approvedContacts] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id: campaignId } }),
-    db.cadenceStep.findMany({ where: { campaignId, trigger: 'launch', enabled: true } }),
+    db.cadenceStep.findMany({ where: { campaignId, trigger: 'launch', enabled: true, removedAt: null } }),
     db.contact.findMany({ where: { campaignId, approved: true } }),
   ]);
 

@@ -500,3 +500,77 @@ trusting a browser check.
 - QA-created template removed afterwards; library back to 16 rows
 
 **Status:** complete
+
+---
+
+## C5 — Cadence planner
+
+**Date:** 2026-09-03
+**Scope:** CAD-3..16, SAF-3..7. The planner's headline capability — sizing a
+cadence — plus keeping every existing scheduling control.
+
+### Features completed
+Add step (any channel, any group) · remove step · per-step template picker with
+an Edit link into the library · timing editor · **reset to defaults** ·
+**send window** · **frequency preset** · **daily send limit** · **channel mix
+with reachability** · per-step sent/queued/failed counts · launch/restart ·
+LinkedIn assisted queue. Safety rails SAF-3..7 all still enforced.
+
+### Schema
+`CadenceStep.createdByUser` and `CadenceStep.removedAt`
+(migration `cadence_step_planner_edits`). 224 rows preserved.
+
+### Decisions made during the work
+
+**Remove is a soft delete for built-ins, a hard delete for invented steps.**
+A built-in has a default to return to, so removing it must be undoable by
+"Reset to defaults", and its unique key must stay taken — re-adding it should
+restore the original, not create a second. An invented step has no default, so
+soft-removing it would mean reset quietly kept rows reset is supposed to undo.
+
+**Removing a step cancels its queued sends.** Otherwise a message goes out from
+a step the operator believes they deleted. Cancelled sends are marked `skipped`
+with the reason, not deleted, so the record survives.
+
+**A new step's trigger is inferred from its group.** Adding to
+"Reminders · registrants only" produces a `registration` step; "Post-webinar"
+produces `attendance`; anything else is `launch`. Getting this wrong would
+queue the step to the entire approved audience at launch.
+
+**A new step gets the library default for its channel immediately**, so it is
+sendable on creation rather than failing on missing copy.
+
+**Removed steps are excluded at every query, not just the planner.** Ten call
+sites updated — `launchCadence`, the attendance path, LinkedIn ingest,
+readiness, channel mix, the planner, overview and the diagnostics. Missing one
+would mean a removed step still sending.
+
+### Bugs found
+
+**A real React violation, caught by lint.** My first version synced props to
+state by writing a ref during render. `react-hooks/refs` rejected it. Replaced
+with React's sanctioned adjust-state-during-render pattern using state — an
+effect would have rendered the stale list once first.
+
+**The stale dev-server trap, again.** The planner returned a caught
+`PrismaClientValidationError` for `removedAt` because the dev server predated
+the migration. Exactly what C4B recorded. **Rule going forward: restart the dev
+server after every `prisma generate`, before trusting any browser check.**
+
+**A third false negative in my own assertions.** I checked for `/Daily limit/i`
+against a field labelled "Daily send limit". The feature was present and
+working. Same class of mistake as C2's two — I am matching on remembered
+wording rather than the rendered text.
+
+### Verification
+- `GATE PASS` — 124 tests / 13 files, `tsc` exit 0, `eslint` clean
+- `VISUAL VERIFIED`, **0 console errors**, driven rather than inspected:
+  14 template pickers, 14 remove buttons, 12 add-step buttons (3 groups ×
+  4 channels); send window, reset and channel mix all present
+  - **add**: 14 → 15 pickers, toast shown
+  - **remove**: confirmation names the step, then 15 → 14
+- `scripts/diag-cadence-trigger.ts` extended and passing: a **removed** step
+  queues nothing, while the invented step still queues 3 sends and `linkedin`,
+  `confirm`, `attend` stay correctly absent
+
+**Status:** complete

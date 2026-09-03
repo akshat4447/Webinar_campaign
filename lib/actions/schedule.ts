@@ -83,14 +83,129 @@ export async function updateStepScheduleAction(
 }
 
 /** Puts every step back to the shipped default timing. */
+/**
+ * Back to the shipped cadence: built-in timings restored, built-in steps
+ * un-removed, and steps the operator invented deleted outright.
+ *
+ * Invented steps are deleted rather than soft-removed because there is no
+ * default to fall back to — leaving them soft-removed would mean "reset"
+ * quietly kept rows that reset is supposed to have undone.
+ */
 export async function resetScheduleAction(campaignId: string) {
   const steps = await db.cadenceStep.findMany({ where: { campaignId } });
-  await db.$transaction(
-    steps
-      .filter((s) => STEP_DEFAULTS[s.key])
-      .map((s) => db.cadenceStep.update({ where: { id: s.id }, data: STEP_DEFAULTS[s.key] }))
-  );
-  await db.activityLogEntry.create({ data: { campaignId, text: 'Cadence timings reset to defaults', dot: 'var(--accent-500)' } });
+  const builtIns = steps.filter((s) => STEP_DEFAULTS[s.key]);
+  const invented = steps.filter((s) => s.createdByUser);
+
+  await db.$transaction([
+    ...builtIns.map((s) =>
+      db.cadenceStep.update({ where: { id: s.id }, data: { ...STEP_DEFAULTS[s.key], removedAt: null } })
+    ),
+    ...invented.map((s) => db.cadenceStep.delete({ where: { id: s.id } })),
+  ]);
+
+  await db.activityLogEntry.create({
+    data: {
+      campaignId,
+      text: `Cadence reset to defaults — ${builtIns.length} step(s) restored${invented.length ? `, ${invented.length} added step(s) removed` : ''}`,
+      dot: 'var(--accent-500)',
+    },
+  });
+  revalidateCampaign(campaignId);
+}
+
+const CHANNEL_LABEL: Record<string, string> = {
+  email: 'Email',
+  sms: 'SMS',
+  whatsapp: 'WhatsApp',
+  linkedin: 'LinkedIn (assisted)',
+};
+
+/**
+ * Add a step the operator invented.
+ *
+ * The key is generated and unique — it is what CadenceSend rows reference, so
+ * it must never collide with a built-in or with a previously removed step of
+ * the same name.
+ */
+export async function addCadenceStepAction(campaignId: string, group: string, channel: string) {
+  const label = CHANNEL_LABEL[channel] ?? 'Email';
+  const key = `custom-${channel}-${Date.now().toString(36)}`;
+
+  // A registrants-only group means the audience arrives by registration; a
+  // post-webinar group is decided by the attendance import. Getting this wrong
+  // would queue the step to the whole approved audience at launch.
+  const trigger = group.toLowerCase().includes('registrant')
+    ? 'registration'
+    : group.toLowerCase().includes('post-webinar')
+      ? 'attendance'
+      : 'launch';
+  const anchor = trigger === 'launch' ? 'launch' : 'webinar';
+
+  const step = await db.cadenceStep.create({
+    data: {
+      campaignId,
+      key,
+      group,
+      title: `New ${label} step`,
+      timing: '+2 days',
+      channel: label,
+      desc: 'Added in the cadence planner.',
+      toggleable: true,
+      enabled: true,
+      createdByUser: true,
+      trigger,
+      anchor,
+      offsetValue: 2,
+      offsetUnit: 'days',
+      // Default to the library message for this channel so a new step is
+      // sendable immediately rather than failing on missing copy.
+      templateId: (await db.messageTemplate.findFirst({ where: { campaignId: null, channel }, select: { id: true } }))?.id ?? null,
+    },
+  });
+
+  await db.activityLogEntry.create({
+    data: { campaignId, text: `Added a ${label} step to “${group}”`, dot: 'var(--accent-500)' },
+  });
+  revalidateCampaign(campaignId);
+  return step.id;
+}
+
+/**
+ * Remove a step from the planner.
+ *
+ * Built-ins are soft-removed so reset can bring them back and so their unique
+ * key stays taken. Invented steps are deleted, since nothing would restore
+ * them. Queued sends are cancelled either way — leaving them would send a
+ * message from a step the operator believes they deleted.
+ */
+export async function removeCadenceStepAction(campaignId: string, stepId: string) {
+  const step = await db.cadenceStep.findUniqueOrThrow({ where: { id: stepId } });
+
+  const cancelled = await db.cadenceSend.updateMany({
+    where: { campaignId, stepKey: step.key, status: 'queued' },
+    data: { status: 'skipped', error: 'Step removed from the cadence planner' },
+  });
+
+  if (step.createdByUser) {
+    await db.cadenceStep.delete({ where: { id: stepId } });
+  } else {
+    await db.cadenceStep.update({ where: { id: stepId }, data: { removedAt: new Date(), enabled: false } });
+  }
+
+  await db.activityLogEntry.create({
+    data: {
+      campaignId,
+      text: `Removed “${step.title}” from the cadence${cancelled.count ? ` — ${cancelled.count} queued send(s) cancelled` : ''}`,
+      dot: 'var(--warning-700)',
+    },
+  });
+  revalidateCampaign(campaignId);
+  return { cancelled: cancelled.count };
+}
+
+/** Point a step at a specific message from the library. */
+export async function setStepTemplateAction(campaignId: string, stepId: string, templateId: string | null) {
+  await db.cadenceStep.update({ where: { id: stepId }, data: { templateId } });
   revalidateCampaign(campaignId);
 }
 

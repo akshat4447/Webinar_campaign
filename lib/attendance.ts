@@ -56,7 +56,7 @@ export async function importAttendanceCsv(campaignId: string, csvText: string): 
 
   // Queue the real attend/no-show sends for whichever of those steps are enabled.
   const now = (await db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { simulatedNow: true } })).simulatedNow ?? new Date();
-  const enabledSteps = await db.cadenceStep.findMany({ where: { campaignId, key: { in: ['attend', 'noshow'] }, enabled: true } });
+  const enabledSteps = await db.cadenceStep.findMany({ where: { campaignId, key: { in: ['attend', 'noshow'] }, enabled: true, removedAt: null } });
   const enabledKeys = new Set(enabledSteps.map((s) => s.key));
 
   const existing = await db.cadenceSend.findMany({ where: { campaignId, stepKey: { in: ['attend', 'noshow'] } }, select: { contactId: true, stepKey: true } });

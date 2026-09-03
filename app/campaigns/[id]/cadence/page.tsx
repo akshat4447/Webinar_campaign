@@ -17,7 +17,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const [campaign, steps, approvedContacts, sendCounts, linkedinTemplate] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id } }),
-    db.cadenceStep.findMany({ where: { campaignId: id } }),
+    db.cadenceStep.findMany({ where: { campaignId: id, removedAt: null } }),
     db.contact.findMany({ where: { campaignId: id, approved: true }, orderBy: [{ score: 'desc' }, { name: 'asc' }] }),
     db.cadenceSend.groupBy({ by: ['stepKey', 'status'], where: { campaignId: id }, _count: true }),
     db.template.findUnique({ where: { campaignId_key: { campaignId: id, key: 'linkedin' } } }),
@@ -30,10 +30,27 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
   const personalizedByContact = new Map(personalizedLinkedIn.map((p) => [p.contactId, p.body]));
   const approvedCount = await db.contact.count({ where: { campaignId: id, approved: true } });
   const linkedinProgress = await getLinkedInProgressAction(id);
+
+  // Messages a step can be pointed at: the shared library plus this campaign's
+  // own overrides, keyed by routable channel so a step only offers messages it
+  // could actually send.
+  const selectableTemplates = await db.messageTemplate.findMany({
+    where: { OR: [{ campaignId: null }, { campaignId: id }], hidden: false },
+    orderBy: [{ campaignId: 'asc' }, { name: 'asc' }],
+    select: { id: true, name: true, channel: true, campaignId: true },
+  });
+  const templateOptions: Record<string, { id: string; name: string; scope: string }[]> = {};
+  for (const t of selectableTemplates) {
+    (templateOptions[t.channel] ??= []).push({
+      id: t.id,
+      name: t.name,
+      scope: t.campaignId ? 'this campaign' : 'library',
+    });
+  }
   const serverNow = await getServerNow();
 
   // Channel mix snapshot for the toggle card (per-channel enabled/total steps).
-  const mixSteps = await db.cadenceStep.findMany({ where: { campaignId: id }, select: { channel: true, enabled: true } });
+  const mixSteps = await db.cadenceStep.findMany({ where: { campaignId: id, removedAt: null }, select: { channel: true, enabled: true } });
   const channelMix = {
     email: { enabled: 0, total: 0 },
     linkedin: { enabled: 0, total: 0 },
@@ -123,6 +140,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
             campaignId={id}
             steps={steps}
             countsByStep={countsByStep}
+            templateOptions={templateOptions}
             launchAtIso={(campaign.simulatedNow ?? new Date(serverNow)).toISOString()}
             webinarAtIso={campaign.scheduledAt?.toISOString() ?? null}
           />

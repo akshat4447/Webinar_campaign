@@ -301,6 +301,16 @@ model CadenceStep {
   templateId  String?
   template    MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
+  /// Added by hand in the planner rather than provisioned from the defaults.
+  /// Distinguishes "the operator invented this" from "this is a built-in the
+  /// operator removed", which reset-to-defaults has to treat differently.
+  createdByUser Boolean  @default(false)
+
+  /// Soft delete. A built-in step is removed rather than deleted so that
+  /// reset-to-defaults can bring it back, and so the unique key stays taken —
+  /// re-adding it must restore the original, not create a second one.
+  removedAt   DateTime?
+
   // Editable schedule. The offset is signed and resolved against `anchor`:
   //   launch  — relative to when the cadence is launched (pre-registration steps)
   //   webinar — relative to campaign.scheduledAt (reminders, post-event follow-ups)
