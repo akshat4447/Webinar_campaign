@@ -110,3 +110,28 @@ export async function updateContactPhoneAction(contactId: string, phone: string)
   await db.contact.update({ where: { id: contactId }, data: { phone: clean || null } });
   return { ok: true };
 }
+
+/**
+ * Approve every scored contact at or above the campaign's threshold.
+ *
+ * Leaves manual decisions alone: a contact somebody explicitly un-approved
+ * stays un-approved, the same protection re-scoring already honours. Bulk
+ * actions that silently overturn a human's call are how trust in them is lost.
+ */
+export async function approveAboveThresholdAction(campaignId: string) {
+  const campaign = await db.campaign.findUniqueOrThrow({
+    where: { id: campaignId },
+    select: { scoringThreshold: true },
+  });
+  const result = await db.contact.updateMany({
+    where: {
+      campaignId,
+      approved: false,
+      approvedManually: false,
+      score: { gte: campaign.scoringThreshold },
+    },
+    data: { approved: true },
+  });
+  revalidateCampaign(campaignId);
+  return { approved: result.count, threshold: campaign.scoringThreshold };
+}

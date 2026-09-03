@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -25,10 +25,16 @@ function sourceColor(source: string): string {
 
 export function ScoringTable({ campaignId, contacts: initialContacts, threshold }: { campaignId: string; contacts: Contact[]; threshold: number }) {
   const [contacts, setContacts] = useState(initialContacts);
-  const [query, setQuery] = useState('');
-  const [source, setSource] = useState('all');
-  const [missingOnly, setMissingOnly] = useState(false);
+  const [seen, setSeen] = useState(initialContacts);
   const [verifying, setVerifying] = useState(false);
+
+  // Search, band filter and paging are executed by the database now and arrive
+  // as props, so a new page must replace local state rather than be filtered
+  // on top of.
+  if (seen !== initialContacts) {
+    setSeen(initialContacts);
+    setContacts(initialContacts);
+  }
   const router = useRouter();
 
   const unverifiedCount = contacts.filter((c) => c.emailSimulated && !c.emailVerified).length;
@@ -41,16 +47,8 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
     router.refresh();
   }
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return contacts.filter((c) => {
-      if (missingOnly && !c.missingInfo) return false;
-      if (source !== 'all' && c.source !== source) return false;
-      if (q && !(c.account.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || c.name.toLowerCase().includes(q))) return false;
-      return true;
-    });
-  }, [contacts, query, source, missingOnly]);
-
+  // "Filtered" is now simply the page the server sent.
+  const filtered = contacts;
   const approvedCount = contacts.filter((c) => c.approved).length;
   const allFilteredApproved = filtered.length > 0 && filtered.every((c) => c.approved);
 
@@ -94,35 +92,7 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
             {approvedCount} of {contacts.length} approved
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <input
-            className="lsq-input"
-            type="text"
-            placeholder="Search company or title…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            style={{ flex: 1, minWidth: 180, height: 34 }}
-          />
-          <select
-            className="lsq-select"
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-            style={{ height: 34, borderRadius: 'var(--radius-sm)', boxShadow: 'inset 0 0 0 1px var(--border-default)', padding: '0 28px 0 10px', fontFamily: 'var(--font-body)', fontSize: 'var(--fs-label-1)', color: 'var(--n90)', background: '#fff', border: 'none' }}
-          >
-            <option value="all">All sources</option>
-            <option value="LinkedIn">LinkedIn</option>
-            <option value="LinkedIn+Apollo">LinkedIn+Apollo</option>
-            <option value="Apollo">Apollo</option>
-          </select>
-          <div
-            onClick={() => setMissingOnly((m) => !m)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', height: 34, borderRadius: 'var(--radius-sm)', boxShadow: 'inset 0 0 0 1px var(--border-default)', cursor: 'pointer', background: missingOnly ? 'var(--accent-50)' : 'transparent' }}
-          >
-            <Checkbox checked={missingOnly} onChange={setMissingOnly} size={16} />
-            <span style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)' }}>Missing info only</span>
-          </div>
-        </div>
-
+        
         {unverifiedCount > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--warning-100)', borderRadius: 'var(--radius-md)', padding: '12px 14px', flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 220 }}>

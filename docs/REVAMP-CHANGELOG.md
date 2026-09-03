@@ -653,3 +653,59 @@ channels a campaign uses.
 - QA draft deleted afterwards
 
 **Status:** complete
+
+---
+
+## C7 — Audience tab
+
+**Date:** 2026-09-03
+**Scope:** AUD-1..14, SAF-2.
+
+### Features completed
+4 summary cards · **score distribution bar with legend** · **server-side
+search** · **band filter** · **pagination** · approve checkboxes · bulk approve
+· **approve all ≥ threshold** · `approvedManually` protection · **re-run
+scoring** · **editable scoring prompt/criteria/threshold** · **inline phone
+edit** · **verify inferred emails** · **inferred-email quarantine warning**.
+
+### Decisions made during the work
+
+**Search, filtering and paging moved from the browser to the database.**
+`ScoringTable` filtered a full in-memory array. That is fine for a demo list and
+wrong for the thousands of contacts this is built for — shipping every row to
+the client and filtering there is what makes a page feel broken. All three now
+live in the URL and execute as SQL, which also makes any view shareable.
+
+**Score bands are half-open and contiguous** (`85+`, `70–84`, `<70`), so every
+scored contact lands in exactly one. Overlapping ranges would double-count the
+distribution bar. Verified: 32 + 32 + 66 = 130.
+
+**"Approve all ≥ threshold" will not overturn a human.** It skips contacts with
+`approvedManually` set, the same protection re-scoring honours. A bulk action
+that silently reverses someone's explicit decision is how trust in bulk actions
+is lost.
+
+**Case-sensitive search, deliberately.** SQLite has no `mode: 'insensitive'`.
+Rather than pull every row back to lower-case it in JS — which is the exact
+problem being fixed — search matches as stored. Adequate for names and accounts;
+noted here in case it needs a normalised column later.
+
+### Bugs found
+None in application code. One lint warning (an import left unused after the
+filters moved out) fixed before commit.
+
+### Verification
+- `GATE PASS` — 124 tests / 13 files, `tsc` exit 0, `eslint` clean
+- All four audience URL shapes HTTP 200
+- **Tested at scale** on a purpose-built 130-contact campaign, since the seeded
+  campaign has one contact and would have proved nothing:
+  - page 0 → 50 rows, "Showing 1–50 of 130"
+  - page 1 → 50 rows, "Showing 51–100 of 130"
+  - band counts 32 / 32 / 66 sum exactly to 130
+  - `?band=high` → 32 rows
+  - `?q=Ananya` → 13 rows, **every row matched**
+  - **0 console errors**
+- Inferred-email quarantine warning and Verify action confirmed intact
+- Temp campaign deleted; database back to 16 campaigns
+
+**Status:** complete

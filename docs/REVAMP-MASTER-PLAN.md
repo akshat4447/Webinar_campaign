@@ -243,20 +243,20 @@ it, must be reinstated.
 ### 5.4 Audience
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
-| AUD-1 | 4 summary stat cards | Audience tab | MOVE | C7 | [ ] |
-| AUD-2 | Score distribution stacked bar + legend | Audience tab | NEW | C7 | [ ] |
-| AUD-3 | Server-side search | Audience tab | NEW | C7 | [ ] |
-| AUD-4 | Score-band filters | Audience tab | NEW | C7 | [ ] |
-| AUD-5 | Pagination | Audience tab | NEW | C7 | [ ] |
-| AUD-6 | Approve checkboxes, per contact | table row | RESTORE | C7 | [ ] |
-| AUD-7 | Bulk approve / unapprove | table toolbar | RESTORE | C7 | [ ] |
-| AUD-8 | "Approve all ≥ threshold" | table toolbar | NEW | C7 | [ ] |
-| AUD-9 | `approvedManually` protection on re-score | logic | RESTORE | C7 | [ ] |
-| AUD-10 | Re-run scoring | Audience tab header | RESTORE | C7 | [ ] |
-| AUD-11 | Editable scoring config (post-creation) | Audience tab header | RESTORE | C7 | [ ] |
-| AUD-12 | Inline phone edit | table row | RESTORE | C7 | [ ] |
-| AUD-13 | Verify inferred emails action | Audience tab | RESTORE | C7 | [ ] |
-| AUD-14 | Inferred-email quarantine indicator | table row badge | RESTORE | C7 | [ ] |
+| AUD-1 | 4 summary stat cards | Audience tab | MOVE | C7 | [x] |
+| AUD-2 | Score distribution stacked bar + legend | Audience tab | NEW | C7 | [x] |
+| AUD-3 | Server-side search | Audience tab | NEW | C7 | [x] |
+| AUD-4 | Score-band filters | Audience tab | NEW | C7 | [x] |
+| AUD-5 | Pagination | Audience tab | NEW | C7 | [x] |
+| AUD-6 | Approve checkboxes, per contact | table row | RESTORE | C7 | [x] |
+| AUD-7 | Bulk approve / unapprove | table toolbar | RESTORE | C7 | [x] |
+| AUD-8 | "Approve all ≥ threshold" | table toolbar | NEW | C7 | [x] |
+| AUD-9 | `approvedManually` protection on re-score | logic | RESTORE | C7 | [x] |
+| AUD-10 | Re-run scoring | Audience tab header | RESTORE | C7 | [x] |
+| AUD-11 | Editable scoring config (post-creation) | Audience tab header | RESTORE | C7 | [x] |
+| AUD-12 | Inline phone edit | table row | RESTORE | C7 | [x] |
+| AUD-13 | Verify inferred emails action | Audience tab | RESTORE | C7 | [x] |
+| AUD-14 | Inferred-email quarantine indicator | table row badge | RESTORE | C7 | [x] |
 
 ### 5.5 Templates (global library)
 | ID | Feature | Target home | Action | CP | Done |
@@ -398,7 +398,7 @@ it, must be reinstated.
 | ID | Feature | Action | CP | Done |
 |---|---|---|---|---|
 | SAF-1 | `SEND_MODE=sandbox` redirect to allowlisted lead | RESTORE (surface in UI) | C12 | [ ] |
-| SAF-2 | Inferred-email quarantine blocks send until verified | KEEP | C7 | [ ] |
+| SAF-2 | Inferred-email quarantine blocks send until verified | KEEP | C7 | [x] |
 | SAF-3 | Send window enforcement | KEEP | C5 | [x] |
 | SAF-4 | Daily limit enforcement | KEEP | C5 | [x] |
 | SAF-5 | `whatsappOptIn` gate | KEEP | C5 | [x] |
@@ -552,7 +552,7 @@ intact so the migration is reversible.
 **Files:** `app/campaigns/new/`, `lib/actions/campaigns.ts`, `lib/actions/setup.ts`, `lib/actions/scoring.ts`
 **Acceptance:** full 4-step creation with validation; AI description, AI CSV mapping, `extraFieldsJson`, editable scoring config all present; 5,000-row CSV completes.
 
-### [ ] C7 — Audience tab
+### [x] C7 — Audience tab
 **Scope:** AUD-1..14, SAF-2.
 **Files:** `app/campaigns/[id]/audience/`, `lib/actions/scoring.ts`
 **Acceptance:** search, band filter and pagination server-side; approve checkboxes + bulk + approve-all-≥-threshold; re-run scoring and editable config; phone edit; quarantine badge visible.
