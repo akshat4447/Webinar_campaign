@@ -261,24 +261,24 @@ it, must be reinstated.
 ### 5.5 Templates (global library)
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
-| TPL-1 | Global library, channel-tabbed | `/templates` | NEW | C4 | [ ] |
-| TPL-2 | Per-channel explainer callout | `/templates` | NEW | C4 | [ ] |
-| TPL-3 | Email: subject + body + vars | editor | KEEP | C4 | [ ] |
-| TPL-4 | WhatsApp: category, language, footer, buttons, numbered vars | editor | NEW | C4 | [ ] |
-| TPL-5 | Meta approval lifecycle (Draft→Pending→Approved) | editor + list badge | NEW | C4 | [ ] |
-| TPL-6 | SMS: DLT template ID, sender ID | editor | NEW | C4 | [ ] |
-| TPL-7 | SMS segment count + GSM-7 detection | editor, live | RESTORE | C4 | [ ] |
-| TPL-8 | LinkedIn: assisted-only, no approval | editor | NEW | C4 | [ ] |
-| TPL-9 | New template | list header | KEEP | C4 | [ ] |
-| TPL-10 | Save template | editor footer | KEEP | C4 | [ ] |
-| TPL-11 | Delete template | editor footer | RESTORE | C4 | [ ] |
-| TPL-12 | Duplicate template | editor footer | RESTORE | C4 | [ ] |
-| TPL-13 | Revert to saved (`savedSubject`/`savedBody`) | editor footer | RESTORE | C4 | [ ] |
-| TPL-14 | Hide / unhide (stops sends, keeps copy) | editor footer | RESTORE | C4 | [ ] |
-| TPL-15 | AI rewrite template | editor footer | RESTORE | C4 | [ ] |
-| TPL-16 | Merge-field preview w/ sample contact | editor | RESTORE | C4 | [ ] |
-| TPL-17 | Readiness badge + problem list | list header | RESTORE | C4 | [ ] |
-| TPL-18 | Per-campaign override via duplicate-into-campaign | editor | NEW | C4 | [ ] |
+| TPL-1 | Global library, channel-tabbed | `/templates` | NEW | C4 | [x] |
+| TPL-2 | Per-channel explainer callout | `/templates` | NEW | C4 | [x] |
+| TPL-3 | Email: subject + body + vars | editor | KEEP | C4 | [x] |
+| TPL-4 | WhatsApp: category, language, footer, buttons, numbered vars | editor | NEW | C4 | [x] |
+| TPL-5 | Meta approval lifecycle (Draft→Pending→Approved) | editor + list badge | NEW | C4 | [x] |
+| TPL-6 | SMS: DLT template ID, sender ID | editor | NEW | C4 | [x] |
+| TPL-7 | SMS segment count + GSM-7 detection | editor, live | RESTORE | C4 | [x] |
+| TPL-8 | LinkedIn: assisted-only, no approval | editor | NEW | C4 | [x] |
+| TPL-9 | New template | list header | KEEP | C4 | [x] |
+| TPL-10 | Save template | editor footer | KEEP | C4 | [x] |
+| TPL-11 | Delete template | editor footer | RESTORE | C4 | [x] |
+| TPL-12 | Duplicate template | editor footer | RESTORE | C4 | [x] |
+| TPL-13 | Revert to saved (`savedSubject`/`savedBody`) | editor footer | RESTORE | C4 | [x] |
+| TPL-14 | Hide / unhide (stops sends, keeps copy) | editor footer | RESTORE | C4 | [x] |
+| TPL-15 | AI rewrite template | editor footer | RESTORE | C4 | [x] |
+| TPL-16 | Merge-field preview w/ sample contact | editor | RESTORE | C4 | [x] |
+| TPL-17 | Readiness badge + problem list | list header | RESTORE | C4 | [x] |
+| TPL-18 | Per-campaign override via duplicate-into-campaign | editor | NEW | C4 | [x] |
 
 ### 5.6 Messaging / personalization
 | ID | Feature | Target home | Action | CP | Done |
@@ -537,7 +537,7 @@ test; a user-added step provably queues (`scripts/diag-cadence-trigger.ts`).
 + 2 genuine overrides; every one of 224 cadence steps resolves; `Template` left
 intact so the migration is reversible.
 
-### [ ] C4B — Global Templates page
+### [x] C4B — Global Templates page
 **Scope:** TPL-1..18 (UI).
 **Files:** `prisma/schema.prisma`, migration, `lib/messageTemplates.ts` (new), `app/templates/`, `lib/actions/templates.ts`
 **Acceptance:** library renders 4 channel tabs; all 18 TPL features work; migration preserves existing edited templates verified against a `dev.db` copy.

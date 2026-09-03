@@ -431,3 +431,72 @@ None.
 - `GATE PASS` — 124 tests / 13 files, `tsc` exit 0, `eslint` clean
 
 **Status:** complete
+
+---
+
+## C4B — Global Templates page
+
+**Date:** 2026-09-03
+**Scope:** TPL-1..18. The library UI on top of C4A's data model.
+
+### Features completed
+All eighteen. Channel tabs with counts · per-channel rules callout · Email
+subject+body · WhatsApp category/language/footer/buttons with numbered
+placeholders · Meta approval lifecycle · SMS DLT id and sender id · live SMS
+segment + GSM-7/UCS-2 counter · LinkedIn assisted-only · new · save · **delete**
+· **duplicate** · **revert to saved** · **hide/unhide** · **AI rewrite** ·
+**merge-field preview** · status badges · **copy-into-campaign** override.
+
+### Files changed
+- `lib/actions/messageTemplates.ts` — **new**, nine server actions
+- `app/templates/page.tsx` — real page, replacing the C2 placeholder
+- `app/templates/TemplatesLibrary.tsx` — **new**
+
+### Decisions made during the work
+
+**Delete refuses when a template is in use.** Deleting a template that cadence
+steps point at would silently fall those steps back to the library default —
+a content change nobody asked for and nobody would see. The action returns an
+error naming the step count instead.
+
+**Duplicate does not copy `key`.** `key` is the step-default marker and is
+unique per campaign. A duplicate is a new message, not a second default for the
+same step.
+
+**A duplicate never inherits approval.** Copying an approved WhatsApp template
+would otherwise launder unreviewed copy through Meta's approval state. Copies
+start at `draft` (`ready` for email, `assisted` for LinkedIn).
+
+**Starters model each channel's constraints.** A new WhatsApp template is named
+`untitled_template` and pre-fills an opt-out footer; a new SMS template
+pre-fills `Reply STOP to opt out.` Better to encode the rule than let the
+operator discover it via a rejection days later.
+
+**Draft state is keyed by template id.** Switching selection with unsaved edits
+would otherwise carry one template's text onto another.
+
+### Bugs found
+
+**500 on every `/templates` request.** `db.messageTemplate` was `undefined`.
+Not a code fault: the dev server had been running since before C4A's
+`prisma generate`, so it held a stale client in memory while `tsc` — reading
+regenerated types from disk — passed clean. Fixed by restarting the server.
+
+**Worth recording as a trap:** after any schema change, a green `tsc` says
+nothing about what the running dev server is executing. Restart it before
+trusting a browser check.
+
+### Verification
+- `GATE PASS` — `next typegen`, 124 tests / 13 files, `tsc` exit 0, `eslint` clean
+- All four channel routes HTTP 200
+- `VISUAL VERIFIED`, **0 console errors, 0 failed requests**, and interaction
+  tested rather than just rendered:
+  - each channel shows only its own fields — WhatsApp: Category, Language,
+    Footer, Buttons + "Submit to Meta"; SMS: DLT content template ID, Sender ID
+    + a live segment counter; LinkedIn: name and message only
+  - each channel shows its own compliance rules
+  - **create** grew the list 2 → 3 and toasted
+  - **save** enabled only when dirty, and the edited body **survived a reload**
+- QA-created template removed afterwards; library back to 16 rows
+
+**Status:** complete
