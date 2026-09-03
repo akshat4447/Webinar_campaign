@@ -262,3 +262,95 @@ user to a setup tab that then threw from `findUniqueOrThrow`. It now `notFound()
   **0 console errors, 0 failed requests** across all eight
 
 **Status:** complete
+
+---
+
+## C3 — Cadence engine unblock
+
+**Date:** 2026-09-03
+**Scope:** CAD-1, SAF-8. Remove the hardcoded step allowlist that made the new
+cadence planner impossible.
+
+### The bug being fixed
+`launchCadence` queued only steps whose `key` appeared in
+`AUTOMATED_STEP_KEYS = ['invite','nudge','final','t3','t1d','t1h','sms','smsInvite','waInvite']`.
+A step the operator invents in the planner is in no allowlist, so it would
+render correctly, report itself enabled, and **silently never send anything**.
+The failure had nothing to fail — no error, no failed send row, nothing to see.
+
+### Why `anchor` could not have fixed it
+The obvious fix — reuse the existing `anchor` field — does not work.
+`attend` and `noshow` are both `anchor: 'webinar'`, yet neither can be queued at
+launch, because at launch nothing knows who attended. Scheduling and triggering
+are genuinely independent concepts and needed separate fields.
+
+### The fix
+New `CadenceStep.trigger` column: `launch` | `registration` | `attendance`.
+A step queues at launch iff `trigger === 'launch'` **and** its channel is one
+the app can actually send (LinkedIn is excluded — no send API). A hand-added
+step defaults to `launch`, so it works by default.
+
+### Features completed
+| ID | Feature |
+|---|---|
+| CAD-1 | Channel-derived automation replacing the key allowlist |
+| SAF-8 | Send dedupe preserved, and now correctly scoped |
+
+### Files changed
+- `prisma/schema.prisma` + migration `20260903033247_cadence_step_trigger` —
+  adds `trigger` with a hand-written backfill.
+- `lib/stepTrigger.ts` — **new**, pure. `isLaunchQueued`, `defaultTriggerFor`.
+- `lib/channels.ts` — gains `isAutomatableChannel`.
+- `lib/cadence.ts` — allowlist deleted; queries by `trigger`; re-exports both
+  predicates for existing callers.
+- `lib/campaignDefaults.ts` — provisioning sets `trigger`.
+- `app/campaigns/[id]/cadence/{page,CadenceGroups}.tsx` — `automatedKeys` prop
+  removed; derived from the step instead.
+- `lib/stepTrigger.test.ts` — **new**, 12 tests.
+- `scripts/diag-cadence-trigger.ts` — **new** diagnostic.
+
+### Decisions made during the work
+
+**`isAutomatableChannel` lives in `lib/channels.ts`, not `lib/cadence.ts`.**
+First attempt put it in `cadence.ts` and imported it into `CadenceGroups.tsx` —
+a client component. `lib/cadence.ts` imports the database, so that would have
+pulled Prisma into the client bundle. Caught by `tsc`; the predicate is pure and
+`channels.ts` was already the single source of truth for channel routing.
+
+**`isLaunchQueued` got its own module.** It could not live in `cadence.ts`
+either, because a unit test importing it would instantiate a `PrismaClient` at
+module load. `lib/stepTrigger.ts` is pure and therefore testable.
+
+**The `linkedin` step keeps `trigger: 'launch'`.** It *is* queued at launch —
+into the assisted queue, not the send queue. Its exclusion from automatic
+sending is a property of its channel. Conflating the two is precisely what made
+the old allowlist unable to describe a new step.
+
+**Dedupe scope corrected.** The pre-launch duplicate check queried
+`stepKey: { in: [...AUTOMATED_STEP_KEYS] }`, which would have missed a
+user-added step and re-queued it on every launch, leaving the unique constraint
+to throw. It now queries the keys actually being queued.
+
+### Bugs found
+Two, both mine, both caught by `tsc` before running:
+1. Server-only import into a client component (above).
+2. `@/lib/...` alias in a file imported by vitest — vitest has no alias config,
+   and the pure lib modules use relative imports. Matched the convention.
+
+### Verification
+- `GATE PASS` — `next typegen` clean, **124 tests / 13 files** (up from 112/12),
+  `tsc` exit 0, `eslint` clean
+- `MIGRATION VERIFIED` — `dev.db` backed up to `/tmp/dev.db.backup-c3` first.
+  All **224** `CadenceStep` rows preserved. Backfill exactly as intended:
+  `confirm`/`whatsapp` → `registration`, `attend`/`noshow` → `attendance`,
+  the other 10 keys → `launch`
+- **Equivalence pinned by test:** `isLaunchQueued` over the 14 built-in steps
+  returns exactly the 9 keys of the legacy allowlist. The legacy list is
+  duplicated verbatim in the test so this is a real comparison, not a
+  restatement of the new rule
+- **The actual regression, proved end to end:**
+  `npx tsx scripts/diag-cadence-trigger.ts` → step
+  `operator-added-second-nudge` queued 3 sends; `linkedin`, `confirm` and
+  `attend` correctly absent
+
+**Status:** complete

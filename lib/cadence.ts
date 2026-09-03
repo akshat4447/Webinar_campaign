@@ -5,19 +5,12 @@ import { upsertAttentionItem, resolveAttentionItems } from '@/lib/attentionItems
 import { resolveStepDate } from '@/lib/stepSchedule';
 import { isWithinSendWindow } from '@/lib/sendWindow';
 import { validateRenderedMessage, validateRenderedMessageForChannel } from '@/lib/messageValidation';
-import { normalizeChannel } from '@/lib/channels';
+import { normalizeChannel, isAutomatableChannel } from '@/lib/channels';
 import { deliverChannelMessage, sandboxTargetPhone, postSentActivityIfMapped, type DeliveryChannel } from '@/lib/channelDelivery';
 
-// Steps that get queued automatically when the cadence launches. Each one's
-// send time comes from its own editable offset (see lib/stepSchedule.ts), so
-// changing a date on the Schedule tab changes real behaviour.
-//
-// Deliberately excluded: `confirm` fires on a registration event we have no
-// webhook for, and `attend`/`noshow` are triggered by the Zoom attendance
-// import instead (see lib/attendance.ts). `linkedin` is human-or-bot, tracked
-// through its own queue. `whatsapp` joins `confirm` on the event side — it's
-// queued per-registration by lib/linkedin/ingest.ts, not at launch.
-export const AUTOMATED_STEP_KEYS = ['invite', 'nudge', 'final', 't3', 't1d', 't1h', 'sms', 'smsInvite', 'waInvite'] as const;
+export { isAutomatableChannel } from '@/lib/channels';
+
+export { isLaunchQueued } from '@/lib/stepTrigger';
 
 export function addDays(d: Date, days: number): Date {
   const next = new Date(d);
@@ -40,13 +33,17 @@ export function renderMergeFields(str: string, opts: { firstName: string; compan
 }
 
 export async function launchCadence(campaignId: string) {
-  const [campaign, steps, approvedContacts] = await Promise.all([
+  const [campaign, allLaunchSteps, approvedContacts] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id: campaignId } }),
-    db.cadenceStep.findMany({ where: { campaignId, key: { in: [...AUTOMATED_STEP_KEYS] }, enabled: true } }),
+    db.cadenceStep.findMany({ where: { campaignId, trigger: 'launch', enabled: true } }),
     db.contact.findMany({ where: { campaignId, approved: true } }),
   ]);
 
   const now = campaign.simulatedNow ?? new Date();
+
+  // `isAutomatableChannel` parses a display string, which SQL cannot do, so the
+  // channel half of the rule is applied here rather than in the query above.
+  const steps = allLaunchSteps.filter((step) => isAutomatableChannel(step.channel));
 
   // Each step's send time comes from its own offset, resolved against the launch
   // moment or the webinar date. A webinar-anchored step with no date set can't be
@@ -105,7 +102,13 @@ export async function launchCadence(campaignId: string) {
   // through used to be able to leave sends queued while the campaign still read
   // as not_started.
   const { queued } = await db.$transaction(async (tx) => {
-    const existing = await tx.cadenceSend.findMany({ where: { campaignId, stepKey: { in: [...AUTOMATED_STEP_KEYS] } }, select: { contactId: true, stepKey: true } });
+    // Scoped to the steps actually being queued now. The previous fixed key
+    // list would have missed a user-added step and re-queued it on every
+    // launch, relying on the unique constraint to throw.
+    const existing = await tx.cadenceSend.findMany({
+      where: { campaignId, stepKey: { in: scheduled.map((s) => s.step.key) } },
+      select: { contactId: true, stepKey: true },
+    });
     const existingKey = new Set(existing.map((e) => `${e.contactId}:${e.stepKey}`));
     const toCreate = rows.filter((r) => !existingKey.has(`${r.contactId}:${r.stepKey}`));
 

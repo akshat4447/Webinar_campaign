@@ -4,7 +4,7 @@
 //     ─▶ dedupe by email ─▶ create Contact (source "LinkedIn Event")
 //     ─▶ Claude scores it (existing path) ─▶ LeadSquared sync (existing path)
 //     ─▶ queue the `confirm` cadence step (dead since launch — this is its
-//        missing registration trigger, see AUTOMATED_STEP_KEYS in lib/cadence.ts)
+//        missing registration trigger, see lib/stepTrigger.ts)
 //
 // Failures deliberately do NOT mark the row processed (except data-terminal
 // ones like "no email"), so scripts/linkedin-process.ts can retry them.

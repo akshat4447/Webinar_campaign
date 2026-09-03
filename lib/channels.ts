@@ -19,6 +19,20 @@ export function normalizeChannel(display: string | null | undefined): Channel {
   return 'email';
 }
 
+/**
+ * Whether the app can send this channel by itself.
+ *
+ * LinkedIn cannot be automated — there is no send API for messages, so those
+ * steps go to the assisted queue for a human to send one-click. A mixed label
+ * like "Email + LinkedIn" routes by its primary channel and so IS automatable.
+ *
+ * Lives here rather than in lib/cadence.ts because client components need it
+ * and lib/cadence.ts imports the database.
+ */
+export function isAutomatableChannel(channel: string): boolean {
+  return normalizeChannel(channel) !== 'linkedin';
+}
+
 // GSM 03.38 basic character set — everything outside it forces UCS-2 encoding,
 // which drops the per-segment budget from 160 to 70 characters.
 const GSM7_REGEX = /^[A-Za-z0-9 \r\n@£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ!"#¤%&'()*+,\-./:;<=>?¡ÄÖÑÜ§¿äöñüà^{}\\\[~\]|€]*$/;

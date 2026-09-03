@@ -163,7 +163,7 @@ export const templatesData: Template[] = [
   { id: 'sms', label: 'SMS reminder', channel: 'SMS', channelColor: 'warning', hasSubject: false, body: '{{topic}} starts in 1 hour. Join link: {{link}}\nReply STOP to opt out.' },
   { id: 'smsInvite', label: 'SMS invite', channel: 'SMS', channelColor: 'warning', hasSubject: false, body: "You're invited to {{topic}} — a free live session. Save your seat: {{link}}\nReply STOP to opt out." },
   { id: 'waInvite', label: 'WhatsApp invite', channel: 'WhatsApp', channelColor: 'success', hasSubject: false, body: 'Hi {{firstName}}, we are running {{topic}} — a free live session for teams like {{company}}. Register here: {{link}}' },
-  // t3/t1d/t1h are in AUTOMATED_STEP_KEYS (lib/cadence.ts) and get a CadenceStep
+  // t3/t1d/t1h are launch-triggered (see lib/stepTrigger.ts) and get a CadenceStep
   // row from provisionCampaignDefaults — but until now had no Template row to
   // go with them. Every send for these three steps therefore permanently
   // failed with "Missing template or contact email" (see processSingleSend in

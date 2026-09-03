@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { toggleCadenceStepAction, updateStepScheduleAction, resetScheduleAction } from '@/lib/actions/schedule';
 import { offsetLabel, resolveStepDate } from '@/lib/stepSchedule';
+import { isAutomatableChannel } from '@/lib/channels';
 import type { CadenceStep } from '@/lib/generated/prisma/client';
 
 const GROUP_ORDER = ['Pre-registration', 'Reminders · registrants only', 'Post-webinar · within 2 hrs', 'Roadmap channels'];
@@ -27,14 +28,12 @@ export function CadenceGroups({
   campaignId,
   steps: initialSteps,
   countsByStep,
-  automatedKeys,
   launchAtIso,
   webinarAtIso,
 }: {
   campaignId: string;
   steps: CadenceStep[];
   countsByStep: Record<string, { sent: number; queued: number; failed: number }>;
-  automatedKeys: string[];
   launchAtIso: string;
   webinarAtIso: string | null;
 }) {
@@ -113,7 +112,11 @@ export function CadenceGroups({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {groupSteps.map((step) => {
                 const counts = countsByStep[step.key];
-                const isAutomated = automatedKeys.includes(step.key);
+                // Any step on a channel the app can send produces send rows
+                // worth counting — including registration- and
+                // attendance-triggered ones, which the old key allowlist
+                // wrongly excluded from this display.
+                const isAutomated = isAutomatableChannel(step.channel);
                 const resolved = resolveStepDate(step, { launchAt, webinarAt });
                 const isEditing = editing === step.id;
                 const schedulable = !step.isRoadmap && step.anchor !== 'event';

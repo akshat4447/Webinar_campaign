@@ -4,7 +4,7 @@ import { CadenceGroups } from './CadenceGroups';
 import { LinkedInPanel } from './LinkedInPanel';
 import { ChannelMixCard } from './ChannelMixCard';
 import { LaunchCadenceCard } from './LaunchCadenceCard';
-import { AUTOMATED_STEP_KEYS, renderMergeFields } from '@/lib/cadence';
+import { renderMergeFields } from '@/lib/cadence';
 import { sendModeLabel } from '@/lib/sendGuard';
 import { getLinkedInProgressAction } from '@/lib/actions/linkedin';
 import { getServerNow } from '@/lib/actions/clock';
@@ -123,7 +123,6 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
             campaignId={id}
             steps={steps}
             countsByStep={countsByStep}
-            automatedKeys={[...AUTOMATED_STEP_KEYS]}
             launchAtIso={(campaign.simulatedNow ?? new Date(serverNow)).toISOString()}
             webinarAtIso={campaign.scheduledAt?.toISOString() ?? null}
           />

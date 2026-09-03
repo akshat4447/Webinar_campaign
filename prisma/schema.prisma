@@ -213,6 +213,21 @@ model CadenceStep {
   enabled     Boolean @default(true)
   isRoadmap   Boolean @default(false)
 
+  // What causes this step's sends to be queued — distinct from `anchor`, which
+  // only says what its due *date* is measured from. The two are genuinely
+  // independent: `attend` and `noshow` are both webinar-anchored, but neither
+  // can be queued at launch because nothing yet knows who attended.
+  //
+  //   launch       every eligible approved contact, when the cadence launches
+  //   registration one contact at a time, as each registration arrives
+  //   attendance   when the attendance report is imported, which is what
+  //                partitions the audience into attended / no-show
+  //
+  // This replaced a hardcoded list of step keys in lib/cadence.ts. That list
+  // could not describe a step the user invented, so a step added in the planner
+  // rendered correctly and then silently never sent.
+  trigger     String  @default("launch") // launch | registration | attendance
+
   // Editable schedule. The offset is signed and resolved against `anchor`:
   //   launch  — relative to when the cadence is launched (pre-registration steps)
   //   webinar — relative to campaign.scheduledAt (reminders, post-event follow-ups)

@@ -302,7 +302,7 @@ it, must be reinstated.
 ### 5.7 Cadence planner
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
-| CAD-1 | Channel-derived automation (engine fix F2) | `lib/cadence.ts` | NEW | C3 | [ ] |
+| CAD-1 | Channel-derived automation (engine fix F2) | `lib/cadence.ts` | NEW | C3 | [x] |
 | CAD-2 | `templateId` resolution (engine fix F2) | `lib/cadence.ts` | NEW | C3 | [ ] |
 | CAD-3 | 3 groups, grouped step list | Cadence tab | MOVE | C5 | [ ] |
 | CAD-4 | Toggle step on/off | step row | KEEP | C5 | [ ] |
@@ -404,7 +404,7 @@ it, must be reinstated.
 | SAF-5 | `whatsappOptIn` gate | KEEP | C5 | [ ] |
 | SAF-6 | `smsOptOut` gate | KEEP | C5 | [ ] |
 | SAF-7 | Apollo pre-flight before LinkedIn touch | KEEP | C5 | [ ] |
-| SAF-8 | Send dedupe `@@unique([campaignId, contactId, stepKey])` | KEEP | C3 | [ ] |
+| SAF-8 | Send dedupe `@@unique([campaignId, contactId, stepKey])` | KEEP | C3 | [x] |
 | SAF-9 | `responseUrn` webhook idempotency | KEEP | C8 | [ ] |
 | SAF-10 | `claimedAt` concurrent-runner claim stamp | KEEP | C8 | [ ] |
 | SAF-11 | HMAC webhook verification, fails closed | KEEP | C8 | [ ] |
@@ -521,10 +521,14 @@ routing conventions confirmed against the bundled docs and recorded in §2.5.
 **Transitional:** `setup` stays a tab until C6 moves campaign-detail editing into Overview; per-campaign `templates` stays until C4.
 **Acceptance:** all six prototype tabs present and every existing screen still reachable; `campaignRoutes.ts` is the only place tab hrefs are written; `next typegen` clean.
 
-### [ ] C3 — Cadence engine unblock
-**Scope:** CAD-1, CAD-2, SAF-8.
-**Files:** `lib/cadence.ts`, `lib/cadence.test.ts` (new)
-**Acceptance:** automation derived from channel not key allowlist; template resolved via `templateId` → campaign override → key; a synthetic user-added step queues and sends in sandbox; new unit tests cover both paths.
+### [x] C3 — Cadence engine unblock (CAD-1)
+**Scope:** CAD-1, SAF-8. CAD-2 (template resolution) deferred to C4, where
+`MessageTemplate` and `CadenceStep.templateId` are introduced — resolving via a
+column that does not exist yet was not possible.
+**Files:** `prisma/schema.prisma` + migration `20260903033247_cadence_step_trigger`, `lib/cadence.ts`, `lib/channels.ts`, `lib/stepTrigger.ts` (new), `lib/stepTrigger.test.ts` (new), `lib/campaignDefaults.ts`, `app/campaigns/[id]/cadence/{page,CadenceGroups}.tsx`, `scripts/diag-cadence-trigger.ts` (new)
+**Acceptance:** met. Automation derived from a per-step `trigger` column plus
+channel, not a key allowlist; equivalence with the legacy allowlist pinned by
+test; a user-added step provably queues (`scripts/diag-cadence-trigger.ts`).
 
 ### [ ] C4 — MessageTemplate + global Templates page
 **Scope:** TPL-1..18.
