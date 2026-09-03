@@ -303,7 +303,7 @@ it, must be reinstated.
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
 | CAD-1 | Channel-derived automation (engine fix F2) | `lib/cadence.ts` | NEW | C3 | [x] |
-| CAD-2 | `templateId` resolution (engine fix F2) | `lib/cadence.ts` | NEW | C3 | [ ] |
+| CAD-2 | `templateId` resolution (engine fix F2) | `lib/cadence.ts` | NEW | C4A | [x] |
 | CAD-3 | 3 groups, grouped step list | Cadence tab | MOVE | C5 | [ ] |
 | CAD-4 | Toggle step on/off | step row | KEEP | C5 | [ ] |
 | CAD-5 | **Add step** (any channel, any group) | group footer | NEW | C5 | [ ] |
@@ -530,8 +530,15 @@ column that does not exist yet was not possible.
 channel, not a key allowlist; equivalence with the legacy allowlist pinned by
 test; a user-added step provably queues (`scripts/diag-cadence-trigger.ts`).
 
-### [ ] C4 — MessageTemplate + global Templates page
-**Scope:** TPL-1..18.
+### [x] C4A — MessageTemplate schema, migration, resolution
+**Scope:** CAD-2 + the data model behind TPL-1..18.
+**Files:** `prisma/schema.prisma` + migration `20260903034057_message_template_library`, `lib/messageTemplates.ts` (new), `lib/cadence.ts`, `scripts/diag-template-resolution.ts` (new)
+**Acceptance:** met. 240 per-campaign template rows collapse to 14 library rows
++ 2 genuine overrides; every one of 224 cadence steps resolves; `Template` left
+intact so the migration is reversible.
+
+### [ ] C4B — Global Templates page
+**Scope:** TPL-1..18 (UI).
 **Files:** `prisma/schema.prisma`, migration, `lib/messageTemplates.ts` (new), `app/templates/`, `lib/actions/templates.ts`
 **Acceptance:** library renders 4 channel tabs; all 18 TPL features work; migration preserves existing edited templates verified against a `dev.db` copy.
 

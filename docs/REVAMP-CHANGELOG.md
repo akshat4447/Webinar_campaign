@@ -354,3 +354,80 @@ Two, both mine, both caught by `tsc` before running:
   `attend` correctly absent
 
 **Status:** complete
+
+---
+
+## C4A — MessageTemplate schema, migration, resolution
+
+**Date:** 2026-09-03
+**Scope:** CAD-2 and the data model behind the shared template library. Split
+from C4 so the migration could be verified on its own before any UI depended
+on it.
+
+### The problem
+`Template` was per-campaign. Every campaign carried its own copy of all fifteen
+built-in messages — **240 near-identical rows** in this database — and fixing a
+typo meant editing it sixteen times.
+
+### The shape
+New `MessageTemplate`, where `campaignId` is the override axis: `null` is a
+shared library row, set is one campaign's own copy. Channel-specific fields
+because the channels are genuinely different products, not one message with a
+delivery flag — WhatsApp needs Meta's category/language/footer/buttons and an
+approval state, SMS needs a DLT content-template id and sender id, LinkedIn has
+no approval at all because nothing is sent by API.
+
+`CadenceStep.templateId` points at the message the step sends.
+
+### Migration strategy
+A library row per key, taken from the earliest campaign that **never edited**
+that key — so the library default is a default, not somebody's customisation.
+Campaign-scoped copies created **only** where a campaign actually customised
+the message (`savedAt` set, or hidden). Everything else points at the library.
+
+`Template` is deliberately **left intact**. Nothing is deleted, so the migration
+is reversible by dropping `MessageTemplate` and clearing `templateId`.
+
+### Resolution order
+`lib/messageTemplates.ts` resolves most-specific-first: the step's own template
+→ this campaign's override → the shared library row → the legacy `Template`
+row. Layer four exists so a campaign created by older code still sends, and can
+be deleted once no `Template` rows remain.
+
+### Files changed
+- `prisma/schema.prisma` + migration `20260903034057_message_template_library`
+- `lib/messageTemplates.ts` — **new**, the resolver
+- `lib/cadence.ts` — `processSingleSend` resolves through it
+- `scripts/diag-template-resolution.ts` — **new**
+
+### Decisions made during the work
+
+**Status seeded honestly.** Migrating WhatsApp/SMS templates in as `approved`
+would have been a lie — nothing has been through Meta or DLT. They carry over as
+`ready`, which is what they truthfully are: in use today. LinkedIn seeds as
+`assisted`, since no approval concept applies.
+
+**Approval is not yet enforced on the send path.** Gating sends on template
+status is correct, but it is a behaviour change beyond this checkpoint's scope
+and would silently stop working campaigns. Deferred, deliberately.
+
+**`ResolvedTemplate.label`, not `.name`.** The SMS/WhatsApp send path already
+destructures `{ label, channel, body, subject }` from the legacy row; matching
+that shape avoided churning a working code path for cosmetics.
+
+### Bugs found
+None.
+
+### Verification
+- `MIGRATION VERIFIED` — `dev.db` backed up to `/tmp/dev.db.backup-c4` first.
+  **224** `Template` rows untouched · **14** library rows · **2** override rows,
+  matching exactly the 2 templates that were edited or hidden · **224/224**
+  cadence steps carry a `templateId`, **0 orphans** · **0 content mismatches**
+  when every edited template's subject, body and hidden flag was compared
+  against its migrated copy
+- 240 rows of duplicated copy collapsed to 16
+- `scripts/diag-template-resolution.ts` across all **16 campaigns**:
+  **0 unresolved steps**; overrides correctly win over library rows
+- `GATE PASS` — 124 tests / 13 files, `tsc` exit 0, `eslint` clean
+
+**Status:** complete

@@ -7,6 +7,7 @@ import { isWithinSendWindow } from '@/lib/sendWindow';
 import { validateRenderedMessage, validateRenderedMessageForChannel } from '@/lib/messageValidation';
 import { normalizeChannel, isAutomatableChannel } from '@/lib/channels';
 import { deliverChannelMessage, sandboxTargetPhone, postSentActivityIfMapped, type DeliveryChannel } from '@/lib/channelDelivery';
+import { resolveStepTemplate } from '@/lib/messageTemplates';
 
 export { isAutomatableChannel } from '@/lib/channels';
 
@@ -251,13 +252,16 @@ async function processSingleSend(
   campaign: Awaited<ReturnType<typeof db.campaign.findUniqueOrThrow>>,
   send: DueSendWithContact
 ): Promise<'sent' | 'failed' | 'skipped'> {
-    const template = await db.template.findUnique({ where: { campaignId_key: { campaignId, key: send.stepKey } } });
+    // Resolves through the step's own template, then this campaign's override,
+    // then the shared library, then the legacy per-campaign row. See
+    // lib/messageTemplates.ts for why all four still exist.
+    const template = await resolveStepTemplate(campaignId, send.stepKey);
     const contact = send.contact;
 
     // Hidden templates drop out of the flow entirely — before any channel
-    // routing — so hiding a step on the Templates tab stops every send of it.
+    // routing — so hiding a message stops every send of it.
     if (template?.hidden) {
-      await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'skipped', error: 'Template is hidden on the Templates tab' } });
+      await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'skipped', error: 'Template is hidden' } });
       return 'skipped';
     }
 

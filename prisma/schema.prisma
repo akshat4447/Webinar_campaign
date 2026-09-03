@@ -60,6 +60,7 @@ model Campaign {
 
   contacts       Contact[]
   templates      Template[]
+  messageTemplates MessageTemplate[]
   cadenceSteps   CadenceStep[]
   cadenceSends   CadenceSend[]
   activityLog    ActivityLogEntry[]
@@ -198,6 +199,72 @@ model Template {
   @@unique([campaignId, key])
 }
 
+/// A reusable message, shared across campaigns.
+///
+/// Replaces the per-campaign `Template` model, which forced every campaign to
+/// carry its own copy of all fifteen built-in messages — 240 near-identical
+/// rows in this database alone, with no way to fix a typo once.
+///
+/// `campaignId` is the override axis:
+///   null  a library row, available to every campaign
+///   set   a copy belonging to one campaign, made by "duplicate into campaign"
+///
+/// The channel decides which fields matter, because the channels are genuinely
+/// different products, not one message with a delivery flag:
+///   email     subject + body + {{merge}} fields
+///   whatsapp  Meta-approved template — category, language, numbered {{1}}
+///             placeholders, optional footer and buttons, approval status
+///   sms       DLT-registered content template id and sender id, mandatory
+///             opt-out, segment-counted body
+///   linkedin  assisted only; no approval exists because nothing is sent by API
+model MessageTemplate {
+  id         String    @id @default(cuid())
+  /// null = shared library row; set = this campaign's own copy.
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  channel    String    // email | whatsapp | sms | linkedin
+  /// Cadence step key this is the default copy for. Null for a template that
+  /// exists in the library without being any step's default.
+  key        String?
+  name       String
+  hasSubject Boolean   @default(true)
+  subject    String?
+  body       String
+
+  // --- WhatsApp (Meta Cloud API template requirements) ---
+  category   String?   // Marketing | Utility
+  language   String?
+  footer     String?
+  buttons    String?
+
+  // --- SMS (India DLT registration) ---
+  dltTemplateId String?
+  senderId      String?
+
+  /// draft | pending | approved | ready | assisted.
+  /// `pending`/`approved` are Meta's states for WhatsApp; `assisted` is
+  /// LinkedIn, which has no approval because nothing is sent automatically.
+  status     String    @default("ready")
+
+  // Revert-to-saved, carried over from Template.
+  savedSubject String?
+  savedBody    String?
+  savedAt      DateTime?
+
+  /// Hidden templates stay editable but drop out of Messaging, and their
+  /// matching cadence step stops sending.
+  hidden     Boolean   @default(false)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  cadenceSteps CadenceStep[]
+
+  @@unique([campaignId, key])
+  @@index([channel, status])
+}
+
 model CadenceStep {
   id         String   @id @default(cuid())
   campaignId String
@@ -227,6 +294,12 @@ model CadenceStep {
   // could not describe a step the user invented, so a step added in the planner
   // rendered correctly and then silently never sent.
   trigger     String  @default("launch") // launch | registration | attendance
+
+  /// Which message this step sends. Null falls back to the campaign's legacy
+  /// Template row, then to the library default for this key — see
+  /// resolveStepTemplate in lib/messageTemplates.ts.
+  templateId  String?
+  template    MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
   // Editable schedule. The offset is signed and resolved against `anchor`:
   //   launch  — relative to when the cadence is launched (pre-registration steps)
