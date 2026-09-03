@@ -574,3 +574,82 @@ wording rather than the rendered text.
   `confirm`, `attend` stay correctly absent
 
 **Status:** complete
+
+---
+
+## C6 — Creation wizard
+
+**Date:** 2026-09-03
+**Scope:** WIZ-1, WIZ-4..20 (Zoom-linking items stay in C8).
+
+### Features completed
+Four-step wizard with per-step validation · title/date/time · **AI "improve
+description"** · speaker and speaker title · capacity · registration and Zoom
+links · **CSV vs LeadSquared list import** · **AI CSV column mapping** ·
+**preflight gaps** · **`extraFieldsJson` retention** · Apollo enrichment ·
+**editable scoring prompt / criteria / threshold** · **re-run scoring** · score
+preview · templatized vs AI-personalized · tone / length / AI instructions ·
+brief · one-click sign-up toggle · channel toggles with cadence descriptions.
+
+### Schema
+`Campaign` gains `speakerName`, `speakerTitle`, `capacity`, `msgMode`, `tone`,
+`msgLength`, `aiInstructions`, `brief`, `oneClickSignup`
+(migration `campaign_wizard_fields`). 16 campaigns preserved.
+
+### Decisions made during the work
+
+**The wizard is server-rendered per step, carrying its draft in the URL**
+(`?id=&step=`). Client-only state would have gone stale against the import and
+enrichment cards, which do their own server work. It also makes a half-finished
+wizard a resumable link rather than lost state.
+
+**The draft row is created at the end of step 0, not at the end of the wizard.**
+Steps 1–3 all need something to attach to. An abandoned wizard leaves a draft,
+which is what the Drafts filter is for.
+
+**Steps 1 and 2 embed the existing cards rather than reimplementing them.**
+`LeadImportCard` and `EnrichmentCard` already do CSV upload, LSQ list import,
+AI column mapping and preflight, tested and working. Rebuilding that inside the
+wizard would have been a second implementation to keep in sync.
+
+**"New webinar" no longer creates a blank campaign on click.** It used to, so
+every mis-click left an "Untitled webinar" draft. The wizard writes a row only
+once there is a title and a date.
+
+**Channel choice writes through to the cadence steps** rather than to a
+separate field, so the wizard and the planner can never disagree about which
+channels a campaign uses.
+
+### Bugs found — four, all real
+
+1. **New campaigns had zero linked templates.** `provisionCampaignDefaults` set
+   no `templateId`. Found by inspecting a wizard-created draft.
+2. **Provisioning still copied 15 legacy `Template` rows per campaign** — the
+   exact duplication C4A existed to remove. It now creates none and links each
+   step to the library row for its key.
+3. **The per-campaign Templates tab had become a lie.** Steps resolve through
+   the library first, so editing a campaign's legacy row changed nothing that
+   would send. Tab and `lib/actions/templates.ts` removed. A tab that lies is
+   worse than a missing one.
+4. **Three read paths would have broken for every new campaign** — readiness,
+   personalization and the Messaging page all read the legacy per-campaign
+   table, which is now empty for new campaigns. Readiness would have reported
+   every step ready by finding nothing to check; personalization would have
+   refused to run. All three now resolve through `resolveStepTemplate`, the
+   same path the send uses.
+
+### Verification
+- `GATE PASS` — 124 tests / 13 files, `tsc` exit 0, `eslint` clean
+- All 10 routes HTTP 200
+- `VISUAL VERIFIED`, **0 console errors**, driven end to end:
+  - Continue with an empty form **does not advance** and shows field errors
+  - filling title/date/time/speaker/description advances to Audience and
+    **creates the draft** (`?id=…&step=1`)
+  - step 2 shows enrichment, relevance scoring and "Edit criteria"
+  - step 3 shows both modes, tone, one-click sign-up, **5 switches**, "Finish setup"
+  - the created draft persisted name, formatted date, `scheduledAt`, speaker,
+    description, `msgMode`, `oneClickSignup`, and provisioned **14 steps**
+- New-campaign provisioning re-verified: **14 steps, 14 linked, 0 legacy rows**
+- QA draft deleted afterwards
+
+**Status:** complete

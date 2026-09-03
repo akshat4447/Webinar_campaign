@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { resolveStepTemplate } from '@/lib/messageTemplates';
 import { personalizeMessages, type PersonalizeContact } from '@/lib/claude';
 import { upsertAttentionItem } from '@/lib/attentionItems';
 import { normalizeChannel } from '@/lib/channels';
@@ -136,7 +137,10 @@ export async function repairLinks(
 export async function generatePersonalized(campaignId: string, stepKey: string): Promise<GenerateResult> {
   const [campaign, template, contacts] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id: campaignId } }),
-    db.template.findUnique({ where: { campaignId_key: { campaignId, key: stepKey } } }),
+    // Same resolution the send path uses. Reading the legacy per-campaign
+    // table would find nothing for a campaign created after messages moved to
+    // the shared library, and personalization would refuse to run.
+    resolveStepTemplate(campaignId, stepKey),
     db.contact.findMany({ where: { campaignId, approved: true } }),
   ]);
 
@@ -238,7 +242,7 @@ export async function generatePersonalized(campaignId: string, stepKey: string):
 export async function regenerateOne(campaignId: string, contactId: string, stepKey: string): Promise<GenerateResult> {
   const [campaign, template, contact] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id: campaignId } }),
-    db.template.findUnique({ where: { campaignId_key: { campaignId, key: stepKey } } }),
+    resolveStepTemplate(campaignId, stepKey),
     db.contact.findUniqueOrThrow({ where: { id: contactId } }),
   ]);
   if (!template) return { ok: false, error: 'Template missing.' };

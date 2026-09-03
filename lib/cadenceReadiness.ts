@@ -9,6 +9,7 @@
 import { db } from '@/lib/db';
 import { normalizeChannel } from '@/lib/channels';
 import { validateTemplateContentForChannel, validateRenderedMessageForChannel } from '@/lib/messageValidation';
+import { resolveStepTemplate } from '@/lib/messageTemplates';
 
 export const KNOWN_MERGE_VARS = ['firstName', 'lastName', 'company', 'topic', 'link', 'date'];
 
@@ -19,11 +20,18 @@ export interface Readiness {
 
 async function enabledStepsWithTemplates(campaignId: string) {
   const steps = await db.cadenceStep.findMany({ where: { campaignId, enabled: true, removedAt: null } });
-  const templates = await db.template.findMany({ where: { campaignId, hidden: false } });
-  const byKey = new Map(templates.map((t) => [t.key, t]));
-  return steps
-    .map((step) => ({ step, template: byKey.get(step.key) }))
-    .filter((pair): pair is { step: (typeof steps)[number]; template: NonNullable<typeof pair.template> } => !!pair.template);
+
+  // Resolve through the same path the send does, rather than reading the
+  // legacy per-campaign table. Since messages moved to the shared library, a
+  // new campaign has no legacy rows at all — reading them would report every
+  // step as ready by finding nothing to check.
+  const pairs = await Promise.all(
+    steps.map(async (step) => ({ step, template: await resolveStepTemplate(campaignId, step.key) }))
+  );
+  return pairs.filter(
+    (pair): pair is { step: (typeof steps)[number]; template: NonNullable<typeof pair.template> } =>
+      !!pair.template && !pair.template.hidden
+  );
 }
 
 export async function computeTemplatesReadiness(campaignId: string): Promise<Readiness> {

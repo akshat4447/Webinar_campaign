@@ -1,24 +1,17 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
-import { createCampaignAction } from '@/lib/actions/campaigns';
 
+// Goes to the wizard rather than creating a blank campaign on click. Creating
+// first meant every mis-click left an "Untitled webinar" draft behind; the
+// wizard only writes a row once there is a title and a date to write.
 export function NewCampaignButton() {
-  const [busy, setBusy] = useState(false);
   const router = useRouter();
-
-  async function create() {
-    setBusy(true);
-    const id = await createCampaignAction();
-    router.push(`/campaigns/${id}/setup`);
-  }
-
   return (
-    <Button icon={<Icon name="plus" size={16} />} onClick={create} disabled={busy}>
-      {busy ? 'Creating…' : 'New webinar'}
+    <Button icon={<Icon name="plus" size={16} />} onClick={() => router.push('/campaigns/new')}>
+      New webinar
     </Button>
   );
 }

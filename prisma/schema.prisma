@@ -39,6 +39,28 @@ model Campaign {
   // by this field. Keep the default text in sync with DEFAULT_PERSONALIZATION_PROMPT
   // in lib/personalization.ts.
   personalizationPrompt String @default("Lead with the operational problem their role actually owns — don't open by praising the company or telling the reader how impressive their work is. Vary the angle by seniority: executives care about outcome and risk, directors and heads about process and their team's throughput, managers and individual contributors about the day-to-day mechanics. Vary by function too — a marketing lead and an operations lead should not receive the same framing.")
+  // --- Set by the creation wizard ---
+  speakerName    String?
+  speakerTitle   String?
+  /// Seats available. Drives the "capacity filled" figure on a live campaign.
+  capacity       Int?
+
+  /// How outreach is written for this campaign.
+  ///   ai           Claude writes a unique message per contact from `brief`
+  ///   templatized  one fixed message per step, same for everyone
+  msgMode        String   @default("ai") // ai | templatized
+  tone           String?
+  msgLength      String?
+  /// Tone/emphasis guidance for the model. Correctness guardrails (keep the
+  /// link, no invented facts, no leftover merge tokens) live in code and are
+  /// never overridden from here.
+  aiInstructions String?
+  /// What the message should say, before personalization reshapes the framing.
+  brief          String?
+  /// Messages carry a pre-filled registration link so a click registers the
+  /// contact outright, with no landing-page form.
+  oneClickSignup Boolean  @default(true)
+
   cadenceStatus  String   @default("not_started") // not_started | running | paused | stopped
   linkedinMode   String   @default("assisted") // assisted (manual) | automated (simulated bot)
   simulatedNow   DateTime?

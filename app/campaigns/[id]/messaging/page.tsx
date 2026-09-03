@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { PersonalizeClient } from './PersonalizeClient';
 import { PERSONALIZABLE_STEPS, CONFIRM_THRESHOLD, isLinkStale } from '@/lib/personalization';
+import { resolveStepTemplate } from '@/lib/messageTemplates';
 import { normalizeChannel } from '@/lib/channels';
 import { computePersonalizeReadiness } from '@/lib/cadenceReadiness';
 import { Badge } from '@/components/ui/Badge';
@@ -11,19 +12,36 @@ export default async function PersonalizePage({ params, searchParams }: { params
 
   const [campaign, templates, approvedContacts] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id } }),
-    db.template.findMany({ where: { campaignId: id } }),
+    // Resolve each personalizable step through the shared library, the same
+    // way the send path does. Reading the legacy per-campaign table showed
+    // "no templates on this campaign yet" for every campaign created after
+    // messages moved to the library.
+    Promise.all(
+      PERSONALIZABLE_STEPS.map(async (key) => ({ key, resolved: await resolveStepTemplate(id, key) }))
+    ),
     db.contact.findMany({
       where: { campaignId: id, approved: true },
       orderBy: [{ score: 'desc' }, { name: 'asc' }],
     }),
   ]);
 
-  const available = PERSONALIZABLE_STEPS.map((key) => templates.find((t) => t.key === key)).filter((t): t is NonNullable<typeof t> => !!t && !t.hidden);
+  const available = templates
+    .filter((t) => t.resolved && !t.resolved.hidden)
+    .map((t) => ({
+      key: t.key,
+      label: t.resolved!.label,
+      channel: t.resolved!.channel,
+      hasSubject: t.resolved!.hasSubject,
+      subject: t.resolved!.subject,
+      body: t.resolved!.body,
+    }));
 
   if (available.length === 0) {
     return (
       <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
-        <div style={{ textAlign: 'center', color: 'var(--n60)', fontSize: 'var(--fs-label-1)', marginTop: 48 }}>No templates on this campaign yet — visit Templates first.</div>
+        <div style={{ textAlign: 'center', color: 'var(--n60)', fontSize: 'var(--fs-label-1)', marginTop: 48 }}>
+          No messages available for this campaign&apos;s steps — check the Templates library.
+        </div>
       </main>
     );
   }

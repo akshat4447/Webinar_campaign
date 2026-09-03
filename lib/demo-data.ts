@@ -245,11 +245,13 @@ export const stageBadges: Record<string, { text: string; color: string }> = {
 /**
  * Campaign workspace tabs.
  *
- * Six of these are the product's real shape. `setup` and `templates` are
- * marked transitional: campaign-detail editing moves into Overview once the
- * creation wizard lands (C6), and per-campaign templates are replaced by the
- * global library (C4). Both are kept meanwhile so nothing becomes unreachable
- * mid-revamp — see docs/REVAMP-MASTER-PLAN.md.
+ * Six of these are the product's real shape. `setup` is transitional:
+ * campaign-detail editing moves into Overview in a later checkpoint, now that
+ * the creation wizard owns first-time setup.
+ *
+ * The per-campaign Templates tab is gone. Once cadence steps resolve through
+ * the shared library, editing a campaign's legacy Template row changed nothing
+ * that would actually send — a tab that lies is worse than a missing one.
  */
 export interface WorkspaceTab {
   id: string;
@@ -262,7 +264,6 @@ export const workspaceTabs: WorkspaceTab[] = [
   { id: 'setup', label: 'Setup', transitional: true },
   { id: 'overview', label: 'Overview' },
   { id: 'audience', label: 'Audience' },
-  { id: 'templates', label: 'Templates', transitional: true },
   { id: 'messaging', label: 'Messaging' },
   { id: 'cadence', label: 'Cadence planner' },
   { id: 'agent', label: 'Agent run' },

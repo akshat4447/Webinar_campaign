@@ -219,26 +219,26 @@ it, must be reinstated.
 ### 5.3 Creation wizard
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
-| WIZ-1 | 4-step flow + per-step validation | `app/campaigns/new/` | NEW | C6 | [ ] |
+| WIZ-1 | 4-step flow + per-step validation | `app/campaigns/new/` | NEW | C6 | [x] |
 | WIZ-2 | Zoom: link existing vs create new | step 0 | NEW | C8 | [ ] |
 | WIZ-3 | Auto-fill title/date/time from Zoom event | step 0 | NEW | C8 | [ ] |
-| WIZ-4 | Name, description, date/time picker | step 0 | KEEP | C6 | [ ] |
-| WIZ-5 | AI "improve description" | step 0, inline button | RESTORE | C6 | [ ] |
-| WIZ-6 | Speaker + speaker title | step 0 | NEW | C6 | [ ] |
-| WIZ-7 | Capacity | step 0 | NEW | C6 | [ ] |
-| WIZ-8 | Zoom link + registration link fields | step 0 (advanced) | KEEP | C6 | [ ] |
-| WIZ-9 | CSV upload vs LSQ list import | step 1 | KEEP | C6 | [ ] |
-| WIZ-10 | AI CSV column → LSQ field mapping | step 1, after upload | RESTORE | C6 | [ ] |
-| WIZ-11 | CSV preflight → validation gap panel | step 1 | MOVE | C6 | [ ] |
-| WIZ-12 | `extraFieldsJson` — retain all operator columns | step 1, silent | RESTORE | C6 | [ ] |
-| WIZ-13 | Apollo enrichment toggle | step 2 | MOVE | C6 | [ ] |
-| WIZ-14 | Editable scoring prompt / criteria / threshold | step 2, collapsible | RESTORE | C6 | [ ] |
-| WIZ-15 | Score preview table (top 6) | step 2 | NEW | C6 | [ ] |
-| WIZ-16 | Templatized vs AI-personalized mode | step 3 | NEW | C6 | [ ] |
-| WIZ-17 | Tone / length / AI instructions | step 3 | MOVE | C6 | [ ] |
-| WIZ-18 | Message brief textarea | step 3 | NEW | C6 | [ ] |
-| WIZ-19 | One-click sign-up toggle | step 3 | NEW | C6 | [ ] |
-| WIZ-20 | Channel toggles + cadence descriptions | step 3 | MOVE | C6 | [ ] |
+| WIZ-4 | Name, description, date/time picker | step 0 | KEEP | C6 | [x] |
+| WIZ-5 | AI "improve description" | step 0, inline button | RESTORE | C6 | [x] |
+| WIZ-6 | Speaker + speaker title | step 0 | NEW | C6 | [x] |
+| WIZ-7 | Capacity | step 0 | NEW | C6 | [x] |
+| WIZ-8 | Zoom link + registration link fields | step 0 (advanced) | KEEP | C6 | [x] |
+| WIZ-9 | CSV upload vs LSQ list import | step 1 | KEEP | C6 | [x] |
+| WIZ-10 | AI CSV column → LSQ field mapping | step 1, after upload | RESTORE | C6 | [x] |
+| WIZ-11 | CSV preflight → validation gap panel | step 1 | MOVE | C6 | [x] |
+| WIZ-12 | `extraFieldsJson` — retain all operator columns | step 1, silent | RESTORE | C6 | [x] |
+| WIZ-13 | Apollo enrichment toggle | step 2 | MOVE | C6 | [x] |
+| WIZ-14 | Editable scoring prompt / criteria / threshold | step 2, collapsible | RESTORE | C6 | [x] |
+| WIZ-15 | Score preview table (top 6) | step 2 | NEW | C6 | [x] |
+| WIZ-16 | Templatized vs AI-personalized mode | step 3 | NEW | C6 | [x] |
+| WIZ-17 | Tone / length / AI instructions | step 3 | MOVE | C6 | [x] |
+| WIZ-18 | Message brief textarea | step 3 | NEW | C6 | [x] |
+| WIZ-19 | One-click sign-up toggle | step 3 | NEW | C6 | [x] |
+| WIZ-20 | Channel toggles + cadence descriptions | step 3 | MOVE | C6 | [x] |
 
 ### 5.4 Audience
 | ID | Feature | Target home | Action | CP | Done |
@@ -547,7 +547,7 @@ intact so the migration is reversible.
 **Files:** `app/campaigns/[id]/cadence/`, `lib/actions/schedule.ts`
 **Acceptance:** add and remove steps; assign templates; edit timing; send window, frequency, daily limit and channel-mix all present and enforced; launch works.
 
-### [ ] C6 — Creation wizard
+### [x] C6 — Creation wizard
 **Scope:** WIZ-1, 4..21 (excluding Zoom items).
 **Files:** `app/campaigns/new/`, `lib/actions/campaigns.ts`, `lib/actions/setup.ts`, `lib/actions/scoring.ts`
 **Acceptance:** full 4-step creation with validation; AI description, AI CSV mapping, `extraFieldsJson`, editable scoring config all present; 5,000-row CSV completes.
