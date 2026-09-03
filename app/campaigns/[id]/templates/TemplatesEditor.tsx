@@ -314,7 +314,7 @@ export function TemplatesEditor({
             This template goes to everyone as-is. To rewrite it per recipient — by seniority, function and industry — continue to
             Personalize.
           </div>
-          <NavButton href={`/campaigns/${campaignId}/personalize`}>Continue to personalize</NavButton>
+          <NavButton href={`/campaigns/${campaignId}/messaging`}>Continue to personalize</NavButton>
         </div>
       </div>
 

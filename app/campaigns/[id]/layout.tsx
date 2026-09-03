@@ -28,9 +28,9 @@ export default async function CampaignLayout({
   ]);
   const completedTabs: Record<string, boolean> = {
     setup: contactCount > 0,
-    scoring: scoredCount > 0,
-    schedule: campaign.cadenceStatus !== 'not_started',
-    dashboard: !!campaign.attendanceImportedAt,
+    audience: scoredCount > 0,
+    cadence: campaign.cadenceStatus !== 'not_started',
+    'post-event': !!campaign.attendanceImportedAt,
   };
 
   return (

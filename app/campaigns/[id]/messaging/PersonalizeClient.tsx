@@ -265,7 +265,7 @@ export function PersonalizeClient({
             return (
               <div
                 key={s.key}
-                onClick={() => router.push(`/campaigns/${campaignId}/personalize?step=${s.key}`)}
+                onClick={() => router.push(`/campaigns/${campaignId}/messaging?step=${s.key}`)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -594,7 +594,7 @@ export function PersonalizeClient({
             ? `${generatedCount} of ${rows.length} recipients have personalized copy for this step. Steps left on the shared template send that instead.`
             : 'No personalized copy yet for this step — that\u2019s fine, it will send the shared template until you generate some.'}
         </div>
-        <NavButton href={`/campaigns/${campaignId}/schedule`}>Continue to schedule</NavButton>
+        <NavButton href={`/campaigns/${campaignId}/cadence`}>Continue to schedule</NavButton>
       </div>
 
       {promptOpen && (

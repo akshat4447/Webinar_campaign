@@ -201,7 +201,7 @@ it, must be reinstated.
 | NAV-3 | "Built on LeadSquared" logo lockup | sidebar footer | RESTORE | C2 | [x] |
 | NAV-4 | Integrations nav pinned to bottom | sidebar | MOVE | C2 | [x] |
 | NAV-5 | Global chat widget + per-campaign history | floating, all routes | KEEP | C2 | [x] |
-| NAV-6 | 6-tab campaign workspace | `campaigns/[id]/layout.tsx` | MOVE | C2B | [ ] |
+| NAV-6 | 6-tab campaign workspace | `campaigns/[id]/layout.tsx` | MOVE | C2B | [x] |
 | NAV-7 | Toast notification system | new shared component | NEW | C2 | [x] |
 | NAV-8 | User profile chip | — | **DROPPED (D3)** | — | n/a |
 
@@ -514,7 +514,7 @@ routing conventions confirmed against the bundled docs and recorded in §2.5.
 **Files:** `components/Sidebar.tsx`, `components/ui/{Toast,PageHeader,Placeholder}.tsx` (new), `components/ui/Icon.tsx`, `app/layout.tsx`, `app/page.tsx`, `app/CampaignCardMenu.tsx`, `app/{dashboard,templates}/page.tsx` (new), `lib/campaignCardStats.ts`, `lib/campaignRoutes.ts` (new), `app/globals.css`.
 **Acceptance:** sidebar matches the prototype but retains AGENT ONLINE, the LeadSquared lockup and the chat widget; 4-KPI row and 5 filter pills compute from real data; cards carry three stats, two CTAs and a working kebab menu; `/dashboard` and `/templates` reachable.
 
-### [ ] C2B — Campaign workspace tab restructure
+### [x] C2B — Campaign workspace tab restructure
 **Scope:** NAV-6. Split out of C2 to keep that checkpoint verifiable on its own.
 **Files:** route folder renames under `app/campaigns/[id]/`, `WorkspaceTabs.tsx`, `app/campaigns/[id]/layout.tsx`, `lib/campaignRoutes.ts`, `lib/demo-data.ts` (`workspaceTabs`).
 **Renames:** `dashboard`→`overview`, `scoring`→`audience`, `personalize`→`messaging`, `schedule`→`cadence`, `control`→`agent`; add `post-event`.

@@ -179,7 +179,7 @@ export function ControlPanel({ campaign, attentionItems: initialItems, nextSendD
           <Button hierarchy="tertiary" size="sm" onClick={runNow} disabled={busy || runningNow || status !== 'running'}>
             {runningNow ? 'Checking…' : 'Run due sends now'}
           </Button>
-          <Button hierarchy="tertiary" size="sm" onClick={() => router.push(`/campaigns/${campaign.id}/schedule`)}>
+          <Button hierarchy="tertiary" size="sm" onClick={() => router.push(`/campaigns/${campaign.id}/cadence`)}>
             Reschedule
           </Button>
         </div>

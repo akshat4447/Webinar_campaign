@@ -77,7 +77,7 @@ export default async function SetupPage({ params }: { params: Promise<{ id: stri
               Claude will match personas by title, function and seniority across all imported accounts, then score relevance to
               this webinar&apos;s topic.
             </div>
-            <NavButton href={`/campaigns/${id}/scoring`} fullWidth>
+            <NavButton href={`/campaigns/${id}/audience`} fullWidth>
               Run audience scoring
             </NavButton>
           </Card>

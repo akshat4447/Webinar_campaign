@@ -38,7 +38,7 @@ export function SimulateClockCard({ campaignId, simulatedNow }: { campaignId: st
         ))}
       </div>
       {lastResult && <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', marginBottom: 12 }}>{lastResult}</div>}
-      <Button hierarchy="primary" size="md" fullWidth icon={<Icon name="arrow-right" size={14} />} iconPosition="trailing" onClick={() => router.push(`/campaigns/${campaignId}/dashboard`)}>
+      <Button hierarchy="primary" size="md" fullWidth icon={<Icon name="arrow-right" size={14} />} iconPosition="trailing" onClick={() => router.push(`/campaigns/${campaignId}/overview`)}>
         Go to dashboard
       </Button>
     </div>

@@ -4,27 +4,46 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { workspaceTabs } from '@/lib/demo-data';
 
-export function WorkspaceTabs({ campaignId, completedTabs = {} }: { campaignId: string; completedTabs?: Record<string, boolean> }) {
+export function WorkspaceTabs({
+  campaignId,
+  completedTabs = {},
+}: {
+  campaignId: string;
+  completedTabs?: Record<string, boolean>;
+}) {
   const pathname = usePathname();
   const active = pathname.split('/').pop();
 
   return (
-    <div style={{ flexShrink: 0, background: '#fff', borderBottom: '1px solid var(--border-subtle)', padding: '0 36px', display: 'flex', gap: 22, overflowX: 'auto' }}>
+    <div
+      style={{
+        flexShrink: 0,
+        background: 'var(--surface-card)',
+        borderBottom: '1px solid var(--border-subtle)',
+        padding: '0 36px',
+        display: 'flex',
+        gap: 2,
+        overflowX: 'auto',
+      }}
+    >
       {workspaceTabs.map((tab) => {
         const isActive = tab.id === active;
-        // Only a subset of tabs have an unambiguous "done" signal (see
-        // CampaignLayout) — everything else just shows its ordinal, same as before.
+        // Only some stages have an unambiguous "done" signal — see the layout.
+        // A dot rather than a tick keeps the tab row quiet; the point is to
+        // show progress at a glance, not to decorate every label.
         const isComplete = !isActive && completedTabs[tab.id];
         return (
           <Link
             key={tab.id}
             href={`/campaigns/${campaignId}/${tab.id}`}
+            className="lsq-tab"
+            data-active={isActive ? 'true' : 'false'}
             style={{
-              padding: '13px 2px',
+              padding: '10px 14px',
               fontSize: 'var(--fs-label-1)',
-              fontWeight: 600,
-              color: isActive ? 'var(--accent-500)' : 'var(--n60)',
-              borderBottom: isActive ? '2px solid var(--accent-500)' : '2px solid transparent',
+              fontWeight: 'var(--fw-bold)',
+              color: isActive ? 'var(--accent-500)' : 'var(--n50)',
+              borderBottom: `2px solid ${isActive ? 'var(--accent-500)' : 'transparent'}`,
               whiteSpace: 'nowrap',
               display: 'flex',
               alignItems: 'center',
@@ -32,24 +51,19 @@ export function WorkspaceTabs({ campaignId, completedTabs = {} }: { campaignId: 
               textDecoration: 'none',
             }}
           >
-            <span
-              style={{
-                width: 17,
-                height: 17,
-                borderRadius: '50%',
-                background: isActive ? 'var(--accent-500)' : isComplete ? 'var(--success-500)' : 'var(--n20)',
-                color: isActive || isComplete ? '#fff' : 'var(--n60)',
-                fontSize: 'var(--fs-caption)',
-                fontWeight: 700,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              {isComplete ? '✓' : tab.n}
-            </span>
             {tab.label}
+            {isComplete && (
+              <span
+                aria-label="complete"
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: 'var(--success-500)',
+                  flexShrink: 0,
+                }}
+              />
+            )}
           </Link>
         );
       })}

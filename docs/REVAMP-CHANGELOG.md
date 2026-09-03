@@ -200,3 +200,65 @@ assert case-sensitively against text that CSS may transform.
 - Nav active state confirmed correct on `/dashboard` and `/templates`
 
 **Status:** complete
+
+---
+
+## C2B — Campaign workspace tab restructure
+
+**Date:** 2026-09-03
+**Scope:** NAV-6. Move the workspace onto the new six-tab IA without making
+anything unreachable.
+
+### Renames
+`dashboard`→`overview` · `scoring`→`audience` · `personalize`→`messaging` ·
+`schedule`→`cadence` · `control`→`agent` · new `post-event`.
+
+Done with `git mv` so history follows the files.
+
+### Transitional tabs
+`setup` and `templates` remain, typed as `transitional: true` in
+`workspaceTabs`. Campaign-detail editing moves into Overview at C6; per-campaign
+templates are replaced by the global library at C4. Eight tabs now, six at C13.
+
+### Files changed
+- Six route folders renamed; `app/campaigns/[id]/post-event/page.tsx` added.
+- `WorkspaceTabs.tsx` — rewritten to the prototype's underline style.
+- `lib/demo-data.ts` — `workspaceTabs` gains a type and a `transitional` flag;
+  the `n:` ordinal is gone.
+- `app/campaigns/[id]/layout.tsx` — `completedTabs` keys follow the renames.
+- `app/campaigns/[id]/page.tsx` — redirect now goes through
+  `campaignLandingHref` and 404s properly on a missing campaign, instead of
+  redirecting to a setup tab for a campaign that does not exist.
+- `lib/campaignRoutes.ts` — points at the new names.
+- Six components' internal navigation hrefs repointed.
+- `app/globals.css` — `.lsq-tab` hover.
+
+### Decisions made during the work
+
+**Action modules were not renamed.** `lib/actions/{scoring,schedule,control,
+personalize}.ts` keep their names. They are not routes, nothing about them is
+user-visible, and renaming them would have inflated the diff for no benefit.
+
+**Completion state survived the restyle.** The old tabs carried numbered
+circles that turned into ticks. The prototype's tabs have no such indicator,
+but silently dropping progress signalling would be a regression, so completed
+tabs now carry a small green dot — the same information in the prototype's
+quieter visual language.
+
+**Attendance import moved to Post-event, not Agent run.** Importing a
+participants report is a post-event act; an operator looking for it is thinking
+about results, not about the running cadence.
+
+### Bugs found
+**Pre-existing bug, fixed.** `app/campaigns/[id]/page.tsx` redirected to a tab
+without checking the campaign existed, so `/campaigns/does-not-exist` sent the
+user to a setup tab that then threw from `findUniqueOrThrow`. It now `notFound()`s.
+
+### Verification
+- `GATE PASS` — `next typegen` clean, 112 tests / 12 files, `tsc` exit 0,
+  `eslint` clean
+- All 8 tabs plus the bare `/campaigns/[id]` redirect return HTTP 200
+- `VISUAL VERIFIED` — every tab rendered, correct active state on each,
+  **0 console errors, 0 failed requests** across all eight
+
+**Status:** complete

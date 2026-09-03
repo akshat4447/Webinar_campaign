@@ -242,12 +242,29 @@ export const stageBadges: Record<string, { text: string; color: string }> = {
   dashboard: { text: 'Post-event complete', color: 'success' },
 };
 
-export const workspaceTabs = [
-  { id: 'setup', label: 'Setup', n: 1 },
-  { id: 'scoring', label: 'Scoring', n: 2 },
-  { id: 'templates', label: 'Templates', n: 3 },
-  { id: 'personalize', label: 'Personalize', n: 4 },
-  { id: 'schedule', label: 'Schedule', n: 5 },
-  { id: 'control', label: 'Control Center', n: 6 },
-  { id: 'dashboard', label: 'Dashboard', n: 7 },
+/**
+ * Campaign workspace tabs.
+ *
+ * Six of these are the product's real shape. `setup` and `templates` are
+ * marked transitional: campaign-detail editing moves into Overview once the
+ * creation wizard lands (C6), and per-campaign templates are replaced by the
+ * global library (C4). Both are kept meanwhile so nothing becomes unreachable
+ * mid-revamp — see docs/REVAMP-MASTER-PLAN.md.
+ */
+export interface WorkspaceTab {
+  id: string;
+  label: string;
+  /** Removed by a later checkpoint; not part of the target IA. */
+  transitional?: boolean;
+}
+
+export const workspaceTabs: WorkspaceTab[] = [
+  { id: 'setup', label: 'Setup', transitional: true },
+  { id: 'overview', label: 'Overview' },
+  { id: 'audience', label: 'Audience' },
+  { id: 'templates', label: 'Templates', transitional: true },
+  { id: 'messaging', label: 'Messaging' },
+  { id: 'cadence', label: 'Cadence planner' },
+  { id: 'agent', label: 'Agent run' },
+  { id: 'post-event', label: 'Post-event' },
 ];

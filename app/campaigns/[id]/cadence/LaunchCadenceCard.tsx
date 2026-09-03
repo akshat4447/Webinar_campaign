@@ -51,7 +51,7 @@ export function LaunchCadenceCard({
         .filter(Boolean)
         .join(' ')
     );
-    setTimeout(() => router.push(`/campaigns/${campaignId}/control`), 1400);
+    setTimeout(() => router.push(`/campaigns/${campaignId}/agent`), 1400);
   }
 
   // A stopped cadence used to leave this card permanently stuck on "already
@@ -91,7 +91,7 @@ export function LaunchCadenceCard({
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
         <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 6 }}>Cadence already launched</div>
         <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.5, marginBottom: 14 }}>Manage pause/resume/stop from Control Center.</div>
-        <Button hierarchy="secondary" size="md" fullWidth onClick={() => router.push(`/campaigns/${campaignId}/control`)}>
+        <Button hierarchy="secondary" size="md" fullWidth onClick={() => router.push(`/campaigns/${campaignId}/agent`)}>
           Go to Control Center
         </Button>
       </div>

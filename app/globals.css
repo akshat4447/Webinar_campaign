@@ -66,6 +66,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .lsq-nav:hover { color: var(--text-primary); }
 .lsq-nav:hover:not([data-active='true']) { background: var(--surface-hover); }
 
+/* Workspace tab. The active underline is inline (route-dependent); this adds
+   the hover tint an inline style cannot express, without letting hover imitate
+   the active state. */
+.lsq-tab { transition: var(--transition-colors); }
+.lsq-tab:hover:not([data-active='true']) { color: var(--text-primary); }
+
 /* Dense data tables. Row highlight on hover aids scanning a long list without
    implying the row is clickable (that's what .lsq-row's pointer cursor is for),
    and tabular figures keep numeric columns aligned on the digit. */
