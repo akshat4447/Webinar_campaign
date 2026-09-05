@@ -46,10 +46,14 @@ export function CampaignDetailsForm({ campaign, serverNow, onDone }: { campaign:
     setZoomNote(null);
     if (zoomMeetings) return;
     setZoomLoading(true);
-    const meetings = await listZoomMeetingsAction();
+    const res = await listZoomMeetingsAction();
     setZoomLoading(false);
-    setZoomMeetings(meetings);
-    if (meetings.length === 0) setZoomError('No upcoming meetings found — check the Zoom connection on Integrations, or paste a link by hand.');
+    if (!res.ok) {
+      setZoomError(res.error);
+      return;
+    }
+    setZoomMeetings(res.meetings);
+    if (res.meetings.length === 0) setZoomError('No upcoming meetings found on this Zoom account.');
   }
 
   async function applyZoomMeeting(meetingId: string) {

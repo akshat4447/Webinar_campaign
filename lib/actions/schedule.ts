@@ -3,31 +3,8 @@
 import { db } from '@/lib/db';
 import { launchCadence, processDueSends, restartCadence } from '@/lib/cadence';
 import { sendModeLabel } from '@/lib/sendGuard';
-import { resolveStepDate, offsetLabel, ANCHOR_LABEL, STEP_DEFAULTS, FREQUENCY_PRESETS } from '@/lib/stepSchedule';
+import { resolveStepDate, offsetLabel, ANCHOR_LABEL, STEP_DEFAULTS } from '@/lib/stepSchedule';
 import { revalidateCampaign } from '@/lib/revalidate';
-
-export async function updateScheduleConfigAction(campaignId: string, data: { scheduleWindow?: string; frequency?: string; dailyLimit?: number }) {
-  // dailyLimit is a real send throttle now (see processDueSends) — reject
-  // nonsensical values here instead of letting the DB hold e.g. a negative limit.
-  if (data.dailyLimit !== undefined && (!Number.isFinite(data.dailyLimit) || data.dailyLimit < 0)) {
-    return { ok: false as const, error: 'Daily send limit must be zero or a positive number.' };
-  }
-
-  await db.campaign.update({ where: { id: campaignId }, data });
-
-  // Picking a preset used to only change the descriptive "gap label" text below
-  // the selector — the nudge/final-call steps themselves never moved. Now the
-  // preset actually rewrites their offsets, same code path as editing a step
-  // by hand on the Schedule tab (including re-dating any sends already queued).
-  if (data.frequency && FREQUENCY_PRESETS[data.frequency]) {
-    const preset = FREQUENCY_PRESETS[data.frequency];
-    await updateStepScheduleAction(campaignId, 'nudge', { offsetValue: preset.nudge });
-    await updateStepScheduleAction(campaignId, 'final', { offsetValue: preset.final });
-  }
-
-  revalidateCampaign(campaignId);
-  return { ok: true as const };
-}
 
 export async function toggleCadenceStepAction(campaignId: string, stepKey: string, enabled: boolean) {
   await db.cadenceStep.update({ where: { campaignId_key: { campaignId, key: stepKey } }, data: { enabled } });

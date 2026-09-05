@@ -1636,3 +1636,67 @@ is done, it shows an overview" implies. There's deliberately no separate
     removed 3 leftover test-artifact `ActivityLogEntry` rows from an earlier
     verification pass that had gone unnoticed until they showed up in this
     campaign's real activity log on screen
+
+## Zoom connection gate, and simplifying the Cadence planner — 2026-09-05
+
+Two requested changes, both scoped precisely before touching code.
+
+### Zoom fetch now refuses outright unless really connected
+`listUpcomingMeetings()`/`createMeeting()` previously fell back to fixture
+data whenever Zoom wasn't configured *or* was in sandbox mode — reasonable
+for the wizard's original design ("exercisable without credentials"), but
+wrong for a feature whose whole point is pulling a *real* event's details:
+picking "Weekly product demo" from a fake list and having it silently link
+to a fake meeting is worse than an error.
+
+- **`lib/zoom/client.ts`** — added `zoomConnectionError()`: `null` when
+  genuinely connected (real credentials saved *and* `ZOOM_MODE=live`),
+  otherwise a specific message naming exactly what's missing.
+- **`lib/actions/zoom.ts`** — `listZoomMeetingsAction`, `linkZoomMeetingAction`
+  and `createZoomMeetingAction` all check this first and refuse before doing
+  anything, rather than falling through to a fixture or a generic failure.
+  `listZoomMeetingsAction`'s return type changed from a bare array to
+  `{ok, meetings} | {ok: false, error}` so "not connected" and "connected,
+  zero upcoming meetings" are distinguishable messages, not the same empty
+  list. `unlinkZoomMeetingAction` is untouched — it never calls Zoom.
+- **`CampaignDetailsForm.tsx`, `WizardClient.tsx`** — updated to the new
+  return shape; both surfaces (Setup and the creation wizard) now show the
+  same specific error.
+
+### Cadence planner: removed Channel mix, Scheduling configuration, Bot-led sign-up
+All three were genuinely redundant or purely informational, confirmed
+before removing anything:
+- **Channel mix** bulk-toggled a whole channel's steps at once, but
+  `CadenceGroups.tsx` already has a per-step enable checkbox using the same
+  `toggleCadenceStepAction` — removing the bulk card loses no capability,
+  only the "toggle all of a channel in one click" shortcut. Deleted
+  `ChannelMixCard.tsx` and `lib/actions/channels.ts` (only used by that card).
+- **Bot-led sign-up** was a static, non-interactive info block (no toggle,
+  no server action, no schema field of its own) — just explanatory text and
+  an example link. Deleted the block from `page.tsx` with zero functional
+  change; one-click registration itself is unaffected (its real toggle,
+  `Campaign.oneClickSignup`, lives in the wizard, untouched).
+- **Scheduling configuration** (send window, cadence preset, daily send
+  limit) — asked the user directly before touching this one, since "Daily
+  send limit" was on the original must-keep list from earlier in this
+  project. Confirmed: remove all of it. Deleted `ScheduleConfig.tsx` and
+  `updateScheduleConfigAction` (the one export in `lib/actions/schedule.ts`
+  used only by that card — every other export there is used by
+  `CadenceGroups`/`LaunchCadenceCard` and was left alone). All three
+  settings freeze at each campaign's existing stored value; the backend
+  enforcement (`isWithinSendWindow`, the daily-limit check in
+  `processDueSends`, nudge/final-call offsets) is untouched and keeps
+  running exactly as before — there's just no UI left to change any of them
+  per campaign.
+
+### Verification
+- `GATE PASS` — `next typegen`, 181 tests, `tsc` exit 0, `eslint` clean
+- `VISUAL VERIFIED`, 0 console errors: cadence planner confirmed to open
+  directly on the step schedule with no Channel mix / Scheduling
+  configuration / Bot-led sign-up sections, `CadenceGroups`/`LinkedInPanel`/
+  `LaunchCadenceCard` all rendering and unaffected
+- Zoom gate tested live in both Setup (`c3`, unconnected) and the creation
+  wizard's "Use existing event"/"Create new event" — both correctly show
+  "Zoom isn't connected — add your Server-to-Server OAuth credentials on
+  Integrations → Zoom." and neither writes anything to the DB (confirmed by
+  direct query) when blocked

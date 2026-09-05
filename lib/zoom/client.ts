@@ -47,6 +47,23 @@ export async function zoomIsConfigured(): Promise<boolean> {
   return (await credentials()) !== null;
 }
 
+/**
+ * Null when Zoom is genuinely connected — real credentials saved, and
+ * `ZOOM_MODE=live` so they're actually in effect. Anything else returns a
+ * message explaining exactly what's missing, for a feature (fetching a real
+ * event's details) where a sandbox fixture standing in for a real meeting
+ * would be actively misleading rather than merely a fallback.
+ */
+export async function zoomConnectionError(): Promise<string | null> {
+  if (!(await zoomIsConfigured())) {
+    return "Zoom isn't connected — add your Server-to-Server OAuth credentials on Integrations → Zoom.";
+  }
+  if (zoomMode() !== 'live') {
+    return 'Zoom credentials are saved but the connection is still in sandbox mode — set ZOOM_MODE=live to fetch real events.';
+  }
+  return null;
+}
+
 /** The one real network call Server-to-Server OAuth needs — split out from
  *  the cached `accessToken()` below so the Integrations page can test a
  *  candidate credential set before (or instead of) saving it. */

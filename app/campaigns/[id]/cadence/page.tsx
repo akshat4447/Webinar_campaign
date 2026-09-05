@@ -1,8 +1,6 @@
 import { db } from '@/lib/db';
-import { ScheduleConfig } from './ScheduleConfig';
 import { CadenceGroups } from './CadenceGroups';
 import { LinkedInPanel } from './LinkedInPanel';
-import { ChannelMixCard } from './ChannelMixCard';
 import { LaunchCadenceCard } from './LaunchCadenceCard';
 import { renderMergeFields } from '@/lib/cadence';
 import { sendModeLabel } from '@/lib/sendGuard';
@@ -10,7 +8,6 @@ import { getLinkedInProgressAction } from '@/lib/actions/linkedin';
 import { getServerNow } from '@/lib/actions/clock';
 import { normalizeLinkedInSlug, peopleSearchUrl } from '@/lib/linkedinUrl';
 import { validateRenderedMessage } from '@/lib/messageValidation';
-import { normalizeChannel } from '@/lib/channels';
 import type { VerificationStatus } from '@/lib/apolloVerify';
 
 export default async function SchedulePage({ params }: { params: Promise<{ id: string }> }) {
@@ -48,36 +45,6 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
     });
   }
   const serverNow = await getServerNow();
-
-  // Channel mix snapshot for the toggle card (per-channel enabled/total steps).
-  const mixSteps = await db.cadenceStep.findMany({ where: { campaignId: id, removedAt: null }, select: { channel: true, enabled: true } });
-  const channelMix = {
-    email: { enabled: 0, total: 0 },
-    linkedin: { enabled: 0, total: 0 },
-    sms: { enabled: 0, total: 0 },
-    whatsapp: { enabled: 0, total: 0 },
-  } as Record<'email' | 'linkedin' | 'sms' | 'whatsapp', { enabled: number; total: number }>;
-  for (const s of mixSteps) {
-    const ch = normalizeChannel(s.channel);
-    if (!channelMix[ch]) continue;
-    channelMix[ch].total++;
-    if (s.enabled) channelMix[ch].enabled++;
-  }
-
-  // Reachability: enabling a channel is meaningless if nobody is contactable on
-  // it. Each channel has its own requirement — a verified inbox, a mobile, or
-  // explicit WhatsApp consent — so the card states how many it can actually
-  // reach rather than implying it covers the whole approved audience.
-  const approvedForReach = await db.contact.findMany({
-    where: { campaignId: id, approved: true },
-    select: { email: true, phone: true, whatsappOptIn: true, emailSimulated: true, emailVerified: true },
-  });
-  const reach = {
-    email: approvedForReach.filter((c) => c.email && !(c.emailSimulated && !c.emailVerified)).length,
-    linkedin: approvedForReach.length,
-    sms: approvedForReach.filter((c) => c.phone).length,
-    whatsapp: approvedForReach.filter((c) => c.phone && c.whatsappOptIn).length,
-  };
 
   // Every approved contact gets a LinkedIn touch. `slug` is their real profile
   // when one is on file (from the CSV's LinkedIn column or pasted in the queue);
@@ -134,8 +101,6 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
     <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 300px)', gap: 20, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <ChannelMixCard campaignId={id} initial={channelMix} reach={reach} approved={approvedForReach.length} />
-          <ScheduleConfig campaign={campaign} />
           <CadenceGroups
             campaignId={id}
             steps={steps}
@@ -152,16 +117,6 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
             queue={linkedinQueue}
             initialProgress={linkedinProgress}
           />
-
-          <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '16px 18px' }}>
-            <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 10 }}>Bot-led sign-up</div>
-            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.55, marginBottom: 12 }}>
-              Every send carries a pre-filled registration link — one click and the contact is registered, no form to complete.
-            </div>
-            <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', fontSize: 'var(--fs-label-2)', color: 'var(--n60)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-              {campaign.registrationLink}?c=contact-id&amp;pf=1
-            </div>
-          </div>
 
           <LaunchCadenceCard campaignId={id} approvedCount={approvedCount} cadenceStatus={campaign.cadenceStatus} sendMode={sendModeLabel()} />
         </div>
