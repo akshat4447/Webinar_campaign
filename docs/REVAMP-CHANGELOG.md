@@ -1508,3 +1508,64 @@ pointing at a non-resolving host, not an app defect).
 - Dev server restarted clean; screenshots taken of the webinars list,
   dashboard, a campaign Overview tab, Integrations (all 7 cards), and
   Agent run — all rendering correctly with no visual regressions
+
+## Setup tab: fetch Zoom event details directly — 2026-09-05
+
+Requested after the verification pass above: the wizard's "browse your Zoom
+account and pick a meeting" capability only existed at campaign-creation
+time. A campaign created by pasting a link by hand, or one that needs to be
+re-pointed at a different Zoom meeting later, had no way back to that
+picker — Setup only ever offered a plain paste field.
+
+### What changed
+- **`lib/actions/zoom.ts`** (new) — `listZoomMeetingsAction`,
+  `linkZoomMeetingAction`, `createZoomMeetingAction`, and a new
+  `unlinkZoomMeetingAction`, extracted from `lib/actions/wizard.ts` (which
+  had near-identical, wizard-named versions) so both the wizard and Setup
+  call the same code. `createZoomMeetingAction` now reads the campaign's
+  *current* title/date/description from the DB instead of requiring a full
+  `WizardDetails` object — by the time either caller reaches it, that data
+  is already saved, so this is a behavior-preserving simplification, not
+  just a move.
+- **`lib/actions/wizard.ts`, `app/campaigns/new/WizardClient.tsx`** — updated
+  to import the relocated actions; wizard behavior unchanged (reverified
+  live: browse → pick → "Pulled from Zoom" confirmation → Continue → real
+  campaign created with `zoomMeetingId` set, exactly as before).
+- **`app/campaigns/[id]/setup/CampaignDetailsForm.tsx`** — added "Fetch from
+  Zoom" (browse upcoming meetings, pick one) and "Create Zoom meeting"
+  (create one from the webinar's current title/date/description) next to
+  the existing manual paste field. Picking or creating a meeting updates
+  name, date/time, and the join link in the form immediately — not just in
+  the DB — since the component already owns that local state. A linked
+  campaign shows a "Linked to Zoom" / "Created on Zoom" badge instead of the
+  generic "Zoom link recognised" one, plus "Fetch a different event" and
+  "Unlink" (detaches Zoom's own tracking while keeping the join link itself
+  as a plain value — for un-linking before deleting that Zoom meeting
+  without breaking links already sent).
+
+### Design
+**No extra gating on when this can be used.** Linking a new Zoom meeting on
+a campaign whose cadence has already launched updates name/date exactly
+like every other Setup field already does (`updateCampaignSchedule` has
+never special-cased a live campaign either) — consistent with this app's
+existing convention that Setup edits are never blocked, and the operator
+uses the Cadence planner's per-step "Edit timing" afterward if a date
+change needs to ripple into already-queued sends.
+
+**Unlink keeps the join link, only drops the tracking.** Detaching
+`zoomMeetingId`/`zoomMode` without touching `zoomLink` means contacts who
+already received that link keep a working one; only the "this campaign is
+tracking a specific Zoom meeting" relationship goes away.
+
+### Verification
+- `GATE PASS` — `next typegen`, 181 tests, `tsc` exit 0, `eslint` clean
+- `VISUAL VERIFIED`, 0 console errors: browsed sandbox-fixture meetings on
+  an unlinked campaign, picked one — name/date/link updated in the form and
+  confirmed in the DB (`zoomMeetingId`, `zoomMode: 'existing'`); unlinked —
+  confirmed cleared in DB, join link retained; created a new meeting on a
+  different unlinked campaign — confirmed in DB (`zoomMode: 'new'`); wizard's
+  own existing-meeting flow re-tested end to end (browse → pick → Continue
+  → real campaign created with the link applied) to confirm the shared-code
+  move didn't change its behavior
+- All test campaigns/state reverted — full `Campaign`/`Contact` table diff
+  against a pre-test backup confirmed exact match afterward

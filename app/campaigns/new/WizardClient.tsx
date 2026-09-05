@@ -8,17 +8,14 @@ import { LeadImportCard } from '../[id]/setup/LeadImportCard';
 import { EnrichmentCard } from '../[id]/setup/EnrichmentCard';
 import type { EnrichmentStats } from '@/lib/actions/enrichment';
 import {
-  applyWizardZoomMeetingAction,
   createCampaignFromWizardAction,
-  createWizardZoomMeetingAction,
   getWizardScorePreviewAction,
   improveDraftDescriptionAction,
-  listWizardZoomMeetingsAction,
   saveWizardMessagingAction,
   updateWizardDetailsAction,
   type WizardDetails,
-  type WizardZoomMeeting,
 } from '@/lib/actions/wizard';
+import { createZoomMeetingAction, linkZoomMeetingAction, listZoomMeetingsAction, type ZoomMeeting } from '@/lib/actions/zoom';
 import { runScoringAction, updateScoringConfigAction } from '@/lib/actions/scoring';
 import { validateWizardDetails } from '@/lib/wizardValidation';
 import { toDateTimeLocal } from '@/lib/campaignDate';
@@ -118,7 +115,7 @@ export function WizardClient({
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [zoomChoice, setZoomChoice] = useState<'existing' | 'new' | 'manual'>('manual');
-  const [zoomMeetings, setZoomMeetings] = useState<WizardZoomMeeting[] | null>(null);
+  const [zoomMeetings, setZoomMeetings] = useState<ZoomMeeting[] | null>(null);
   const [zoomMeetingId, setZoomMeetingId] = useState('');
   const [zoomLoading, setZoomLoading] = useState(false);
   const [zoomError, setZoomError] = useState<string | null>(null);
@@ -128,7 +125,7 @@ export function WizardClient({
     setZoomError(null);
     if (zoomMeetings) return;
     setZoomLoading(true);
-    const meetings = await listWizardZoomMeetingsAction();
+    const meetings = await listZoomMeetingsAction();
     setZoomLoading(false);
     setZoomMeetings(meetings);
     if (meetings.length === 0) setZoomError('No upcoming meetings found — check the Zoom connection on Integrations, or paste a link by hand.');
@@ -206,10 +203,10 @@ export function WizardClient({
     if (campaign) await updateWizardDetailsAction(campaign.id, details);
 
     if (zoomChoice === 'existing' && zoomMeetingId) {
-      const r = await applyWizardZoomMeetingAction(id, zoomMeetingId);
+      const r = await linkZoomMeetingAction(id, zoomMeetingId);
       if (!r.ok) showToast(r.error);
     } else if (zoomChoice === 'new') {
-      const r = await createWizardZoomMeetingAction(id, details);
+      const r = await createZoomMeetingAction(id);
       showToast(r.ok ? 'Zoom meeting created.' : `Zoom meeting not created: ${r.error}`);
     }
 

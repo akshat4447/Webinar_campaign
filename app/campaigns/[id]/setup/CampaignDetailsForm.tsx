@@ -6,7 +6,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { updateCampaignName, updateCampaignSchedule, updateCampaignDescription, updateCampaignZoomLink, updateCampaignRegistrationLink } from '@/lib/actions/setup';
 import { improveDescriptionAction } from '@/lib/actions/description';
-import { toDateTimeLocal, parseLegacyWebinarDate, reminderDates } from '@/lib/campaignDate';
+import { createZoomMeetingAction, linkZoomMeetingAction, listZoomMeetingsAction, unlinkZoomMeetingAction, type ZoomMeeting } from '@/lib/actions/zoom';
+import { toDateTimeLocal, parseLegacyWebinarDate, reminderDates, formatWebinarDate } from '@/lib/campaignDate';
 import type { Campaign } from '@/lib/generated/prisma/client';
 
 export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaign; serverNow: number }) {
@@ -27,6 +28,81 @@ export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaig
   const [registrationLink, setRegistrationLink] = useState(campaign.registrationLink ?? '');
   const [regLinkError, setRegLinkError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+
+  // Zoom sync — fetching the event straight from a connected Zoom account,
+  // rather than only ever pasting a link by hand.
+  const [zoomMeetingId, setZoomMeetingId] = useState(campaign.zoomMeetingId);
+  const [zoomMode, setZoomMode] = useState(campaign.zoomMode);
+  const [zoomPicker, setZoomPicker] = useState<'closed' | 'browsing'>('closed');
+  const [zoomMeetings, setZoomMeetings] = useState<ZoomMeeting[] | null>(null);
+  const [zoomLoading, setZoomLoading] = useState(false);
+  const [zoomBusy, setZoomBusy] = useState(false);
+  const [zoomError, setZoomError] = useState<string | null>(null);
+  const [zoomNote, setZoomNote] = useState<string | null>(null);
+
+  async function browseZoomMeetings() {
+    setZoomPicker('browsing');
+    setZoomError(null);
+    setZoomNote(null);
+    if (zoomMeetings) return;
+    setZoomLoading(true);
+    const meetings = await listZoomMeetingsAction();
+    setZoomLoading(false);
+    setZoomMeetings(meetings);
+    if (meetings.length === 0) setZoomError('No upcoming meetings found — check the Zoom connection on Integrations, or paste a link by hand.');
+  }
+
+  async function applyZoomMeeting(meetingId: string) {
+    setZoomBusy(true);
+    setZoomError(null);
+    const res = await linkZoomMeetingAction(campaign.id, meetingId);
+    setZoomBusy(false);
+    if (!res.ok) {
+      setZoomError(res.error);
+      return;
+    }
+    // Everything the meeting carries lands in the same fields the manual
+    // inputs edit, so the form reflects it immediately rather than needing a
+    // refresh to catch up with what the server action just saved.
+    setName(res.meeting.topic);
+    setZoomLink(res.meeting.joinUrl);
+    setLinkState({ kind: 'zoom' });
+    setZoomMeetingId(res.meeting.id);
+    setZoomMode('existing');
+    if (res.meeting.startTime) {
+      const start = new Date(res.meeting.startTime);
+      setWhen(toDateTimeLocal(start));
+      setDisplay(formatWebinarDate(start));
+    }
+    setZoomPicker('closed');
+    setZoomNote(`Synced from Zoom: "${res.meeting.topic}".`);
+  }
+
+  async function createNewZoomMeeting() {
+    setZoomBusy(true);
+    setZoomError(null);
+    setZoomNote(null);
+    const res = await createZoomMeetingAction(campaign.id);
+    setZoomBusy(false);
+    if (!res.ok) {
+      setZoomError(`Zoom meeting not created: ${res.error}`);
+      return;
+    }
+    setZoomLink(res.meeting.joinUrl);
+    setLinkState({ kind: 'zoom' });
+    setZoomMeetingId(res.meeting.id);
+    setZoomMode('new');
+    setZoomNote(`Created "${res.meeting.topic}" on Zoom, from this webinar's current title, date and description.`);
+  }
+
+  async function unlinkZoom() {
+    setZoomBusy(true);
+    await unlinkZoomMeetingAction(campaign.id);
+    setZoomBusy(false);
+    setZoomMeetingId(null);
+    setZoomMode(null);
+    setZoomNote('Unlinked — the join link above is kept as a plain value.');
+  }
 
   function save(fn: () => Promise<unknown>) {
     setAutosave('saving');
@@ -117,18 +193,84 @@ export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaig
             onBlur={saveLink}
           />
           {linkState && 'error' in linkState && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--danger-500)', marginTop: 6 }}>{linkState.error}</div>}
-          {linkState && 'kind' in linkState && linkState.kind === 'zoom' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
-              <Badge color="success" text="Zoom link recognised" />
-              <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>Used as the join link in reminder emails.</span>
+          {zoomMeetingId ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+              <Badge color="success" text={zoomMode === 'new' ? 'Created on Zoom' : 'Linked to Zoom'} />
+              <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>
+                Title, date and join link stay in sync with this Zoom meeting each time you re-fetch it.
+              </span>
+              <button
+                type="button"
+                onClick={unlinkZoom}
+                disabled={zoomBusy}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 'var(--fs-label-2)', color: 'var(--n50)', textDecoration: 'underline' }}
+              >
+                Unlink
+              </button>
+            </div>
+          ) : (
+            <>
+              {linkState && 'kind' in linkState && linkState.kind === 'zoom' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                  <Badge color="success" text="Zoom link recognised" />
+                  <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>Used as the join link in reminder emails.</span>
+                </div>
+              )}
+              {linkState && 'kind' in linkState && linkState.kind === 'other' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                  <Badge color="blue" text={linkState.host ?? 'Custom host'} />
+                  <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>Not a Zoom URL — saved anyway and used as the join link.</span>
+                </div>
+              )}
+            </>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            <Button hierarchy="secondary" size="sm" onClick={browseZoomMeetings} disabled={zoomBusy}>
+              {zoomMeetingId ? 'Fetch a different event' : 'Fetch from Zoom'}
+            </Button>
+            {!zoomMeetingId && (
+              <Button hierarchy="secondary" size="sm" onClick={createNewZoomMeeting} disabled={zoomBusy}>
+                {zoomBusy ? 'Creating…' : 'Create Zoom meeting'}
+              </Button>
+            )}
+          </div>
+
+          {zoomPicker === 'browsing' && (
+            <div style={{ marginTop: 10 }}>
+              {zoomLoading ? (
+                <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>Loading meetings…</div>
+              ) : zoomMeetings && zoomMeetings.length > 0 ? (
+                <select
+                  className="lsq-select"
+                  style={{ width: '100%', height: 36 }}
+                  value=""
+                  disabled={zoomBusy}
+                  onChange={(e) => e.target.value && applyZoomMeeting(e.target.value)}
+                >
+                  <option value="">Choose a meeting…</option>
+                  {zoomMeetings.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.topic}
+                      {m.startTime ? ` — ${new Date(m.startTime).toLocaleString('en-GB')}` : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
             </div>
           )}
-          {linkState && 'kind' in linkState && linkState.kind === 'other' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
-              <Badge color="blue" text={linkState.host ?? 'Custom host'} />
-              <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>Not a Zoom URL — saved anyway and used as the join link.</span>
+          {zoomError && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--danger-500)', marginTop: 8 }}>{zoomError}</div>}
+          {zoomNote && (
+            <div style={{ display: 'flex', gap: 8, background: 'var(--success-100)', borderRadius: 'var(--radius-md)', padding: '10px 12px', marginTop: 8 }}>
+              <span style={{ color: 'var(--success-700)', flexShrink: 0 }} aria-hidden="true">✓</span>
+              <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--success-700)' }}>{zoomNote}</div>
             </div>
           )}
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 8, lineHeight: 1.5 }}>
+            Pulls straight from your connected Zoom account (Integrations → Zoom) — pick an upcoming meeting to link, or
+            create one from this webinar&apos;s current title and date. Paste a link above instead if Zoom isn&apos;t
+            connected.
+          </div>
         </div>
 
         <div>
