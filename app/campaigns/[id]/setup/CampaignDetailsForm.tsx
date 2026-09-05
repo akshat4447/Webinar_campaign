@@ -10,7 +10,7 @@ import { createZoomMeetingAction, linkZoomMeetingAction, listZoomMeetingsAction,
 import { toDateTimeLocal, parseLegacyWebinarDate, reminderDates, formatWebinarDate } from '@/lib/campaignDate';
 import type { Campaign } from '@/lib/generated/prisma/client';
 
-export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaign; serverNow: number }) {
+export function CampaignDetailsForm({ campaign, serverNow, onDone }: { campaign: Campaign; serverNow: number; onDone?: () => void }) {
   const [name, setName] = useState(campaign.name);
   const [description, setDescription] = useState(campaign.description ?? '');
   const [zoomLink, setZoomLink] = useState(campaign.zoomLink ?? '');
@@ -171,12 +171,19 @@ export function CampaignDetailsForm({ campaign, serverNow }: { campaign: Campaig
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 14 }}>
         <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>Webinar details</div>
-        {autosave !== 'idle' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-label-2)', fontWeight: 600, color: autosave === 'saving' ? 'var(--warning-700)' : 'var(--success-700)' }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: autosave === 'saving' ? 'var(--warning-700)' : 'var(--success-500)', flexShrink: 0 }} />
-            {autosave === 'saving' ? 'Saving…' : 'Saved'}
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {autosave !== 'idle' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-label-2)', fontWeight: 600, color: autosave === 'saving' ? 'var(--warning-700)' : 'var(--success-700)' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: autosave === 'saving' ? 'var(--warning-700)' : 'var(--success-500)', flexShrink: 0 }} />
+              {autosave === 'saving' ? 'Saving…' : 'Saved'}
+            </div>
+          )}
+          {onDone && (
+            <Button hierarchy="secondary" size="sm" onClick={onDone}>
+              Done editing
+            </Button>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16 }}>

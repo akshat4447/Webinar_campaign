@@ -2,17 +2,18 @@ import { Card } from '@/components/ui/Card';
 import { NavButton } from '@/components/ui/NavButton';
 import { db } from '@/lib/db';
 import { LeadImportCard } from './LeadImportCard';
-import { CampaignDetailsForm } from './CampaignDetailsForm';
+import { WebinarDetailsCard } from './WebinarDetailsCard';
 import { EnrichmentCard } from './EnrichmentCard';
 import { LinkedInPublishCard } from './LinkedInPublishCard';
 import { getEnrichmentStats } from '@/lib/actions/enrichment';
 import { getServerNow } from '@/lib/actions/clock';
+import { getSetupEditImpactAction } from '@/lib/actions/setup';
 import { resolveIntegrationField } from '@/lib/integrationConfig';
 import { linkedinMode } from '@/lib/linkedin/client';
 
 export default async function SetupPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [campaign, activityLog, enrichmentStats, serverNow, contactCount, scoredCount, orgName, orgUrn] = await Promise.all([
+  const [campaign, activityLog, enrichmentStats, serverNow, contactCount, scoredCount, orgName, orgUrn, impact] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id } }),
     db.activityLogEntry.findMany({ where: { campaignId: id }, orderBy: { createdAt: 'desc' }, take: 20 }),
     getEnrichmentStats(id),
@@ -21,6 +22,7 @@ export default async function SetupPage({ params }: { params: Promise<{ id: stri
     db.contact.count({ where: { campaignId: id, score: { not: null } } }),
     resolveIntegrationField('linkedin', 'organizationName'),
     resolveIntegrationField('linkedin', 'organizationUrn'),
+    getSetupEditImpactAction(id),
   ]);
   const mode = linkedinMode();
 
@@ -28,7 +30,7 @@ export default async function SetupPage({ params }: { params: Promise<{ id: stri
     <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <CampaignDetailsForm campaign={campaign} serverNow={serverNow} />
+          <WebinarDetailsCard campaign={campaign} serverNow={serverNow} hasAudience={contactCount > 0} impact={impact} />
           <LeadImportCard campaignId={id} existingContactCount={contactCount} existingScoredCount={scoredCount} />
           <EnrichmentCard campaignId={id} stats={enrichmentStats} />
         </div>

@@ -1569,3 +1569,70 @@ tracking a specific Zoom meeting" relationship goes away.
   move didn't change its behavior
 - All test campaigns/state reverted — full `Campaign`/`Contact` table diff
   against a pre-test backup confirmed exact match afterward
+
+## Setup: read-only overview + gated edit, once there's real audience data — 2026-09-05
+
+Requested behavior change: once a campaign has real work behind it, Setup's
+always-editable form was too easy to change by accident, with no signal that
+the topic/date/Zoom event feed scoring, personalized copy and cadence
+timing. Confirmed scope with the user before touching anything, since
+"resets everything" could have meant deleting contacts outright — it
+doesn't.
+
+### What changed
+- **`lib/actions/setup.ts`** — added `getSetupEditImpactAction` (counts
+  scored/approved contacts, personalized drafts, and cadence sends) and
+  `resetCampaignForEditAction`, which clears `Contact.score`/`explanation`/
+  `approved`/`approvedManually`, deletes all `PersonalizedMessage` and
+  `CadenceSend` rows, and resets `Campaign.cadenceStatus` to `not_started`
+  (`simulatedNow` cleared too) — **the imported contact list itself
+  (name/email/company/title/enrichment/...) is never touched.**
+- **`CampaignDetailsOverview.tsx`** (new) — read-only summary of topic, Zoom
+  event, date, description and registration link, with an "Edit details"
+  button.
+- **`WebinarDetailsCard.tsx`** (new) — the actual gate: renders the overview
+  by default once the campaign has any imported contacts, or the existing
+  editable form directly if it doesn't (an empty draft has nothing that
+  could go stale, so it stays frictionless). "Edit details" opens a
+  confirmation dialog naming the *real* counts about to be cleared — or, if
+  nothing has been scored/personalized/sent yet, says plainly that there's
+  nothing to lose. Confirming runs the reset and switches to the form.
+- **`CampaignDetailsForm.tsx`** — added an optional `onDone` prop; when
+  present (i.e. reachable from the overview), a "Done editing" button
+  returns to the read-only view without a page reload. A campaign with no
+  contacts still gets the form with no `onDone` at all, since there's no
+  overview to return to.
+
+### Design
+**No confirmation theater when there's nothing at stake.** The dialog reads
+real counts, not a boilerplate warning — a campaign that's been imported but
+never scored gets "nothing to lose," not a scary generic message, so the
+warning stays trustworthy on the times it does list real consequences.
+
+**"Overview" is the resting state, not sticky state.** Which view opens is
+decided fresh on every page load (`hasAudience` from the current contact
+count) rather than persisted anywhere — after a reset-and-edit-and-done
+cycle, reloading the tab shows the overview again, exactly like "once setup
+is done, it shows an overview" implies. There's deliberately no separate
+"is this campaign locked" flag to keep in sync.
+
+### Verification
+- `GATE PASS` — `next typegen`, 181 tests, `tsc` exit 0, `eslint` clean
+- `VISUAL VERIFIED`, 0 console errors, on a real campaign with 24 scored
+  contacts (7 approved) and 30 cadence sends:
+  - overview renders correctly; clicking Edit shows the dialog with the
+    exact real counts ("24 scored contacts (7 approved), 30 queued or sent
+    cadence steps")
+  - Cancel: DB unchanged (re-verified by direct query)
+  - Confirm: DB verified directly — scores/approvals cleared on all 24
+    contacts, all 30 `CadenceSend` rows deleted, `cadenceStatus` back to
+    `not_started` — while contact identity fields (name, email, account,
+    `enrichedAt`) were untouched; form appeared with "Done editing"; clicking
+    it returned to the overview in the same session
+  - a contact-less campaign (`c3`) confirmed to show the plain editable form
+    directly, no gate
+  - test campaign's scores/approvals/cadence sends restored from a pre-test
+    backup afterward, verified identical via direct diff; also found and
+    removed 3 leftover test-artifact `ActivityLogEntry` rows from an earlier
+    verification pass that had gone unnoticed until they showed up in this
+    campaign's real activity log on screen

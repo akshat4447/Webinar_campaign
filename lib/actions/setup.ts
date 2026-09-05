@@ -14,6 +14,45 @@ export async function updateCampaignName(campaignId: string, name: string) {
   revalidateCampaign(campaignId);
 }
 
+/** What editing the webinar's core details would clear — computed so the
+ *  confirmation dialog can name real numbers instead of a generic warning. */
+export interface SetupEditImpact {
+  scoredCount: number;
+  approvedCount: number;
+  personalizedCount: number;
+  cadenceSendCount: number;
+}
+
+export async function getSetupEditImpactAction(campaignId: string): Promise<SetupEditImpact> {
+  const [scoredCount, approvedCount, personalizedCount, cadenceSendCount] = await Promise.all([
+    db.contact.count({ where: { campaignId, score: { not: null } } }),
+    db.contact.count({ where: { campaignId, approved: true } }),
+    db.personalizedMessage.count({ where: { campaignId } }),
+    db.cadenceSend.count({ where: { campaignId } }),
+  ]);
+  return { scoredCount, approvedCount, personalizedCount, cadenceSendCount };
+}
+
+/**
+ * Editing the webinar's topic, date or Zoom event after real audience work
+ * has happened invalidates that work — Claude scored/wrote copy against the
+ * old details, and cadence timing was computed from the old date. Rather
+ * than leave stale scores, drafts and queued sends sitting around looking
+ * current, editing clears them — but the imported contact *list* (name,
+ * email, company, title, enrichment...) is never touched, since re-importing
+ * a CSV is the expensive step to avoid repeating.
+ */
+export async function resetCampaignForEditAction(campaignId: string) {
+  await db.$transaction([
+    db.contact.updateMany({ where: { campaignId }, data: { score: null, explanation: null, approved: false, approvedManually: false } }),
+    db.personalizedMessage.deleteMany({ where: { campaignId } }),
+    db.cadenceSend.deleteMany({ where: { campaignId } }),
+    db.campaign.update({ where: { id: campaignId }, data: { cadenceStatus: 'not_started', simulatedNow: null } }),
+  ]);
+  revalidateCampaign(campaignId);
+  return { ok: true as const };
+}
+
 export async function updateCampaignDescription(campaignId: string, description: string) {
   await db.campaign.update({ where: { id: campaignId }, data: { description } });
   revalidateCampaign(campaignId);
