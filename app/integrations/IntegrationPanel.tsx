@@ -170,11 +170,26 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                 </div>
               )}
               {id === 'zoom' && (
-                <div style={{ marginBottom: 12, padding: 10, background: 'var(--n10)', borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-label-2)', color: 'var(--n70)', lineHeight: 1.6 }}>
-                  A Server-to-Server OAuth app&apos;s Account ID, Client ID and Client Secret (Zoom Marketplace → Build App). Optional:
-                  attendance can always be imported by hand from a campaign&apos;s Post-event tab via the Participants Report CSV.
-                  These credentials only unlock auto-linking a meeting from the creation wizard and pulling that report directly
-                  instead of exporting it yourself.
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ marginBottom: 10, padding: 10, background: 'var(--n10)', borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-label-2)', color: 'var(--n70)', lineHeight: 1.6 }}>
+                    A User-managed OAuth app&apos;s Client ID and Client Secret (Zoom Marketplace → Build App → OAuth), the same
+                    app type a real Zoom Marketplace integration uses. Save these first, then Connect to authorize a specific
+                    Zoom account.
+                  </div>
+                  <a
+                    href="/api/auth/zoom/connect"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', height: 32, padding: '0 12px', fontSize: 'var(--fs-label-1)', fontWeight: 600,
+                      background: '#2563EB', color: '#fff', borderRadius: 'var(--radius-md)', textDecoration: 'none',
+                    }}
+                  >
+                    Connect with Zoom
+                  </a>
+                  <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 6, lineHeight: 1.5 }}>
+                    Authorizes reading and creating meetings, and reading participant reports (meeting:read · meeting:write ·
+                    report:read). Once connected, meeting sync and attendance both run automatically in the background — see
+                    Delivery settings above for the current sync state. Tokens are stored server-side only.
+                  </div>
                 </div>
               )}
               {id === 'linkedin' && (

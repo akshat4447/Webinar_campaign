@@ -1,14 +1,11 @@
 import { db } from '@/lib/db';
-import { pickCol } from '@/lib/importHeuristics';
 import { processDueSends } from '@/lib/cadence';
 import { pushEngagementActivities } from '@/lib/activityPush';
-import { parseCsvText } from '@/lib/csv';
 
-// Two sources feed the same attendance pipeline: a hand-exported CSV (Zoom's
-// own "Participants Report", which any plan can export) and the Zoom
-// reporting API (which needs a paid plan). Both end up as an email->duration
-// map and go through applyAttendance below, so "attended" means the same
-// thing and queues the same follow-ups regardless of where the row came from.
+// Attendance always comes from Zoom's reporting API (see importAttendanceFromZoom
+// below), pulled automatically once a webinar has ended — see
+// lib/zoomAutosync.ts. Ends up as an email->duration map and goes through
+// applyAttendance, the one place "attended" actually gets decided.
 
 export interface AttendanceImportResult {
   ok: boolean;
@@ -71,44 +68,16 @@ async function applyAttendance(campaignId: string, emailToDuration: Map<string, 
   return { ok: true, attendedCount: attendedIds.length, noShowCount: noShowIds.length, matchedEmails: [...emailToDuration.keys()] };
 }
 
-// Zoom's own "Participants Report" export often has a summary section before
-// the real header row — this finds the first row that looks like a header
-// (contains an "email" column) instead of assuming row 0.
-export async function importAttendanceCsv(campaignId: string, csvText: string): Promise<AttendanceImportResult> {
-  const rows = parseCsvText(csvText);
-  const headerIndex = rows.findIndex((r) => r.some((c) => c.toLowerCase().includes('email')));
-  if (headerIndex < 0) return { ok: false, error: 'Could not find a column containing "email" in this file.' };
-
-  const headers = rows[headerIndex].map((h) => h.trim().toLowerCase());
-  const ci = {
-    email: pickCol(headers, ['email']),
-    name: pickCol(headers, ['name']),
-    duration: pickCol(headers, ['duration', 'minutes']),
-  };
-  if (ci.email < 0) return { ok: false, error: 'No email column detected.' };
-
-  const emailToDuration = new Map<string, number>();
-  for (const r of rows.slice(headerIndex + 1)) {
-    const email = (r[ci.email] ?? '').trim().toLowerCase();
-    if (!email || !email.includes('@')) continue;
-    const duration = ci.duration >= 0 ? parseInt(r[ci.duration] ?? '0', 10) || 0 : 0;
-    emailToDuration.set(email, Math.max(emailToDuration.get(email) ?? 0, duration));
-  }
-
-  return applyAttendance(campaignId, emailToDuration);
-}
-
 /**
  * Pull attendance straight from Zoom's reporting API for the meeting this
  * campaign is linked to. Needs a paid Zoom plan — the report endpoints are
- * not on the free tier, which is exactly why the CSV path above stays: it is
- * the only route that works on every plan, and the only one when no Zoom
- * meeting is linked at all.
+ * not on the free tier, so a campaign on a free/basic Zoom plan simply never
+ * gets attendance filled in automatically until the account is upgraded.
  */
 export async function importAttendanceFromZoom(campaignId: string): Promise<AttendanceImportResult> {
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { zoomMeetingId: true } });
   if (!campaign.zoomMeetingId) {
-    return { ok: false, error: 'No Zoom meeting is linked to this webinar — link one from Setup, or import a CSV instead.' };
+    return { ok: false, error: 'No Zoom meeting is linked to this webinar — link one from Setup.' };
   }
 
   const { fetchParticipants } = await import('@/lib/zoom/meetings');
@@ -116,10 +85,10 @@ export async function importAttendanceFromZoom(campaignId: string): Promise<Atte
   try {
     participants = await fetchParticipants(campaign.zoomMeetingId);
   } catch (err) {
-    return { ok: false, error: `Zoom's participants report could not be fetched: ${String(err)}. Import the CSV instead.` };
+    return { ok: false, error: `Zoom's participants report could not be fetched: ${String(err)}` };
   }
   if (participants.length === 0) {
-    return { ok: false, error: 'Zoom returned no participants for this meeting — the report may need the paid Webinar add-on, or nobody has joined yet. Import a CSV instead.' };
+    return { ok: false, error: 'Zoom returned no participants for this meeting — the report may need the paid Webinar add-on, or nobody has joined yet.' };
   }
 
   const emailToDuration = new Map<string, number>();

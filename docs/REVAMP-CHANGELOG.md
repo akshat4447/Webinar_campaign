@@ -1700,3 +1700,113 @@ before removing anything:
   "Zoom isn't connected — add your Server-to-Server OAuth credentials on
   Integrations → Zoom." and neither writes anything to the DB (confirmed by
   direct query) when blocked
+
+## Zoom: real Marketplace OAuth, two-way background sync, automatic attendance — 2026-09-05
+
+The user asked for Zoom to connect "the way the LeadSquared listing on the
+Zoom Marketplace does," for connection two-way sync (app → Zoom on create,
+Zoom → app on fetch) to run automatically once connected, for attendance
+import to be fully automatic with **no manual UI at all**, and for the
+connection itself to live on the Integrations page. Researched Zoom's real
+OAuth docs (`developers.zoom.us`) rather than guessing: confirmed a
+"User-managed OAuth app" — the actual app type behind real published
+Marketplace integrations — is a standard three-legged OAuth 2.0 flow, not
+the account-level Server-to-Server credentials this project had built
+earlier. Rebuilt Zoom's connection on that basis, mirroring this codebase's
+own already-working LinkedIn OAuth implementation exactly rather than
+inventing a new pattern.
+
+### Connection: Server-to-Server OAuth → three-legged Marketplace OAuth
+- **`lib/zoom/auth.ts`** (new) — `buildAuthorizationUrl`, `exchangeCodeForToken`,
+  `refreshAccessToken`, `fetchConnectedUser`. Real endpoints
+  (`zoom.us/oauth/authorize`, `zoom.us/oauth/token`), real scopes
+  (`meeting:read`, `meeting:write`, `report:read`, `user:read`).
+- **`app/api/auth/zoom/connect/route.ts`**, **`.../callback/route.ts`** (new)
+  — same shape as the existing LinkedIn connect/callback routes: HttpOnly
+  CSRF-state cookie, Basic-auth token exchange, connected account's email
+  fetched and stored for display.
+- **`lib/zoom/client.ts`** — rewritten. Removed `ZoomCredentials`,
+  `credentials()`, `fetchZoomToken()` (the old S2S plumbing) entirely.
+  Added `storedAccessToken()`/`storedRefreshCredentials()`,
+  `tryRefreshAccessToken()` (rotates the refresh token on save, same as
+  LinkedIn), and `zoomRequest()` (retry-once-on-401 wrapper). `zoomIsConfigured()`
+  now means "an access token is on file," not "an account ID is on file."
+  `zoomConnectionError()` keeps its role from the previous checkpoint but
+  its unconnected message now points at the new flow: `Zoom isn't
+  connected — click "Connect with Zoom" on Integrations → Zoom.`
+- **`lib/integrationFields.ts`** — Zoom's field list swapped: dropped
+  `accountId`; added `accessToken`, `refreshToken`, `connectedEmail`,
+  `tokenExpiresAt` (all optional, auto-filled by the connect flow, not
+  hand-typed). `clientId`/`clientSecret` remain — those two are the
+  Marketplace *app's* credentials (created once in the Zoom Marketplace
+  developer console), not a per-connection secret.
+- **`lib/integrationConfig.ts`** — removed Zoom's 3 lines from
+  `envFallback()`, matching LinkedIn's existing pattern: OAuth tokens are
+  DB-only state from a live handshake, never something to source from an
+  env var.
+- **`lib/actions/integrations.ts`** — Zoom's `testIntegrationAction` branch
+  now calls the real `GET /v2/users/me` with the stored access token
+  (mirroring LinkedIn's test branch) instead of exercising the old
+  S2S token endpoint.
+- **`app/integrations/IntegrationPanel.tsx`** — the manual credential-entry
+  explainer replaced with a single "Connect with Zoom" button
+  (`/api/auth/zoom/connect`), matching LinkedIn's card.
+- **`.env.example`** — `ZOOM_ACCOUNT_ID` removed, `ZOOM_REDIRECT_URI` added,
+  plus a commented-out `ZOOM_AUTOSYNC`/`ZOOM_AUTOSYNC_SECONDS` block (see
+  below), styled the same as the existing `CADENCE_AUTOTICK` block.
+
+### Two-way sync, fully automatic, off by default
+**`lib/zoomAutosync.ts`** (new) — a background loop with the same shape as
+the existing `lib/cadenceAutotick.ts`, wired into `instrumentation.ts` behind
+its own env var (`ZOOM_AUTOSYNC`), so a fresh clone never starts making real
+Zoom API calls on its own. Three independent jobs per tick, each guarded so
+one failing doesn't block the others, and the whole tick is a no-op unless
+Zoom is both connected and `ZOOM_MODE=live`:
+1. **App → Zoom**: any non-archived campaign with a future date and no
+   linked meeting gets one created via `createMeeting()`.
+2. **Zoom → App**: any meeting on the connected account with no matching
+   campaign (deduped by `zoomMeetingId`) becomes a new draft campaign,
+   provisioned the same way the wizard provisions one, with an
+   `ActivityLogEntry` noting where it came from.
+3. **Attendance**: any campaign linked to a meeting, not yet imported, whose
+   webinar started 2+ hours ago (reusing the existing "Attendee/No-show
+   follow-up" post-webinar buffer convention) gets `importAttendanceFromZoom()`
+   called on it automatically.
+
+### Post-event: attendance import removed from the UI entirely
+Per explicit instruction ("i don't want that in the ui"), not just hidden
+behind a flag:
+- Deleted **`app/campaigns/[id]/agent/ZoomPanel.tsx`** (the "Pull attendance
+  from Zoom" / "Upload attendance report (.csv)" buttons) and, from
+  **`lib/attendance.ts`**, `importAttendanceCsv()` — the CSV path is gone,
+  not just unreached; Zoom's reporting API is the only source of attendance
+  now. Removed `importAttendanceAction`/`importAttendanceFromZoomAction`
+  from **`lib/actions/attendance.ts`**, leaving only `pushAccountsForSdrAction`
+  (still a real manual action, unrelated to attendance import).
+- **`app/campaigns/[id]/post-event/page.tsx`** — replaced the panel with a
+  read-only 3-state status card: imported (with timestamp), linked-but-
+  pending, or not-linked — so the operator can see what's happening without
+  a button to press.
+
+### Verification
+- `GATE PASS` — `next typegen`, `tsc --noEmit`, 181 tests, `eslint`, all clean
+- Live-triggered `/api/auth/zoom/connect` with syntactically-valid test
+  credentials (written directly to `AppSetting` via SQL, not through the UI)
+  and confirmed Zoom's own server accepted the redirect: real sign-in page,
+  correctly encoded `client_id`, `redirect_uri`, `response_type=code`,
+  `state=<uuid>`, `scope=meeting:read%20meeting:write%20report:read%20user:read`
+- `VISUAL VERIFIED` via direct page fetch, all three Post-event status-card
+  branches, against real data: `c1` (`attendanceImportedAt` set) → "Imported
+  automatically ... — attendee and no-show follow-ups were queued";
+  `cmtaiw5yk0000y9ufpx40rrad` (`zoomMeetingId` set, no import yet) → "Not
+  imported yet — this campaign is linked to a Zoom meeting..."; `c2` (no
+  Zoom meeting) → "No Zoom meeting linked to this campaign..."
+- Grepped the whole tree (including `scripts/`) for every removed symbol —
+  `ZOOM_ACCOUNT_ID`, `fetchZoomToken`, `ZoomCredentials`, `ChannelMixCard`,
+  `ScheduleConfig`, `ZoomPanel`, `importAttendanceCsv`,
+  `importAttendanceAction`/`importAttendanceFromZoomAction` — zero remaining
+  references
+- `dev.db` diffed byte-for-byte (`sqlite3 .dump`) against the pre-session
+  backup: identical. No stray `AppSetting` rows, no test campaigns created
+  by `zoomAutosync` logic (never triggered live — `ZOOM_AUTOSYNC` was never
+  set during testing)

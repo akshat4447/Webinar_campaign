@@ -1,23 +1,8 @@
 'use server';
 
-import { importAttendanceCsv } from '@/lib/attendance';
-import { revalidateCampaign } from '@/lib/revalidate';
-
-export async function importAttendanceAction(campaignId: string, formData: FormData) {
-  const file = formData.get('file') as File | null;
-  if (!file) return { ok: false, error: 'No file provided.' };
-  const text = await file.text();
-  const result = await importAttendanceCsv(campaignId, text);
-  revalidateCampaign(campaignId);
-  return result;
-}
-
-export async function importAttendanceFromZoomAction(campaignId: string) {
-  const { importAttendanceFromZoom } = await import('@/lib/attendance');
-  const result = await importAttendanceFromZoom(campaignId);
-  if (result.ok) revalidateCampaign(campaignId);
-  return result;
-}
+// Attendance import itself has no manual trigger anymore — it runs
+// automatically from lib/zoomAutosync.ts once a webinar has ended. This file
+// keeps the one attendance-adjacent action that's still UI-triggered.
 
 export async function pushAccountsForSdrAction(campaignId: string, contactIds: string[]) {
   const { pushEngagementActivities } = await import('@/lib/activityPush');

@@ -2,6 +2,7 @@ import { IntegrationCard } from './IntegrationCard';
 import { LsqActivityMappingCard } from './LsqActivityMappingCard';
 import { integrationsData } from '@/lib/demo-data';
 import { getTestResult, resolveIntegrationField } from '@/lib/integrationConfig';
+import { zoomIsConfigured } from '@/lib/zoom/client';
 
 // Reads live DB credentials/test-results on every request — this page must
 // NEVER be statically prerendered with build-time values frozen into HTML.
@@ -19,12 +20,22 @@ export default async function IntegrationsPage() {
   const sendMode = process.env.SEND_MODE === 'live' ? 'live' : 'sandbox';
   const liMode = process.env.LINKEDIN_MODE === 'live' ? 'live' : 'sandbox';
   const zoomMode = process.env.ZOOM_MODE === 'live' ? 'live' : 'sandbox';
+  const zoomConnected = await zoomIsConfigured();
+  const zoomAutosyncOn = process.env.ZOOM_AUTOSYNC === '1' || process.env.ZOOM_AUTOSYNC === 'true';
+  const zoomValue =
+    zoomMode !== 'live'
+      ? 'Sandbox — meeting sync and attendance simulated'
+      : !zoomConnected
+        ? 'Live mode, but not connected — click Connect with Zoom'
+        : zoomAutosyncOn
+          ? 'Live · auto-sync running'
+          : 'Live · connected, auto-sync off (set ZOOM_AUTOSYNC=1)';
   const delivery = [
     { label: 'Email', value: `${sendMode}${sendMode === 'sandbox' ? ' → allowlisted lead' : ''}` },
     { label: 'SMS', value: `LSQ ${(smsStrategy || 'trigger').toLowerCase()} strategy` },
     { label: 'WhatsApp', value: `LSQ ${(waStrategy || 'trigger').toLowerCase()} strategy` },
     { label: 'LinkedIn', value: liMode === 'live' ? 'Events API live' : 'Events API sandbox · touches manual' },
-    { label: 'Zoom', value: zoomMode === 'live' ? 'Meetings + participants API live' : 'Sandbox · CSV import always works' },
+    { label: 'Zoom', value: zoomValue },
   ];
 
   return (
@@ -57,10 +68,10 @@ export default async function IntegrationsPage() {
       </div>
 
       <div style={{ marginTop: 24, fontSize: 'var(--fs-label-2)', color: 'var(--n50)', lineHeight: 1.6, maxWidth: 760 }}>
-        Build note — LeadSquared, Claude, Apollo and Zoom (Server-to-Server OAuth) all make live API calls; a CSV export of
-        Zoom&apos;s Participants Report still works as a fallback with no credentials at all. LinkedIn outreach is manual by
-        design; its Events API is real. Contact details that were inferred rather than supplied are held back from sending
-        until a human verifies them.
+        Build note — LeadSquared, Claude, Apollo and Zoom (User-managed OAuth, connected per account via Connect with Zoom)
+        all make live API calls. Meeting creation/linking and attendance both run automatically once Zoom is connected and
+        ZOOM_AUTOSYNC is on — there is no manual upload path. LinkedIn outreach is manual by design; its Events API is real.
+        Contact details that were inferred rather than supplied are held back from sending until a human verifies them.
       </div>
     </main>
   );

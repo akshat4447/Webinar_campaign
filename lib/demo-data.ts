@@ -136,7 +136,7 @@ export const accountBreakdownData = [
 
 export const integrationsData = [
   { id: 'lsq', name: 'LeadSquared', role: 'CRM + email sending', initial: 'L', avatarBg: 'var(--accent-500)', statusColor: 'success', statusLabel: 'Connected', lastOp: 'Synced engagement summary, 2 min ago', endpoint: 'POST /v2/LeadManagement.svc/Lead.CreateOrUpdate' },
-  { id: 'zoom', name: 'Zoom', role: 'Webinar hosting', initial: 'Z', avatarBg: '#2563EB', statusColor: 'gray', statusLabel: 'Not tested yet', lastOp: 'Attendance report imported, 40 min ago', endpoint: 'Server-to-Server OAuth (meeting link + participants), or CSV import' },
+  { id: 'zoom', name: 'Zoom', role: 'Webinar hosting', initial: 'Z', avatarBg: '#2563EB', statusColor: 'gray', statusLabel: 'Not connected', lastOp: 'Attendance imported automatically, 40 min ago', endpoint: 'User-managed OAuth · meeting sync + participant reports, both automatic' },
   { id: 'claude', name: 'Claude', role: 'Propensity scoring, rewrites & chat', initial: 'C', avatarBg: 'var(--accent-purple)', statusColor: 'success', statusLabel: 'Connected', lastOp: 'Scored 342 contacts, today', endpoint: 'POST /v1/messages' },
   { id: 'apollo', name: 'Apollo', role: 'Contact enrichment', initial: 'A', avatarBg: '#7C3AED', statusColor: 'success', statusLabel: 'Connected', lastOp: 'Enriched contact details, today', endpoint: 'POST /v1/people/match' },
   { id: 'apify', name: 'Apify', role: 'Web + profile enrichment', initial: 'A', avatarBg: '#F97316', statusColor: 'error', statusLabel: 'Error', lastOp: 'Attempted enrichment, today', hasError: true, error: 'Rate limit exceeded on last batch — retry in 15 min.', endpoint: 'POST /v2/acts/lsq~linkedin-company/runs' },

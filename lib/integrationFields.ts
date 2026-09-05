@@ -27,10 +27,16 @@ export const INTEGRATION_FIELDS: Record<string, IntegrationField[]> = {
   claude: [{ key: 'apiKey', label: 'API Key', secret: true, placeholder: 'Paste your Anthropic API key' }],
   apollo: [{ key: 'apiKey', label: 'API Key', secret: true, placeholder: 'Paste your Apollo API key' }],
   apify: [{ key: 'apiToken', label: 'API Token', secret: true, placeholder: 'Paste your Apify API token' }],
+  // User-managed OAuth, same shape as the linkedin entry below — the
+  // operator's own Zoom Marketplace app credentials, then Connect does the
+  // real three-legged OAuth to a specific Zoom account.
   zoom: [
-    { key: 'accountId', label: 'Account ID', secret: false, placeholder: 'Zoom Server-to-Server OAuth app Account ID' },
-    { key: 'clientId', label: 'Client ID', secret: false, placeholder: 'Zoom Server-to-Server OAuth app Client ID' },
-    { key: 'clientSecret', label: 'Client Secret', secret: true, placeholder: 'Zoom Server-to-Server OAuth app Client Secret' },
+    { key: 'clientId', label: 'Client ID', secret: false, placeholder: 'Zoom OAuth app Client ID' },
+    { key: 'clientSecret', label: 'Client Secret', secret: true, placeholder: 'Zoom OAuth app Client Secret' },
+    { key: 'accessToken', label: 'Access Token', secret: true, optional: true, placeholder: 'Auto-filled by Connect' },
+    { key: 'refreshToken', label: 'Refresh Token', secret: true, optional: true, placeholder: 'Auto-filled by Connect' },
+    { key: 'connectedEmail', label: 'Connected account', secret: false, optional: true, placeholder: 'Auto-detected on Connect' },
+    { key: 'tokenExpiresAt', label: 'Token expiry', secret: false, optional: true, placeholder: 'Managed automatically' },
   ],
   linkedin: [
     { key: 'clientId', label: 'Client ID', secret: false, placeholder: 'LinkedIn app Client ID' },

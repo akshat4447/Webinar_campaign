@@ -19,9 +19,10 @@ function envFallback(id: string, key: string): string | undefined {
     'lsq.host': process.env.LSQ_HOST,
     'lsq.senderEmail': process.env.LSQ_SENDER_EMAIL,
     'claude.apiKey': process.env.ANTHROPIC_API_KEY,
-    'zoom.accountId': process.env.ZOOM_ACCOUNT_ID,
-    'zoom.clientId': process.env.ZOOM_CLIENT_ID,
-    'zoom.clientSecret': process.env.ZOOM_CLIENT_SECRET,
+    // zoom.clientId/clientSecret deliberately not here — same as linkedin,
+    // each OAuth call site falls back to its env var itself (see
+    // lib/zoom/client.ts, app/api/auth/zoom/*), since a client credential
+    // pair for a three-legged flow behaves differently from a simple key.
   };
   return map[`${id}.${key}`];
 }

@@ -1,15 +1,17 @@
 import { db } from '@/lib/db';
 import { getAccountEngagement, getPostEventStats } from '@/lib/postEvent';
-import { ZoomPanel } from '../agent/ZoomPanel';
 import { PostEventClient } from './PostEventClient';
 
 // Attendance import lives here rather than on the Agent run tab: importing a
 // participants report is a post-event act, and the operator looking for it is
 // thinking about results, not about the running cadence.
+//
+// No manual import UI — attendance is pulled automatically from Zoom once
+// the webinar has ended (see lib/zoomAutosync.ts), the same way scheduled
+// sends fire without anyone clicking a button.
 export default async function PostEventPage(props: PageProps<'/campaigns/[id]/post-event'>) {
   const { id } = await props.params;
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id } });
-  const hasLinkedMeeting = !!campaign.zoomMeetingId;
 
   const [stats, accounts, approvedCount] = await Promise.all([
     getPostEventStats(id),
@@ -24,18 +26,27 @@ export default async function PostEventPage(props: PageProps<'/campaigns/[id]/po
           <PostEventClient campaignId={id} stats={stats} approved={approvedCount} accounts={accounts} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <ZoomPanel campaignId={id} hasLinkedMeeting={hasLinkedMeeting} />
-          {campaign.attendanceImportedAt && (
-            <div className="lsq-card" style={{ padding: '16px 18px' }}>
-              <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 'var(--fw-bold)', color: 'var(--n90)', marginBottom: 6 }}>
-                Attendance imported
-              </div>
-              <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.55 }}>
-                {campaign.attendanceImportedAt.toLocaleString('en-GB')} — attendee and no-show follow-ups were queued
-                from this import.
-              </div>
+          <div className="lsq-card" style={{ padding: '16px 18px' }}>
+            <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 'var(--fw-bold)', color: 'var(--n90)', marginBottom: 6 }}>
+              Zoom attendance
             </div>
-          )}
+            {campaign.attendanceImportedAt ? (
+              <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.55 }}>
+                Imported automatically {campaign.attendanceImportedAt.toLocaleString('en-GB')} — attendee and no-show
+                follow-ups were queued from this import.
+              </div>
+            ) : campaign.zoomMeetingId ? (
+              <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.55 }}>
+                Not imported yet — this campaign is linked to a Zoom meeting, so attendance pulls in automatically once
+                the webinar has ended.
+              </div>
+            ) : (
+              <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.55 }}>
+                No Zoom meeting linked to this campaign — link one on Setup to get attendance pulled in automatically
+                after the webinar.
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </main>

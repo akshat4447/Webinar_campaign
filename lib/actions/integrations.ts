@@ -182,12 +182,16 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
       const f = await resolveTestFields('zoom', typedFields);
       const { zoomMode } = await import('@/lib/zoom/client');
       if (zoomMode() !== 'live') {
-        result = { ok: true, detail: `sandbox mode — meetings and participants are simulated until ZOOM_MODE=live${f.accountId ? ' · account credentials saved' : ''}` };
+        result = { ok: true, detail: `sandbox mode — meetings and participants are simulated until ZOOM_MODE=live${f.clientId ? ' · app credentials saved' : ''}` };
       } else {
-        if (!f.accountId || !f.clientId || !f.clientSecret) throw new Error('Live mode needs Account ID, Client ID, and Client Secret all set.');
-        const { fetchZoomToken } = await import('@/lib/zoom/client');
-        const token = await fetchZoomToken({ accountId: f.accountId, clientId: f.clientId, clientSecret: f.clientSecret });
-        result = { ok: true, detail: `200 · Server-to-Server access token issued, expires in ${token.expires_in}s · ${Date.now() - started}ms` };
+        if (!f.accessToken) throw new Error('Live mode needs a connected account — click "Connect with Zoom" first.');
+        const res = await fetch('https://api.zoom.us/v2/users/me', {
+          headers: { Authorization: `Bearer ${f.accessToken}` },
+          cache: 'no-store',
+        });
+        const text = await res.text();
+        if (!res.ok) throw new Error(`${res.status} · ${text.slice(0, 180)}`);
+        result = { ok: true, detail: `200 · token valid · ${Date.now() - started}ms` };
       }
     } else if (id === 'linkedin') {
       const f = await resolveTestFields('linkedin', typedFields);
