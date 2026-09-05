@@ -3,11 +3,10 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
-import { INTEGRATION_FIELDS } from '@/lib/integrationFields';
+import { INTEGRATION_FIELDS, REFERENCE_ONLY } from '@/lib/integrationFields';
 import { getIntegrationConfigMaskedAction, saveIntegrationConfigAction, testIntegrationAction, discoverSenderAction } from '@/lib/actions/integrations';
 
 const EXPLANATION: Record<string, string> = {
-  zoom: 'Zoom attendance comes from a real exported "Participants Report" CSV, not the Zoom API — there\'s nothing to connect here. Import the CSV from a campaign\'s Setup tab.',
   linkedin:
     "Outreach is manual by design — scripted LinkedIn messaging breaches their terms and risks account restriction. What the app does instead: Apollo verifies every queued contact before you reach out, and LinkedIn Events run through the official API with Lead Sync streaming registrations back in.",
 };
@@ -15,6 +14,7 @@ const EXPLANATION: Record<string, string> = {
 export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string; name: string; onClose: () => void; onChanged: () => void }) {
   const fields = INTEGRATION_FIELDS[id] ?? [];
   const explanatoryOnly = fields.length === 0;
+  const referenceOnly = REFERENCE_ONLY.includes(id);
 
   const [masked, setMasked] = useState<Record<string, { hasValue: boolean }> | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -164,6 +164,14 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                   </a>
                 </div>
               )}
+              {id === 'zoom' && (
+                <div style={{ marginBottom: 12, padding: 10, background: 'var(--n10)', borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-label-2)', color: 'var(--n70)', lineHeight: 1.6 }}>
+                  A Server-to-Server OAuth app&apos;s Account ID, Client ID and Client Secret (Zoom Marketplace → Build App). Optional:
+                  attendance can always be imported by hand from a campaign&apos;s Post-event tab via the Participants Report CSV.
+                  These credentials only unlock auto-linking a meeting from the creation wizard and pulling that report directly
+                  instead of exporting it yourself.
+                </div>
+              )}
               {id === 'linkedin' && (
                 <div style={{ marginBottom: 12 }}>
                   <a
@@ -180,13 +188,22 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                   </div>
                 </div>
               )}
-              <Button hierarchy="secondary" size="sm" onClick={test} disabled={testing}>
-                {testing ? 'Testing…' : 'Test connection'}
-              </Button>
-              {testResult && (
-                <div style={{ marginTop: 10, fontSize: 'var(--fs-label-1)', fontWeight: 600, color: testResult.ok ? 'var(--success-700)' : 'var(--danger-500)', overflowWrap: 'anywhere' }}>
-                  {testResult.detail}
+              {referenceOnly ? (
+                <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', lineHeight: 1.5 }}>
+                  No live API to test here — these are reference values only. SMS/WhatsApp still send through LeadSquared,
+                  configured on the LeadSquared card.
                 </div>
+              ) : (
+                <>
+                  <Button hierarchy="secondary" size="sm" onClick={test} disabled={testing}>
+                    {testing ? 'Testing…' : 'Test connection'}
+                  </Button>
+                  {testResult && (
+                    <div style={{ marginTop: 10, fontSize: 'var(--fs-label-1)', fontWeight: 600, color: testResult.ok ? 'var(--success-700)' : 'var(--danger-500)', overflowWrap: 'anywhere' }}>
+                      {testResult.detail}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

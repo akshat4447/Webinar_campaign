@@ -26,7 +26,7 @@ export class ZoomError extends Error {
   }
 }
 
-interface ZoomCredentials {
+export interface ZoomCredentials {
   accountId: string;
   clientId: string;
   clientSecret: string;
@@ -47,16 +47,10 @@ export async function zoomIsConfigured(): Promise<boolean> {
   return (await credentials()) !== null;
 }
 
-// Access tokens last an hour. Cached in module scope with a safety margin so a
-// burst of calls does not mint a token each time.
-let cached: { token: string; expiresAt: number } | null = null;
-
-async function accessToken(): Promise<string> {
-  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
-
-  const creds = await credentials();
-  if (!creds) throw new ZoomError('Zoom is not configured — add the account id, client id and secret on Integrations.');
-
+/** The one real network call Server-to-Server OAuth needs — split out from
+ *  the cached `accessToken()` below so the Integrations page can test a
+ *  candidate credential set before (or instead of) saving it. */
+export async function fetchZoomToken(creds: ZoomCredentials): Promise<{ access_token: string; expires_in: number }> {
   const body = new URLSearchParams({ grant_type: 'account_credentials', account_id: creds.accountId });
   const res = await fetch(ZOOM_TOKEN_URL, {
     method: 'POST',
@@ -67,8 +61,20 @@ async function accessToken(): Promise<string> {
     body,
   });
   if (!res.ok) throw new ZoomError(`Zoom token request failed: ${res.status} ${await res.text()}`, res.status);
+  return (await res.json()) as { access_token: string; expires_in: number };
+}
 
-  const json = (await res.json()) as { access_token: string; expires_in: number };
+// Access tokens last an hour. Cached in module scope with a safety margin so a
+// burst of calls does not mint a token each time.
+let cached: { token: string; expiresAt: number } | null = null;
+
+async function accessToken(): Promise<string> {
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
+
+  const creds = await credentials();
+  if (!creds) throw new ZoomError('Zoom is not configured — add the account id, client id and secret on Integrations.');
+
+  const json = await fetchZoomToken(creds);
   cached = { token: json.access_token, expiresAt: Date.now() + json.expires_in * 1000 };
   return json.access_token;
 }

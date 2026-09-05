@@ -382,22 +382,22 @@ it, must be reinstated.
 ### 5.12 Integrations
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
-| INT-1 | 7 integration cards | `/integrations` | MOVE | C12 | [ ] |
-| INT-2 | Per-integration "how it works" explainer | card | NEW | C12 | [ ] |
-| INT-3 | Per-field credential entry (DB wins over env) | card panel | RESTORE | C12 | [ ] |
-| INT-4 | Live connection test + stored result | card panel | RESTORE | C12 | [ ] |
-| INT-5 | Delivery-settings summary | page header | RESTORE | C12 | [ ] |
-| INT-6 | **LSQ activity-type mapping card** | `/integrations` | RESTORE | C12 | [ ] |
-| INT-7 | **LSQ sender auto-discovery + probe** | LSQ card panel | RESTORE | C12 | [ ] |
-| INT-8 | **Apify (enrichment)** | `/integrations` card | RESTORE | C12 | [ ] |
-| INT-9 | WhatsApp Business card (WABA metadata) | `/integrations` | NEW | C12 | [ ] |
-| INT-10 | SMS DLT card (entity ID, sender IDs, route) | `/integrations` | NEW | C12 | [ ] |
-| INT-11 | LinkedIn card + connect flow | `/integrations` | KEEP | C12 | [ ] |
+| INT-1 | 7 integration cards | `/integrations` | MOVE | C12 | [x] |
+| INT-2 | Per-integration "how it works" explainer | card | NEW | C12 | [x] |
+| INT-3 | Per-field credential entry (DB wins over env) | card panel | RESTORE | C12 | [x] |
+| INT-4 | Live connection test + stored result | card panel | RESTORE | C12 | [x] |
+| INT-5 | Delivery-settings summary | page header | RESTORE | C12 | [x] |
+| INT-6 | **LSQ activity-type mapping card** | `/integrations` | RESTORE | C12 | [x] |
+| INT-7 | **LSQ sender auto-discovery + probe** | LSQ card panel | RESTORE | C12 | [x] |
+| INT-8 | **Apify (enrichment)** | `/integrations` card | RESTORE | C12 | [x] |
+| INT-9 | WhatsApp Business card (WABA metadata) | `/integrations` | NEW | C12 | [x] |
+| INT-10 | SMS DLT card (entity ID, sender IDs, route) | `/integrations` | NEW | C12 | [x] |
+| INT-11 | LinkedIn card + connect flow | `/integrations` | KEEP | C12 | [x] |
 
 ### 5.13 Safety rails — must all survive
 | ID | Feature | Action | CP | Done |
 |---|---|---|---|---|
-| SAF-1 | `SEND_MODE=sandbox` redirect to allowlisted lead | RESTORE (surface in UI) | C12 | [ ] |
+| SAF-1 | `SEND_MODE=sandbox` redirect to allowlisted lead | RESTORE (surface in UI) | C12 | [x] |
 | SAF-2 | Inferred-email quarantine blocks send until verified | KEEP | C7 | [x] |
 | SAF-3 | Send window enforcement | KEEP | C5 | [x] |
 | SAF-4 | Daily limit enforcement | KEEP | C5 | [x] |
@@ -577,7 +577,7 @@ intact so the migration is reversible.
 **Files:** `app/campaigns/[id]/overview/`, `app/dashboard/`, `lib/analytics.ts` (new)
 **Acceptance:** all prototype panels plus restored step/channel breakdown, score-band predictiveness, 4 breakdown dimensions and drill-down drawers; dashboard ranges aggregate correctly.
 
-### [ ] C12 — Integrations
+### [x] C12 — Integrations
 **Scope:** INT-1..11, SAF-1.
 **Files:** `app/integrations/`, `lib/integrationFields.ts`, `lib/integrationConfig.ts`
 **Acceptance:** 7 cards; per-field credentials + live test; LSQ activity mapping; sender discovery + probe; Apify card; delivery-mode summary showing sandbox state.

@@ -69,7 +69,7 @@ export async function discoverSenderAction(save = true) {
   }
 }
 
-const TESTABLE = ['lsq', 'claude', 'apollo', 'apify', 'linkedin'];
+const TESTABLE = ['lsq', 'claude', 'apollo', 'apify', 'zoom', 'linkedin'];
 
 /**
  * Resolves typed → saved (DB) → env for each field this connector has, so
@@ -178,6 +178,17 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
       const body: { data?: { username?: string }; error?: { message?: string } } = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(`${res.status} · ${body.error?.message || 'Apify rejected this token.'}`);
       result = { ok: true, detail: `200 · user "${body.data?.username ?? 'unknown'}" · ${Date.now() - started}ms` };
+    } else if (id === 'zoom') {
+      const f = await resolveTestFields('zoom', typedFields);
+      const { zoomMode } = await import('@/lib/zoom/client');
+      if (zoomMode() !== 'live') {
+        result = { ok: true, detail: `sandbox mode — meetings and participants are simulated until ZOOM_MODE=live${f.accountId ? ' · account credentials saved' : ''}` };
+      } else {
+        if (!f.accountId || !f.clientId || !f.clientSecret) throw new Error('Live mode needs Account ID, Client ID, and Client Secret all set.');
+        const { fetchZoomToken } = await import('@/lib/zoom/client');
+        const token = await fetchZoomToken({ accountId: f.accountId, clientId: f.clientId, clientSecret: f.clientSecret });
+        result = { ok: true, detail: `200 · Server-to-Server access token issued, expires in ${token.expires_in}s · ${Date.now() - started}ms` };
+      }
     } else if (id === 'linkedin') {
       const f = await resolveTestFields('linkedin', typedFields);
       const mode = process.env.LINKEDIN_MODE === 'live' ? 'live' : 'sandbox';

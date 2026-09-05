@@ -1136,3 +1136,101 @@ from real campaign state instead of the current route.
     ("Post-event complete") campaigns
 
 **Status:** complete
+
+## C12 — Integrations
+
+**Date:** 2026-09-05
+**Scope:** INT-1..11, SAF-1.
+
+### Features completed
+Almost everything here already existed, in good shape, from before this
+checkpoint opened — this was mostly verification, plus closing two real
+gaps found while checking it. Confirmed working: 6→**7** integration cards,
+per-field credential entry with DB-wins-over-env resolution, live
+connection tests with persisted results, the LSQ activity-type mapping
+card (real API, 178 types loaded), LSQ sender auto-discovery + probe (no
+email sent), the Apollo/Apify/Claude/LSQ live test calls, the LinkedIn
+connect flow, and the sandbox-mode delivery-settings summary (SAF-1). New:
+a 7th card, **SMS & WhatsApp Business**, for DLT (SMS) and WABA (WhatsApp)
+compliance reference fields (INT-9, INT-10) — no live API of its own, so it
+gets a note instead of a "Test connection" button that could never mean
+anything.
+
+### Files
+- `lib/integrationFields.ts` — added the `messaging` field schema (6
+  reference fields: DLT Entity ID, Sender IDs, route/template ID; WABA ID,
+  phone number ID, template namespace) and `REFERENCE_ONLY`, a short list of
+  ids with a credential form but no live API to test.
+- `lib/demo-data.ts` — added the `messaging` card to `integrationsData`;
+  **fixed Zoom's stale static copy** (see bugs).
+- `app/integrations/IntegrationPanel.tsx` — reads `REFERENCE_ONLY` to hide
+  the Test button and show an explanatory note instead; added a Zoom
+  explainer block (credentials are optional — CSV import always works);
+  **removed a dead, stale Zoom explanation string** that could never render
+  (Zoom has credential fields, so it was never `explanatoryOnly`).
+- `lib/zoom/client.ts` — exported `fetchZoomToken()`, split out of the
+  existing cached `accessToken()`, so a candidate credential set can be
+  tested before it's saved.
+- `lib/actions/integrations.ts` — added a real Zoom branch to
+  `testIntegrationAction` (sandbox-aware, mirroring the LinkedIn branch);
+  added `'zoom'` to `TESTABLE`.
+- `lib/campaignCardStats.ts`, `app/integrations/page.tsx` — added a Zoom row
+  to the delivery-settings summary; updated the page's build note to stop
+  saying Zoom has no real API.
+
+### Design
+
+**"Test connection" respects the same sandbox/live switch as the real
+send path.** Zoom's test mirrors LinkedIn's exactly: in sandbox, report
+sandbox status without a network call (attempting one would prove nothing
+useful, since meetings and participants are simulated regardless of
+whether the credentials are valid); in live, actually mint an OAuth token.
+
+**Reference-only fields get an honest non-answer, not a fake test.**
+Rather than stretch `testIntegrationAction`'s pattern to cover fields with
+no API at all, `REFERENCE_ONLY` just hides the button — a "Test
+connection" that always says the same thing regardless of what's typed
+would be worse than no button.
+
+### Bugs found — two real, both pre-existing and about Zoom specifically
+
+**1. Clicking "Test connection" for Zoom always reported "This integration
+stays in demo mode for this build" — false since C8 added real
+Server-to-Server OAuth.** `testIntegrationAction` had a branch for every
+other connector with credential fields (lsq, claude, apollo, apify,
+linkedin) but none for zoom, so it fell through to the generic
+not-implemented message. Fixed by adding a real branch, sandbox-aware like
+LinkedIn's.
+
+**2. The Zoom card's static copy ("No API — CSV import", "No API —
+participants report imported as CSV") and the page's build note both
+called Zoom API-less, contradicting C8's real Zoom integration and this
+checkpoint's own test fix.** Pre-dates this checkpoint; likely never
+updated when C8 landed because the Integrations page wasn't touched again
+until now. Fixed the static card copy and the build note; also removed a
+matching dead `EXPLANATION.zoom` string in `IntegrationPanel.tsx` that had
+been unreachable since Zoom gained credential fields (its `explanatoryOnly`
+branch, the only place that string could render, requires zero fields).
+
+### Verification
+- `GATE PASS` — `next typegen`, 145 tests / 15 files, `tsc` exit 0, `eslint` clean
+- `VISUAL VERIFIED`, **0 console errors**:
+  - all 7 cards render; activity mapping card loads 178 real LSQ activity
+    types and shows real existing mappings (SMS/WhatsApp → "WebinarAgent
+    Channel Trigger", Email/LinkedIn unmapped)
+  - delivery settings shows all 5 rows including the new Zoom row, sandbox
+    state correct throughout
+  - opened the new SMS & WhatsApp Business panel: all 6 fields present, "No
+    live API to test here" note shown, no Test button rendered
+  - save/read round-trip for two of those fields verified directly against
+    `saveIntegrationConfig`/`getIntegrationConfigMasked` (masked
+    `hasValue: true` for the two written, `false` for the four untouched);
+    test values removed from `AppSetting` afterward — no residue
+  - Zoom "Test connection" clicked live: correctly reported sandbox status
+    without a network call, result persisted and visible on reload
+  - confirmed the Zoom test-result rows already sitting in `AppSetting` for
+    lsq/claude/apollo (from earlier real sessions) are left alone — this
+    checkpoint only adds to that record, never touches other integrations'
+    saved credentials or history
+
+**Status:** complete

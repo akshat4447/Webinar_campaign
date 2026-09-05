@@ -41,4 +41,22 @@ export const INTEGRATION_FIELDS: Record<string, IntegrationField[]> = {
     { key: 'tokenExpiresAt', label: 'Token expiry', secret: false, optional: true, placeholder: 'Managed automatically' },
     { key: 'organizationName', label: 'Page name', secret: false, optional: true, placeholder: 'Auto-detected on Connect' },
   ],
+  // Reference metadata, not credentials — SMS/WhatsApp delivery itself already
+  // goes through LeadSquared (see the `lsq` card's strategy/endpoint fields).
+  // These record the compliance identifiers an Indian SMS/WhatsApp send needs
+  // so an operator has them on hand, with nothing here to test against a live
+  // API — see REFERENCE_ONLY below.
+  messaging: [
+    { key: 'dltEntityId', label: 'DLT Entity ID', secret: false, optional: true, placeholder: 'Your registered TRAI DLT Entity ID' },
+    { key: 'dltSenderIds', label: 'DLT Sender IDs', secret: false, optional: true, placeholder: 'Approved 6-character sender IDs, comma-separated' },
+    { key: 'dltRoute', label: 'SMS route / template ID', secret: false, optional: true, placeholder: 'Registered DLT template ID for the route in use' },
+    { key: 'wabaId', label: 'WhatsApp Business Account ID', secret: false, optional: true, placeholder: 'Meta WABA ID' },
+    { key: 'wabaPhoneNumberId', label: 'WhatsApp Phone Number ID', secret: false, optional: true, placeholder: 'Meta phone number ID sends come from' },
+    { key: 'wabaTemplateNamespace', label: 'Message template namespace', secret: false, optional: true, placeholder: 'WABA template namespace' },
+  ],
 };
+
+/** Ids with a credential form but no live API of their own to test against —
+ *  the Integrations page hides "Test connection" for these and shows a note
+ *  instead, rather than a button whose result would always be meaningless. */
+export const REFERENCE_ONLY: string[] = ['messaging'];

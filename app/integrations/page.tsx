@@ -18,11 +18,13 @@ export default async function IntegrationsPage() {
   ]);
   const sendMode = process.env.SEND_MODE === 'live' ? 'live' : 'sandbox';
   const liMode = process.env.LINKEDIN_MODE === 'live' ? 'live' : 'sandbox';
+  const zoomMode = process.env.ZOOM_MODE === 'live' ? 'live' : 'sandbox';
   const delivery = [
     { label: 'Email', value: `${sendMode}${sendMode === 'sandbox' ? ' → allowlisted lead' : ''}` },
     { label: 'SMS', value: `LSQ ${(smsStrategy || 'trigger').toLowerCase()} strategy` },
     { label: 'WhatsApp', value: `LSQ ${(waStrategy || 'trigger').toLowerCase()} strategy` },
     { label: 'LinkedIn', value: liMode === 'live' ? 'Events API live' : 'Events API sandbox · touches manual' },
+    { label: 'Zoom', value: zoomMode === 'live' ? 'Meetings + participants API live' : 'Sandbox · CSV import always works' },
   ];
 
   return (
@@ -55,9 +57,10 @@ export default async function IntegrationsPage() {
       </div>
 
       <div style={{ marginTop: 24, fontSize: 'var(--fs-label-2)', color: 'var(--n50)', lineHeight: 1.6, maxWidth: 760 }}>
-        Build note — LeadSquared, Claude and Apollo all make live API calls. Zoom attendance comes from a real exported
-        participants report rather than the Zoom API. LinkedIn outreach is manual by design; its Events API is real. Contact
-        details that were inferred rather than supplied are held back from sending until a human verifies them.
+        Build note — LeadSquared, Claude, Apollo and Zoom (Server-to-Server OAuth) all make live API calls; a CSV export of
+        Zoom&apos;s Participants Report still works as a fallback with no credentials at all. LinkedIn outreach is manual by
+        design; its Events API is real. Contact details that were inferred rather than supplied are held back from sending
+        until a human verifies them.
       </div>
     </main>
   );
