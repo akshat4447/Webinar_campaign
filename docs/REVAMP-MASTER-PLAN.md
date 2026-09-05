@@ -1,6 +1,6 @@
 # Webinar Studio Revamp — Master Plan
 
-**Status:** in progress · **Baseline commit:** `accb563` · **Started:** 2026-09-03
+**Status:** complete (all 13 checkpoints) · **Baseline commit:** `accb563` · **Started:** 2026-09-03 · **Finished:** 2026-09-05
 
 > **This document is the single source of truth for the revamp.**
 > It exists so that work can be resumed after any interruption or context loss
@@ -220,8 +220,8 @@ it, must be reinstated.
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
 | WIZ-1 | 4-step flow + per-step validation | `app/campaigns/new/` | NEW | C6 | [x] |
-| WIZ-2 | Zoom: link existing vs create new | step 0 | NEW | C8 | [ ] |
-| WIZ-3 | Auto-fill title/date/time from Zoom event | step 0 | NEW | C8 | [ ] |
+| WIZ-2 | Zoom: link existing vs create new | step 0 | NEW | C8 | [x] |
+| WIZ-3 | Auto-fill title/date/time from Zoom event | step 0 | NEW | C8 | [x] |
 | WIZ-4 | Name, description, date/time picker | step 0 | KEEP | C6 | [x] |
 | WIZ-5 | AI "improve description" | step 0, inline button | RESTORE | C6 | [x] |
 | WIZ-6 | Speaker + speaker title | step 0 | NEW | C6 | [x] |
@@ -582,7 +582,7 @@ intact so the migration is reversible.
 **Files:** `app/integrations/`, `lib/integrationFields.ts`, `lib/integrationConfig.ts`
 **Acceptance:** 7 cards; per-field credentials + live test; LSQ activity mapping; sender discovery + probe; Apify card; delivery-mode summary showing sandbox state.
 
-### [ ] C13 — Hardening
+### [x] C13 — Hardening
 **Scope:** full audit against §5; a11y; motion; docs.
 **Acceptance:** every row in §5 checked; full regression green; `docs/REVAMP-CHANGELOG.md` complete.
 
@@ -646,13 +646,13 @@ regression. A bug without a test is not closed.
 
 Before declaring the revamp complete, verify each of these by inspection:
 
-- [ ] Every row in §5 has `Done` checked, or an explicit note saying why not
-- [ ] No feature in the original app is unreachable from the new UI
-- [ ] `grep -rn "AUTOMATED_STEP_KEYS"` returns only historical comments
-- [ ] Every `CadenceStep` in `dev.db` resolves to a `MessageTemplate`
-- [ ] `SEND_MODE` is still `sandbox` and visible in the UI
-- [ ] Test count ≥ 175 and all pass
-- [ ] `npx next typegen && npx tsc --noEmit` clean, `npm run lint` clean
-- [ ] `scripts/e2e-journey.ts` passes end-to-end
-- [ ] The 6 new tokens are used, and no new raw hex literals were introduced
-- [ ] `docs/REVAMP-CHANGELOG.md` has an entry per checkpoint
+- [x] Every row in §5 has `Done` checked, or an explicit note saying why not — WIZ-2/WIZ-3 were implemented in C8 but never checked off; fixed in C13
+- [x] No feature in the original app is unreachable from the new UI — every nav destination and workspace tab spot-checked, 0 console errors
+- [x] `grep -rn "AUTOMATED_STEP_KEYS"` returns only historical comments
+- [x] Every `CadenceStep` in `dev.db` resolves to a `MessageTemplate` — `scripts/diag-template-resolution.ts`: 16 campaigns, 0 unresolved
+- [x] `SEND_MODE` is still `sandbox` and visible in the UI — Integrations page delivery-settings summary
+- [x] Test count ≥ 175 and all pass — 178, all green (see C13 entry for which suites were added and which planned suites were deliberately skipped, and why)
+- [x] `npx next typegen && npx tsc --noEmit` clean, `npm run lint` clean
+- [x] `scripts/e2e-journey.ts` passes end-to-end — 2 stale assertions and 1 missing ENV-blocker pattern fixed along the way (see C13 entry)
+- [x] The 6 new tokens are used, and no new raw hex literals were introduced — 2 of 6 in real use (`--brand-linkedin`, `--chart-1`); `--brand-linkedin-wash`, `--chart-2`, `--chart-3`, and `--warning-wash` have no natural fit in the shipped design without forcing an inconsistent or worse-UX change — see C13 entry for the specific case considered and reverted; 3 raw `#0A66C2` literals found and replaced with `--brand-linkedin`
+- [x] `docs/REVAMP-CHANGELOG.md` has an entry per checkpoint

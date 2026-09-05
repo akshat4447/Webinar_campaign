@@ -85,9 +85,13 @@ export function ChatWidget() {
                 Online
               </div>
             </div>
-            <div onClick={() => setOpen(false)} style={{ cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+            <button
+              onClick={() => setOpen(false)}
+              aria-label="Close chat"
+              style={{ cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', border: 'none', background: 'transparent', padding: 0 }}
+            >
               <Icon name="close" size={16} style={{ color: '#fff' }} />
-            </div>
+            </button>
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--surface-page)' }}>
@@ -123,6 +127,7 @@ export function ChatWidget() {
           <div style={{ flexShrink: 0, borderTop: '1px solid var(--border-subtle)', padding: '10px 12px', display: 'flex', gap: 8, alignItems: 'center', background: '#fff' }}>
             <input
               type="text"
+              aria-label="Message"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && send()}
@@ -140,15 +145,20 @@ export function ChatWidget() {
                 outline: 'none',
               }}
             />
-            <div onClick={send} style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-500)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <button
+              onClick={send}
+              aria-label="Send message"
+              style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-500)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, border: 'none', padding: 0 }}
+            >
               <Icon name="arrow-right" size={15} style={{ color: '#fff' }} />
-            </div>
+            </button>
           </div>
         </div>
       )}
 
-      <div
+      <button
         onClick={() => setOpen((o) => !o)}
+        aria-label={open ? 'Close chat' : 'Open chat'}
         style={{
           position: 'fixed',
           bottom: 24,
@@ -163,10 +173,12 @@ export function ChatWidget() {
           justifyContent: 'center',
           cursor: 'pointer',
           zIndex: 1000,
+          border: 'none',
+          padding: 0,
         }}
       >
         <Icon name={open ? 'close' : 'chat'} size={24} style={{ color: '#fff' }} />
-      </div>
+      </button>
     </>
   );
 }

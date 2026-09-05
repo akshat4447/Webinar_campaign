@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeChannel, isGsm7, smsSegmentCount, checkSmsBody } from './channels';
+import { normalizeChannel, isGsm7, smsSegmentCount, checkSmsBody, isAutomatableChannel } from './channels';
 
 describe('normalizeChannel', () => {
   it('routes the known display strings', () => {
@@ -47,5 +47,23 @@ describe('SMS encoding', () => {
       const { issues } = checkSmsBody('See you soon 🎉 at {{link}}');
       expect(issues.some((i) => i.severity === 'warning' && i.message.includes('Non-GSM'))).toBe(true);
     });
+  });
+});
+
+describe('isAutomatableChannel', () => {
+  it('is automatable for every channel except LinkedIn', () => {
+    expect(isAutomatableChannel('Email')).toBe(true);
+    expect(isAutomatableChannel('SMS')).toBe(true);
+    expect(isAutomatableChannel('WhatsApp')).toBe(true);
+  });
+
+  it('is not automatable for LinkedIn — there is no send API for messages', () => {
+    expect(isAutomatableChannel('LinkedIn')).toBe(false);
+  });
+
+  it('routes a mixed label by its primary channel', () => {
+    // "Email + LinkedIn" normalizes to 'email' (email wins multi-channel labels),
+    // so the step IS automatable even though LinkedIn is mentioned.
+    expect(isAutomatableChannel('Email + LinkedIn')).toBe(true);
   });
 });

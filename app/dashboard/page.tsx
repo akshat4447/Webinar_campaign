@@ -114,7 +114,7 @@ export default async function DashboardPage(props: PageProps<'/dashboard'>) {
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 120, overflowX: 'auto' }}>
               {trend.map((t) => (
                 <div key={t.label} title={`${t.label}: ${t.count}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: '1 0 18px', minWidth: 18 }}>
-                  <div style={{ width: '100%', maxWidth: 28, height: Math.max(2, (t.count / maxTrend) * 96), background: 'var(--accent-500)', borderRadius: '3px 3px 0 0' }} />
+                  <div style={{ width: '100%', maxWidth: 28, height: Math.max(2, (t.count / maxTrend) * 96), background: 'var(--chart-1)', borderRadius: '3px 3px 0 0' }} />
                   <div style={{ fontSize: 9, color: 'var(--n50)', marginTop: 4, whiteSpace: 'nowrap' }}>{t.label}</div>
                 </div>
               ))}

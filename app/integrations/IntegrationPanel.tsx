@@ -102,9 +102,13 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
             <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>{name}</div>
             <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 3 }}>{explanatoryOnly ? 'No credentials needed' : 'Connection settings'}</div>
           </div>
-          <div onClick={onClose} style={{ cursor: 'pointer', width: 28, height: 28, borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{ cursor: 'pointer', width: 28, height: 28, borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: 'none', background: 'transparent', padding: 0 }}
+          >
             <Icon name="close" size={16} style={{ color: 'var(--n60)' }} />
-          </div>
+          </button>
         </div>
 
         <div style={{ flex: 1, overflow: 'auto', padding: '18px 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -120,6 +124,7 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                 <input
                   className="lsq-input"
                   type={f.secret ? 'password' : 'text'}
+                  aria-label={f.label}
                   value={values[f.key] ?? ''}
                   onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
                   placeholder={masked?.[f.key]?.hasValue ? '•••• saved — leave blank to keep' : f.placeholder}
@@ -178,7 +183,7 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                     href="/api/auth/linkedin/connect"
                     style={{
                       display: 'inline-flex', alignItems: 'center', height: 32, padding: '0 12px', fontSize: 'var(--fs-label-1)', fontWeight: 600,
-                      background: '#0A66C2', color: '#fff', borderRadius: 'var(--radius-md)', textDecoration: 'none',
+                      background: 'var(--brand-linkedin)', color: '#fff', borderRadius: 'var(--radius-md)', textDecoration: 'none',
                     }}
                   >
                     Connect with LinkedIn

@@ -265,7 +265,7 @@ export function PersonalizeClient({
               s.channel === 'WhatsApp' || s.channel === 'SMS'
                 ? 'var(--warning-700)'
                 : s.channel === 'LinkedIn'
-                ? '#0A66C2'
+                ? 'var(--brand-linkedin)'
                 : 'var(--accent-500)';
             return (
               <div

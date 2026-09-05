@@ -20,6 +20,7 @@ import {
   type WizardZoomMeeting,
 } from '@/lib/actions/wizard';
 import { runScoringAction, updateScoringConfigAction } from '@/lib/actions/scoring';
+import { validateWizardDetails } from '@/lib/wizardValidation';
 import { toDateTimeLocal } from '@/lib/campaignDate';
 
 const STEPS = ['Webinar details', 'Audience', 'Enrich & score', 'Message & channels'];
@@ -194,9 +195,7 @@ export function WizardClient({
   }
 
   async function continueFromDetails() {
-    const next: Record<string, string> = {};
-    if (!details.title.trim()) next.title = 'Give this webinar a title.';
-    if (!details.date) next.date = 'Pick a date.';
+    const next = validateWizardDetails(details);
     if (Object.keys(next).length) {
       setErrors(next);
       return;

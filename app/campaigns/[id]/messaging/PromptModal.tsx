@@ -70,9 +70,13 @@ export function PromptModal({
             <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>How Claude drafts these messages</div>
             <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 3 }}>{campaignName}</div>
           </div>
-          <div onClick={onClose} style={{ cursor: 'pointer', width: 28, height: 28, borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{ cursor: 'pointer', width: 28, height: 28, borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: 'none', background: 'transparent', padding: 0 }}
+          >
             <Icon name="close" size={16} style={{ color: 'var(--n60)' }} />
-          </div>
+          </button>
         </div>
 
         <div style={{ flex: 1, overflow: 'auto', padding: '18px 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>

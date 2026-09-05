@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateTemplateContent, validateRenderedMessage } from './messageValidation';
+import { validateTemplateContent, validateRenderedMessage, validateRenderedMessageForChannel, validateTemplateContentForChannel } from './messageValidation';
 
 const KNOWN_VARS = ['firstName', 'lastName', 'company', 'topic', 'link', 'date'];
 
@@ -70,5 +70,68 @@ describe('validateRenderedMessage', () => {
   it('ignores the subject field for a LinkedIn message (hasChannelSubject=false)', () => {
     const result = validateRenderedMessage(null, `Hi Priya, check this out: ${link}`, false, link);
     expect(result.valid).toBe(true);
+  });
+});
+
+describe('validateRenderedMessageForChannel', () => {
+  const link = 'https://lsq.co/w/my-webinar';
+
+  it('delegates SMS bodies to checkSmsBody instead of the generic length/spam rules', () => {
+    // Long enough to trip the generic 900-char "body long" warning, but a single
+    // GSM-7 segment is nowhere near SMS's own much lower per-segment cap — if
+    // the generic rule leaked through, this would incorrectly warn.
+    const short = `Reminder: ${link}`;
+    const result = validateRenderedMessageForChannel(null, short, false, link, 'sms');
+    expect(result.valid).toBe(true);
+    expect(result.issues.some((i) => i.message.includes('long'))).toBe(false);
+  });
+
+  it('errors on an SMS body with an unbounded segment count', () => {
+    const huge = 'x'.repeat(2000) + ` ${link}`;
+    const result = validateRenderedMessageForChannel(null, huge, false, link, 'sms');
+    expect(result.valid).toBe(false);
+  });
+
+  it('caps WhatsApp bodies at 1024 characters', () => {
+    const tooLong = 'x'.repeat(1025) + ` ${link}`;
+    const result = validateRenderedMessageForChannel(null, tooLong, false, link, 'whatsapp');
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('1024'))).toBe(true);
+  });
+
+  it('accepts a WhatsApp body under the 1024-character cap', () => {
+    const result = validateRenderedMessageForChannel(null, `Hi Priya! Your seat is confirmed: ${link}`, false, link, 'whatsapp');
+    expect(result.valid).toBe(true);
+  });
+
+  it('still flags a leftover token and a missing link for every channel, not just email', () => {
+    const withToken = validateRenderedMessageForChannel(null, 'Hi {{firstName}}, join us!', false, link, 'whatsapp');
+    expect(withToken.valid).toBe(false);
+    expect(withToken.issues.some((i) => i.message.includes('firstName'))).toBe(true);
+
+    const noLink = validateRenderedMessageForChannel(null, 'Hi Priya, join us!', false, link, 'sms');
+    expect(noLink.valid).toBe(false);
+    expect(noLink.issues.some((i) => i.message.toLowerCase().includes('link'))).toBe(true);
+  });
+});
+
+describe('validateTemplateContentForChannel', () => {
+  const KNOWN = ['firstName', 'topic', 'link'];
+
+  it('applies the plain template rules unchanged for a non-SMS channel', () => {
+    const result = validateTemplateContentForChannel(null, 'Join {{topic}} at {{link}}', false, KNOWN, 'WhatsApp');
+    expect(result.valid).toBe(true);
+  });
+
+  it('replaces the generic "body long" warning with SMS segment-count issues for an SMS template', () => {
+    const longSmsBody = 'x'.repeat(901) + ' {{link}}';
+    const result = validateTemplateContentForChannel(null, longSmsBody, false, KNOWN, 'SMS');
+    expect(result.issues.some((i) => i.message.startsWith('Body long'))).toBe(false);
+  });
+
+  it('still catches an unknown variable regardless of channel', () => {
+    const result = validateTemplateContentForChannel(null, 'Hi {{oops}} {{link}}', false, KNOWN, 'SMS');
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((i) => i.message.includes('oops'))).toBe(true);
   });
 });

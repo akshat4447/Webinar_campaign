@@ -191,9 +191,13 @@ export function LinkedInPanel({
                   Manual send · {sentCount} of {queue.length} sent
                 </div>
               </div>
-              <div onClick={() => setOpen(false)} style={{ cursor: 'pointer', width: 28, height: 28, borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <button
+                onClick={() => setOpen(false)}
+                aria-label="Close"
+                style={{ cursor: 'pointer', width: 28, height: 28, borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'transparent', padding: 0 }}
+              >
                 <Icon name="close" size={16} style={{ color: 'var(--n60)' }} />
-              </div>
+              </button>
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px 22px 20px' }}>
