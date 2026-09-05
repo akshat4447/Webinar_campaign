@@ -283,21 +283,21 @@ it, must be reinstated.
 ### 5.6 Messaging / personalization
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
-| MSG-1 | Personalization run card + progress | Messaging tab | NEW | C9 | [ ] |
-| MSG-2 | Source-field chips | Messaging tab | NEW | C9 | [ ] |
-| MSG-3 | Per-contact preview tabs | Messaging tab | NEW | C9 | [ ] |
-| MSG-4 | Step picker w/ coverage counts | Messaging tab | MOVE | C9 | [ ] |
-| MSG-5 | Generate all for a step | Messaging tab | KEEP | C9 | [ ] |
-| MSG-6 | Regenerate one contact | preview panel | RESTORE | C9 | [ ] |
-| MSG-7 | Edit + save a draft | preview panel | RESTORE | C9 | [ ] |
-| MSG-8 | Mark reviewed / mark all reviewed | preview panel | RESTORE | C9 | [ ] |
-| MSG-9 | Discard one / discard all | Messaging tab | RESTORE | C9 | [ ] |
-| MSG-10 | Stale-link detection + repair | Messaging tab | RESTORE | C9 | [ ] |
-| MSG-11 | Per-contact rationale line | preview panel | RESTORE | C9 | [ ] |
-| MSG-12 | `status` draft→edited→reviewed | logic + badge | RESTORE | C9 | [ ] |
-| MSG-13 | Editable personalization prompt | Messaging tab modal | RESTORE | C9 | [ ] |
-| MSG-14 | Readiness badge | Messaging tab | RESTORE | C9 | [ ] |
-| MSG-15 | Message validation (tokens, link, length) | logic + UI warning | RESTORE | C9 | [ ] |
+| MSG-1 | Personalization run card + progress | Messaging tab | NEW | C9 | [x] |
+| MSG-2 | Source-field chips | Messaging tab | NEW | C9 | [x] |
+| MSG-3 | Per-contact preview tabs | Messaging tab | NEW | C9 | [x] |
+| MSG-4 | Step picker w/ coverage counts | Messaging tab | MOVE | C9 | [x] |
+| MSG-5 | Generate all for a step | Messaging tab | KEEP | C9 | [x] |
+| MSG-6 | Regenerate one contact | preview panel | RESTORE | C9 | [x] |
+| MSG-7 | Edit + save a draft | preview panel | RESTORE | C9 | [x] |
+| MSG-8 | Mark reviewed / mark all reviewed | preview panel | RESTORE | C9 | [x] |
+| MSG-9 | Discard one / discard all | Messaging tab | RESTORE | C9 | [x] |
+| MSG-10 | Stale-link detection + repair | Messaging tab | RESTORE | C9 | [x] |
+| MSG-11 | Per-contact rationale line | preview panel | RESTORE | C9 | [x] |
+| MSG-12 | `status` draft→edited→reviewed | logic + badge | RESTORE | C9 | [x] |
+| MSG-13 | Editable personalization prompt | Messaging tab modal | RESTORE | C9 | [x] |
+| MSG-14 | Readiness badge | Messaging tab | RESTORE | C9 | [x] |
+| MSG-15 | Message validation (tokens, link, length) | logic + UI warning | RESTORE | C9 | [x] |
 
 ### 5.7 Cadence planner
 | ID | Feature | Target home | Action | CP | Done |
@@ -408,7 +408,7 @@ it, must be reinstated.
 | SAF-9 | `responseUrn` webhook idempotency | KEEP | C8 | [x] |
 | SAF-10 | `claimedAt` concurrent-runner claim stamp | KEEP | C8 | [x] |
 | SAF-11 | HMAC webhook verification, fails closed | KEEP | C8 | [x] |
-| SAF-12 | Message validation before send | KEEP | C9 | [ ] |
+| SAF-12 | Message validation before send | KEEP | C9 | [x] |
 
 ---
 
@@ -562,7 +562,7 @@ intact so the migration is reversible.
 **Files:** `app/r/[token]/route.ts` (new), `lib/registration.ts` (new), `lib/zoom/` (new), `prisma/schema.prisma`
 **Acceptance:** click a real one-click link → registered → redirected to join URL; double-click creates nothing extra; Zoom link/create works; CSV fallback still works.
 
-### [ ] C9 — Messaging tab
+### [x] C9 — Messaging tab
 **Scope:** MSG-1..15, SAF-12.
 **Files:** `app/campaigns/[id]/messaging/`, `lib/actions/personalize.ts`
 **Acceptance:** prototype previews **plus** the complete edit path — regenerate, edit, review, discard one/all, repair links, rationale, prompt modal, validation warnings.

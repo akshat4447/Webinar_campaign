@@ -70,6 +70,7 @@ export function PersonalizeClient({
   currentLink,
   personalizationPrompt,
   confirmThreshold,
+  msgMode,
 }: {
   campaignId: string;
   campaignName: string;
@@ -84,6 +85,10 @@ export function PersonalizeClient({
   currentLink: string;
   personalizationPrompt: string;
   confirmThreshold: number;
+  /** Campaign-level messaging mode set in the wizard — governs the run
+   *  summary's copy only; generation itself is unconditional (AI mode uses
+   *  the brief, templatized mode still runs a merge-field pass per contact). */
+  msgMode: 'ai' | 'templatized';
 }) {
   const [rows, setRows] = useState(initialRows);
   const [selectedId, setSelectedId] = useState<string | null>(initialRows.find((r) => r.message)?.contactId ?? initialRows[0]?.contactId ?? null);
@@ -383,6 +388,77 @@ export function PersonalizeClient({
           </div>
         )}
       </div>
+
+      {/* Personalization run — the campaign-level mode set in the wizard,
+          how far this step has got, and which enriched fields feed the copy.
+          The per-contact "N of M written" figure already lived in the
+          recipient list header below; this is the at-a-glance summary above
+          it, matching how the prototype frames a personalization run. */}
+      {rows.length > 0 && (
+        <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>Personalization run</div>
+              <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 2 }}>
+                {msgMode === 'ai'
+                  ? 'Claude writes a unique message per contact from the campaign brief and each contact’s enriched fields.'
+                  : 'One template per step is merged for every contact; only the merge fields change per recipient.'}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 'var(--fs-label-2)',
+                fontWeight: 700,
+                padding: '3px 10px',
+                borderRadius: 'var(--radius-full)',
+                background: msgMode === 'ai' ? 'var(--accent-50)' : 'var(--n20)',
+                color: msgMode === 'ai' ? 'var(--accent-700)' : 'var(--n70)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {msgMode === 'ai' ? '✦ AI-personalized' : 'Templatized'}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginBottom: 5 }}>
+            <span>{msgMode === 'ai' ? 'Drafted' : 'Merged'} {generatedCount} of {rows.length} {msgMode === 'ai' ? 'messages' : 'recipients'}</span>
+            <span className="lsq-num" style={{ fontWeight: 700, color: 'var(--n80)' }}>
+              {rows.length > 0 ? Math.round((generatedCount / rows.length) * 100) : 0}%
+            </span>
+          </div>
+          <div style={{ height: 8, background: 'var(--n20)', borderRadius: 'var(--radius-full)', overflow: 'hidden', marginBottom: 14 }}>
+            <div
+              style={{
+                height: '100%',
+                width: `${rows.length > 0 ? (generatedCount / rows.length) * 100 : 0}%`,
+                background: 'var(--accent-500)',
+                borderRadius: 'var(--radius-full)',
+              }}
+            />
+          </div>
+
+          <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 700, color: 'var(--n60)', marginBottom: 6 }}>
+            Written from these fields per contact
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {['{{firstName}}', '{{title}}', '{{seniority}}', '{{function}}', '{{account}}', '{{vertical}}', '{{score}}'].map((field) => (
+              <span
+                key={field}
+                style={{
+                  fontSize: 'var(--fs-label-2)',
+                  fontFamily: 'ui-monospace, Menlo, monospace',
+                  background: 'var(--n10)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '4px 9px',
+                  color: 'var(--n70)',
+                }}
+              >
+                {field}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '32px 24px', textAlign: 'center', fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>

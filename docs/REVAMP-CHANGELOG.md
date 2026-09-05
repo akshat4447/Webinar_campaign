@@ -813,3 +813,91 @@ regardless of how the contact originally entered the system.
   database back to 16 campaigns
 
 **Status:** complete
+
+---
+
+## C9 — Messaging tab
+
+**Date:** 2026-09-05
+**Scope:** MSG-1..15, SAF-12.
+
+### The starting point
+The original Personalize tab's engine (`PersonalizeClient.tsx`, 624 lines)
+survived C2B's rename to Messaging completely intact: generate, regenerate one,
+edit + save, mark reviewed (one + all), discard (one + all), stale-link repair,
+per-contact validation, and the editable prompt modal were all already present
+and already wired to real server actions. C9's job was narrower than it looked:
+add the prototype's new visual layer, verify the whole surviving engine still
+works after C6's template-resolution change, and fix anything that didn't.
+
+### Features completed
+| ID | Feature | Note |
+|---|---|---|
+| MSG-1 | Personalization run card + progress | **new** |
+| MSG-2 | Source-field chips | **new** |
+| MSG-3 | Per-contact preview | **satisfied by the existing editable detail panel** — see design note |
+| MSG-4 | Step picker w/ coverage counts | kept |
+| MSG-5 | Generate all for a step | kept — **re-verified with a real Claude call** |
+| MSG-6 | Regenerate one contact | kept |
+| MSG-7 | Edit + save a draft | kept — **re-verified end to end** |
+| MSG-8 | Mark reviewed / mark all reviewed | kept — **re-verified end to end** |
+| MSG-9 | Discard one / discard all | kept — **re-verified end to end** |
+| MSG-10 | Stale-link detection + repair | kept — **re-verified end to end** |
+| MSG-11 | Per-contact rationale line | kept |
+| MSG-12 | `status` draft→edited→reviewed | kept — **transitions confirmed in DB** |
+| MSG-13 | Editable personalization prompt | kept |
+| MSG-14 | Readiness badge | kept |
+| MSG-15 | Message validation | kept |
+| SAF-12 | Message validation before send | kept — same validator, unchanged |
+
+### Design note — MSG-3
+The prototype's "per-contact preview" is a fixed set of ~3 sample-contact tabs,
+read-only. The existing recipient list + detail panel already does this for
+*every* approved contact (not a preset few), and the detail panel is fully
+editable in place — regenerate, edit, save, review, right where the preview is.
+Bolting on a separate fixed-tab preview alongside a strictly more capable
+existing UI would be a regression dressed as a restyle. Marked satisfied by the
+existing panel rather than rebuilt.
+
+### Files changed
+- `app/campaigns/[id]/messaging/page.tsx` — passes `msgMode` through.
+- `app/campaigns/[id]/messaging/PersonalizeClient.tsx` — new "Personalization
+  run" card (progress bar + mode copy + source-field chips) inserted above the
+  existing recipient list/detail panel; no existing logic touched.
+
+### Bugs found
+None in this checkpoint's own changes. Verification did surface **three false
+negatives in my own test scripts**, all the same root cause: `page.locator(
+'div', { hasText: '...' })` matches an *ancestor* container whose full text
+happens to include the string, not the specific leaf row — `.first()` then
+grabs the outer wrapper instead of the row. Confirmed by re-running the same
+checks with ref-based clicks from the accessibility snapshot instead of
+text-containment locators, which passed cleanly. No application code was at
+fault; recorded here because this is now the second checkpoint this exact
+Playwright pattern has produced a spurious failure in, and it's worth a
+standing rule: **prefer ref-based clicks (`ui.snapshot()` + `ui.click('@e_')`)
+over `hasText` locators when multiple rows share overlapping text**, e.g. two
+contacts both named "Priya Nair" in the same list.
+
+### Verification
+- `GATE PASS` — `next typegen`, 132 tests / 14 files, `tsc` exit 0, `eslint` clean
+- `VISUAL VERIFIED`, **0 console errors** across every check below:
+  - run card renders with correct progress %, mode copy, and all 7 source
+    chips (`{{firstName}}`, `{{title}}`, `{{seniority}}`, `{{function}}`,
+    `{{account}}`, `{{vertical}}`, `{{score}}`)
+  - **real Claude call** through a live campaign's "Generate" button produced
+    an actual personalized message — proves `resolveStepTemplate` correctly
+    feeds `generatePersonalized`, the one code path in this tab C6 actually
+    changed
+  - edit → save: DB confirms `status: 'edited'`, body contains the edit,
+    `editedAt` set
+  - mark reviewed: DB confirms `status: 'reviewed'`, `reviewedAt` set
+  - stale-link warning appeared after changing the campaign's registration
+    link; repair confirmed in DB — `linkUsed` and the message body both
+    updated to the new link
+  - discard-all confirmed in DB: campaign returned to 0 personalized messages
+- All test-created personalized messages removed and the campaign's
+  registration link restored to its original value afterward — no residue
+  left in real campaign data used for verification
+
+**Status:** complete

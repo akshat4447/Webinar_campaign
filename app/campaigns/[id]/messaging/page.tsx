@@ -107,6 +107,7 @@ export default async function PersonalizePage({ params, searchParams }: { params
         activeChannel={normalizeChannel(activeStep.channel)}
         templateSubject={activeStep.hasSubject ? activeStep.subject : null}
         templateBody={activeStep.body}
+        msgMode={campaign.msgMode === 'templatized' ? 'templatized' : 'ai'}
         rows={rows}
         currentLink={currentLink}
         personalizationPrompt={campaign.personalizationPrompt}
