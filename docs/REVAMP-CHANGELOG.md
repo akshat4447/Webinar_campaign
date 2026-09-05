@@ -901,3 +901,104 @@ contacts both named "Priya Nair" in the same list.
   left in real campaign data used for verification
 
 **Status:** complete
+
+## C10 — Agent run + Post-event
+
+**Date:** 2026-09-05
+**Scope:** AGT-1..8, PST-1..5.
+
+### Features completed
+Numbered activity log w/ status badges (`ActivityLog.tsx`) · 4 run stat cards
+(Messages sent, Failed, Queued, Registered) · pause / resume / stop cadence,
+retry failed sends, run due sends now, needs-attention cards + AI diagnose +
+resolve, next-send-due indicator, simulated clock (all pre-existing in
+`ControlPanel.tsx`, unchanged, reconfirmed live) · 4 post-event stat cards
+(Attended, No-shows, Attendance rate, Avg. watch time) · attendee follow-up
+card · no-show follow-up card · account engagement summary table · "Push to
+LSQ for SDR" action.
+
+### Files
+- `app/campaigns/[id]/agent/ActivityLog.tsx` (new) — numbered, oldest-first
+  log; maps each entry's existing `ActivityLogEntry.dot` colour token onto a
+  Done/Attention/Running badge rather than adding a new schema column.
+- `app/campaigns/[id]/agent/page.tsx` — rewritten onto `PageProps<'/campaigns/
+  [id]/agent'>` (was hand-typed, now generated), adds the 4 stat cards
+  (`db.cadenceSend.count` / `db.contact.count`) and `<ActivityLog>`; last 30
+  `ActivityLogEntry` rows fetched `desc` then reversed for chronological
+  numbering. `ControlPanel` untouched.
+- `lib/postEvent.ts` (new) — `getPostEventStats()` (attended / no-show / avg
+  watch minutes / demo requests) and `getAccountEngagement()` (groups approved
+  contacts by account; per account picks the longest-watching attendee, or
+  else the highest scorer, as the one contact for sales to act on).
+- `lib/activityPush.ts` — `EngagementEntry.stage` union extended with
+  `'SDR follow-up'`; the push function itself (already live, already proven in
+  earlier checkpoints for `Attended`/`No-show`) is unchanged.
+- `lib/actions/attendance.ts` — added `pushAccountsForSdrAction`, a thin wrap
+  around the existing `pushEngagementActivities`.
+- `app/campaigns/[id]/post-event/page.tsx` — rewritten: removed the
+  `Placeholder`, wires in `getPostEventStats`/`getAccountEngagement`, keeps
+  `ZoomPanel` and the attendance-imported notice unchanged in the side rail.
+- `app/campaigns/[id]/post-event/PostEventClient.tsx` (new) — client component
+  for the stat tiles, follow-up cards, account table, and the SDR push button
+  (needs `useState`/`useToast`, so split out of the server page).
+
+### Design
+
+**"Demo requests" stays honest.** Neither Zoom nor the CRM in this app carries
+a "requested a demo" signal, so `getPostEventStats` reads the static, manually
+set `campaign.demoRequests` and returns `null` when absent — displayed as
+"—", not fabricated from some other proxy metric.
+
+**"Push to LSQ for SDR" reuses the proven engagement-push path rather than
+inventing new LSQ surface.** Adding a fourth `EngagementEntry.stage` value
+was enough; `pushEngagementActivities`'s lead-resolution, activity-type
+caching, and failure handling (already exercised for Attended/No-show
+pushes) needed no changes.
+
+**Top contact per account = longest watch time, falling back to score.**
+Sales needs one name to call, not a list. An account with any attendee gets
+its longest-watching attendee; an account with no attendee but a score gets
+its highest scorer ("Nurture"); an account with neither gets flagged "Not
+contacted" and is excluded from the SDR push.
+
+### Bugs found
+None. This checkpoint's `pushEngagementActivities` call path predates it and
+was already proven; the only change there was a new string in an existing
+union.
+
+Two false leads during verification, both my own test-script mistakes, not
+app bugs:
+- A first click attempt used a snapshot ref captured in an *earlier, separate*
+  browser process invocation — cross-run refs aren't guaranteed stable, and
+  the click silently never fired (no request reached the server). Fixed by
+  snapshotting and clicking within the same script invocation.
+- The Next.js dev console truncates long array arguments in its per-request
+  action log line — a log showing 3 contact IDs for a push that (per the
+  actual network request body, and the resulting toast) sent and pushed all
+  4 was a logging-display artifact, not a dropped ID.
+
+### Verification
+- `GATE PASS` — `next typegen`, 132 tests / 14 files, `tsc` exit 0, `eslint` clean
+- `VISUAL VERIFIED`, **0 console errors**, on a campaign seeded with 7 approved
+  contacts across 5 accounts, mixed attendance/watch-time/score data:
+  - Agent run stat cards (15 sent / 10 failed / 5 queued / 0 registered)
+    matched a direct `CadenceSend`/`Contact` count query exactly
+  - numbered activity log rendered all 24 entries oldest-first with correct
+    Done/Attention/Running badges
+  - Post-event stat cards (4 attended / 3 no-show / 57% rate / 36 min avg)
+    matched hand-computed values from the seeded rows exactly
+  - account engagement table's 5 rows, per-account avg watch time, and
+    Follow up/Nurture/Not contacted actions matched a direct
+    `getAccountEngagement()` script run exactly
+  - clicked "Push to LSQ for SDR": captured network request body confirmed
+    all 4 eligible accounts' top-contact IDs were sent; real LeadSquared push
+    succeeded (no attention item, no server error); toast read "Flagged 4
+    accounts for SDR follow-up in LeadSquared."
+  - empty state (0 approved contacts) verified on a separate campaign: stat
+    cards show 0/0/—/—, table shows "No approved contacts yet.", push button
+    disabled
+- All test-seeded attendance/watch-time/score values reverted to their
+  original state afterward — no residue left in real campaign data used for
+  verification
+
+**Status:** complete

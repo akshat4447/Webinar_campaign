@@ -18,3 +18,14 @@ export async function importAttendanceFromZoomAction(campaignId: string) {
   if (result.ok) revalidateCampaign(campaignId);
   return result;
 }
+
+export async function pushAccountsForSdrAction(campaignId: string, contactIds: string[]) {
+  const { pushEngagementActivities } = await import('@/lib/activityPush');
+  const { revalidateCampaign } = await import('@/lib/revalidate');
+  const result = await pushEngagementActivities(
+    campaignId,
+    contactIds.map((contactId) => ({ contactId, stage: 'SDR follow-up' as const }))
+  );
+  revalidateCampaign(campaignId);
+  return result;
+}

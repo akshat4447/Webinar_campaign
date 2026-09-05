@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
-import { Placeholder } from '@/components/ui/Placeholder';
+import { getAccountEngagement, getPostEventStats } from '@/lib/postEvent';
 import { ZoomPanel } from '../agent/ZoomPanel';
+import { PostEventClient } from './PostEventClient';
 
 // Attendance import lives here rather than on the Agent run tab: importing a
 // participants report is a post-event act, and the operator looking for it is
@@ -10,13 +11,18 @@ export default async function PostEventPage(props: PageProps<'/campaigns/[id]/po
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id } });
   const hasLinkedMeeting = !!campaign.zoomMeetingId;
 
+  const [stats, accounts, approvedCount] = await Promise.all([
+    getPostEventStats(id),
+    getAccountEngagement(id),
+    db.contact.count({ where: { campaignId: id, approved: true } }),
+  ]);
+
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 320px)', gap: 20, alignItems: 'start' }}>
-        <Placeholder
-          checkpoint="C10"
-          summary="Follow-up performance after the webinar: how the attendee and no-show sequences did, average watch time, demo requests, and an account-by-account engagement summary you can push to LeadSquared as SDR tasks."
-        />
+        <div>
+          <PostEventClient campaignId={id} stats={stats} approved={approvedCount} accounts={accounts} />
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <ZoomPanel campaignId={id} hasLinkedMeeting={hasLinkedMeeting} />
           {campaign.attendanceImportedAt && (

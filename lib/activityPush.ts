@@ -18,7 +18,7 @@ async function getOrCreateActivityTypeId(): Promise<number> {
 
 export interface EngagementEntry {
   contactId: string;
-  stage: 'Attended' | 'No-show' | 'Demo requested';
+  stage: 'Attended' | 'No-show' | 'Demo requested' | 'SDR follow-up';
 }
 
 export async function pushEngagementActivities(campaignId: string, entries: EngagementEntry[]): Promise<{ pushed: number; failed: number }> {

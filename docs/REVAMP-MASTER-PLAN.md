@@ -322,23 +322,23 @@ it, must be reinstated.
 ### 5.8 Agent run (incl. Control Center — D2)
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
-| AGT-1 | Numbered activity log w/ status badges | Agent run tab | NEW | C10 | [ ] |
-| AGT-2 | 4 run stat cards | Agent run tab | NEW | C10 | [ ] |
-| AGT-3 | Pause / resume / stop cadence | Agent run tab | RESTORE | C10 | [ ] |
-| AGT-4 | Retry failed sends | Agent run tab | RESTORE | C10 | [ ] |
-| AGT-5 | Run due sends now | Agent run tab | RESTORE | C10 | [ ] |
-| AGT-6 | Needs-attention cards + AI diagnose + resolve | Agent run tab | RESTORE | C10 | [ ] |
-| AGT-7 | Next-send-due indicator | Agent run tab | RESTORE | C10 | [ ] |
-| AGT-8 | Simulated clock | Agent run tab, dev flag | RESTORE | C10 | [ ] |
+| AGT-1 | Numbered activity log w/ status badges | Agent run tab | NEW | C10 | [x] |
+| AGT-2 | 4 run stat cards | Agent run tab | NEW | C10 | [x] |
+| AGT-3 | Pause / resume / stop cadence | Agent run tab | RESTORE | C10 | [x] |
+| AGT-4 | Retry failed sends | Agent run tab | RESTORE | C10 | [x] |
+| AGT-5 | Run due sends now | Agent run tab | RESTORE | C10 | [x] |
+| AGT-6 | Needs-attention cards + AI diagnose + resolve | Agent run tab | RESTORE | C10 | [x] |
+| AGT-7 | Next-send-due indicator | Agent run tab | RESTORE | C10 | [x] |
+| AGT-8 | Simulated clock | Agent run tab, dev flag | RESTORE | C10 | [x] |
 
 ### 5.9 Post-event
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
-| PST-1 | 4 post-event stat cards | Post-event tab | NEW | C10 | [ ] |
-| PST-2 | Attendee follow-up card + metrics | Post-event tab | NEW | C10 | [ ] |
-| PST-3 | No-show follow-up card + metrics | Post-event tab | NEW | C10 | [ ] |
-| PST-4 | Account engagement summary table | Post-event tab | KEEP | C10 | [ ] |
-| PST-5 | "Push to LSQ for SDR" | Post-event tab | NEW | C10 | [ ] |
+| PST-1 | 4 post-event stat cards | Post-event tab | NEW | C10 | [x] |
+| PST-2 | Attendee follow-up card + metrics | Post-event tab | NEW | C10 | [x] |
+| PST-3 | No-show follow-up card + metrics | Post-event tab | NEW | C10 | [x] |
+| PST-4 | Account engagement summary table | Post-event tab | KEEP | C10 | [x] |
+| PST-5 | "Push to LSQ for SDR" | Post-event tab | NEW | C10 | [x] |
 | PST-6 | Zoom attendance CSV import | Post-event tab | KEEP | C8 | [x] |
 | PST-7 | Zoom participants API import | Post-event tab | NEW | C8 | [x] |
 
@@ -567,7 +567,7 @@ intact so the migration is reversible.
 **Files:** `app/campaigns/[id]/messaging/`, `lib/actions/personalize.ts`
 **Acceptance:** prototype previews **plus** the complete edit path — regenerate, edit, review, discard one/all, repair links, rationale, prompt modal, validation warnings.
 
-### [ ] C10 — Agent run + Post-event
+### [x] C10 — Agent run + Post-event
 **Scope:** AGT-1..8, PST-1..5.
 **Files:** `app/campaigns/[id]/agent/`, `app/campaigns/[id]/post-event/`, `lib/actions/control.ts`, `lib/actions/attendance.ts`
 **Acceptance:** numbered log renders; every Control Center action available and working; post-event follow-up cards + account rollup + push-to-LSQ.
