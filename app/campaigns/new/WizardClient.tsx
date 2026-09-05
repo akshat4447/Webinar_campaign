@@ -8,12 +8,16 @@ import { LeadImportCard } from '../[id]/setup/LeadImportCard';
 import { EnrichmentCard } from '../[id]/setup/EnrichmentCard';
 import type { EnrichmentStats } from '@/lib/actions/enrichment';
 import {
+  applyWizardZoomMeetingAction,
   createCampaignFromWizardAction,
+  createWizardZoomMeetingAction,
   getWizardScorePreviewAction,
   improveDraftDescriptionAction,
+  listWizardZoomMeetingsAction,
   saveWizardMessagingAction,
   updateWizardDetailsAction,
   type WizardDetails,
+  type WizardZoomMeeting,
 } from '@/lib/actions/wizard';
 import { runScoringAction, updateScoringConfigAction } from '@/lib/actions/scoring';
 import { toDateTimeLocal } from '@/lib/campaignDate';
@@ -112,6 +116,39 @@ export function WizardClient({
   const { showToast } = useToast();
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [zoomChoice, setZoomChoice] = useState<'existing' | 'new' | 'manual'>('manual');
+  const [zoomMeetings, setZoomMeetings] = useState<WizardZoomMeeting[] | null>(null);
+  const [zoomMeetingId, setZoomMeetingId] = useState('');
+  const [zoomLoading, setZoomLoading] = useState(false);
+  const [zoomError, setZoomError] = useState<string | null>(null);
+
+  async function pickExistingZoom() {
+    setZoomChoice('existing');
+    setZoomError(null);
+    if (zoomMeetings) return;
+    setZoomLoading(true);
+    const meetings = await listWizardZoomMeetingsAction();
+    setZoomLoading(false);
+    setZoomMeetings(meetings);
+    if (meetings.length === 0) setZoomError('No upcoming meetings found — check the Zoom connection on Integrations, or paste a link by hand.');
+  }
+
+  function selectZoomMeeting(id: string) {
+    setZoomMeetingId(id);
+    const meeting = zoomMeetings?.find((m) => m.id === id);
+    if (!meeting) return;
+    // "pulled from Zoom — title, date and time set automatically", same as the
+    // prototype. Still editable afterward, in case the internal Zoom topic
+    // isn't what the invite should say.
+    const start = meeting.startTime ? new Date(meeting.startTime) : null;
+    setDetails((d) => ({
+      ...d,
+      title: meeting.topic,
+      date: start ? start.toISOString().slice(0, 10) : d.date,
+      time: start ? start.toISOString().slice(11, 16) : d.time,
+      zoomLink: meeting.joinUrl,
+    }));
+  }
 
   const scheduled = campaign?.scheduledAt ? new Date(campaign.scheduledAt) : null;
   const local = scheduled ? toDateTimeLocal(scheduled) : '';
@@ -166,16 +203,20 @@ export function WizardClient({
     }
     setErrors({});
     setBusy(true);
-    if (campaign) {
-      await updateWizardDetailsAction(campaign.id, details);
-      setBusy(false);
-      go(1, campaign.id);
-    } else {
-      const id = await createCampaignFromWizardAction(details);
-      setBusy(false);
-      showToast('Draft created — now bring the audience.');
-      go(1, id);
+    const id = campaign ? campaign.id : await createCampaignFromWizardAction(details);
+    if (campaign) await updateWizardDetailsAction(campaign.id, details);
+
+    if (zoomChoice === 'existing' && zoomMeetingId) {
+      const r = await applyWizardZoomMeetingAction(id, zoomMeetingId);
+      if (!r.ok) showToast(r.error);
+    } else if (zoomChoice === 'new') {
+      const r = await createWizardZoomMeetingAction(id, details);
+      showToast(r.ok ? 'Zoom meeting created.' : `Zoom meeting not created: ${r.error}`);
     }
+
+    setBusy(false);
+    if (!campaign) showToast('Draft created — now bring the audience.');
+    go(1, id);
   }
 
   async function improve() {
@@ -309,11 +350,86 @@ export function WizardClient({
             </div>
 
             <div>
-              {label('Zoom join link')}
-              <input className="lsq-input" value={details.zoomLink} onChange={(e) => set('zoomLink', e.target.value)} placeholder="https://your-org.zoom.us/j/…" />
-              <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 5 }}>
-                Linking a Zoom event directly, so title and time fill themselves in, arrives with the Zoom integration.
+              {label('Zoom event')}
+              <div style={{ display: 'flex', gap: 10 }}>
+                {(
+                  [
+                    { id: 'manual', title: 'Paste a link', blurb: 'Type or paste a Zoom join link' },
+                    { id: 'existing', title: 'Use existing event', blurb: 'Pick a meeting already on Zoom' },
+                    { id: 'new', title: 'Create new event', blurb: "We'll create it in Zoom" },
+                  ] as const
+                ).map((opt) => {
+                  const active = zoomChoice === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => (opt.id === 'existing' ? pickExistingZoom() : setZoomChoice(opt.id))}
+                      style={{
+                        flex: 1,
+                        textAlign: 'left',
+                        padding: '10px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        cursor: 'pointer',
+                        border: 'none',
+                        background: active ? 'var(--accent-50)' : 'transparent',
+                        boxShadow: `inset 0 0 0 1px ${active ? 'var(--accent-500)' : 'var(--border-subtle)'}`,
+                      }}
+                    >
+                      <div style={{ fontWeight: 'var(--fw-bold)', fontSize: 'var(--fs-label-1)' }}>{opt.title}</div>
+                      <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 2 }}>{opt.blurb}</div>
+                    </button>
+                  );
+                })}
               </div>
+
+              {zoomChoice === 'manual' && (
+                <input
+                  className="lsq-input"
+                  style={{ marginTop: 10 }}
+                  value={details.zoomLink}
+                  onChange={(e) => set('zoomLink', e.target.value)}
+                  placeholder="https://your-org.zoom.us/j/…"
+                />
+              )}
+
+              {zoomChoice === 'existing' && (
+                <div style={{ marginTop: 10 }}>
+                  {zoomLoading ? (
+                    <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>Loading meetings…</div>
+                  ) : zoomMeetings && zoomMeetings.length > 0 ? (
+                    <select
+                      className="lsq-select"
+                      style={{ width: '100%', height: 36 }}
+                      value={zoomMeetingId}
+                      onChange={(e) => selectZoomMeeting(e.target.value)}
+                    >
+                      <option value="">Choose a meeting…</option>
+                      {zoomMeetings.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.topic}
+                          {m.startTime ? ` — ${new Date(m.startTime).toLocaleString('en-GB')}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  {zoomError && <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--danger-500)', marginTop: 5 }}>{zoomError}</div>}
+                  {zoomMeetingId && (
+                    <div style={{ display: 'flex', gap: 10, background: 'var(--success-100)', borderRadius: 'var(--radius-md)', padding: '10px 12px', marginTop: 8 }}>
+                      <span style={{ color: 'var(--success-700)', flexShrink: 0 }} aria-hidden="true">✓</span>
+                      <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--success-700)' }}>
+                        Pulled from Zoom — title, date and time filled in automatically. Edit them above if needed.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {zoomChoice === 'new' && (
+                <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 8 }}>
+                  A Zoom meeting is created from the title, date and time above when you continue.
+                </div>
+              )}
             </div>
           </>
         )}

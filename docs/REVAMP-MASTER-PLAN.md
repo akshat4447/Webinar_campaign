@@ -339,8 +339,8 @@ it, must be reinstated.
 | PST-3 | No-show follow-up card + metrics | Post-event tab | NEW | C10 | [ ] |
 | PST-4 | Account engagement summary table | Post-event tab | KEEP | C10 | [ ] |
 | PST-5 | "Push to LSQ for SDR" | Post-event tab | NEW | C10 | [ ] |
-| PST-6 | Zoom attendance CSV import | Post-event tab | KEEP | C8 | [ ] |
-| PST-7 | Zoom participants API import | Post-event tab | NEW | C8 | [ ] |
+| PST-6 | Zoom attendance CSV import | Post-event tab | KEEP | C8 | [x] |
+| PST-7 | Zoom participants API import | Post-event tab | NEW | C8 | [x] |
 
 ### 5.10 Overview & Dashboard
 | ID | Feature | Target home | Action | CP | Done |
@@ -369,15 +369,15 @@ it, must be reinstated.
 ### 5.11 Registration & Zoom
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
-| REG-1 | `Contact.registeredAt` + `registrationSource` | schema | NEW | C8 | [ ] |
-| REG-2 | Signed one-click sign-up route `/r/[token]` | `app/r/[token]/route.ts` | NEW | C8 | [ ] |
-| REG-3 | Idempotent under replay | logic | NEW | C8 | [ ] |
-| REG-4 | Confirmation step fires on registration | logic | NEW | C8 | [ ] |
-| REG-5 | LinkedIn Lead Sync registration ingestion | existing | KEEP | C8 | [ ] |
-| ZOM-1 | Zoom Server-to-Server OAuth | `lib/zoom/` | NEW | C8 | [ ] |
-| ZOM-2 | List / link / create event | `lib/zoom/` | NEW | C8 | [ ] |
-| ZOM-3 | Participants report fetch | `lib/zoom/` | NEW | C8 | [ ] |
-| ZOM-4 | CSV fallback retained | Post-event tab | KEEP | C8 | [ ] |
+| REG-1 | `Contact.registeredAt` + `registrationSource` | schema | NEW | C8 | [x] |
+| REG-2 | Signed one-click sign-up route `/r/[token]` | `app/r/[token]/route.ts` | NEW | C8 | [x] |
+| REG-3 | Idempotent under replay | logic | NEW | C8 | [x] |
+| REG-4 | Confirmation step fires on registration | logic | NEW | C8 | [x] |
+| REG-5 | LinkedIn Lead Sync registration ingestion | existing | KEEP | C8 | [x] |
+| ZOM-1 | Zoom Server-to-Server OAuth | `lib/zoom/` | NEW | C8 | [x] |
+| ZOM-2 | List / link / create event | `lib/zoom/` | NEW | C8 | [x] |
+| ZOM-3 | Participants report fetch | `lib/zoom/` | NEW | C8 | [x] |
+| ZOM-4 | CSV fallback retained | Post-event tab | KEEP | C8 | [x] |
 
 ### 5.12 Integrations
 | ID | Feature | Target home | Action | CP | Done |
@@ -405,9 +405,9 @@ it, must be reinstated.
 | SAF-6 | `smsOptOut` gate | KEEP | C5 | [x] |
 | SAF-7 | Apollo pre-flight before LinkedIn touch | KEEP | C5 | [x] |
 | SAF-8 | Send dedupe `@@unique([campaignId, contactId, stepKey])` | KEEP | C3 | [x] |
-| SAF-9 | `responseUrn` webhook idempotency | KEEP | C8 | [ ] |
-| SAF-10 | `claimedAt` concurrent-runner claim stamp | KEEP | C8 | [ ] |
-| SAF-11 | HMAC webhook verification, fails closed | KEEP | C8 | [ ] |
+| SAF-9 | `responseUrn` webhook idempotency | KEEP | C8 | [x] |
+| SAF-10 | `claimedAt` concurrent-runner claim stamp | KEEP | C8 | [x] |
+| SAF-11 | HMAC webhook verification, fails closed | KEEP | C8 | [x] |
 | SAF-12 | Message validation before send | KEEP | C9 | [ ] |
 
 ---
@@ -557,7 +557,7 @@ intact so the migration is reversible.
 **Files:** `app/campaigns/[id]/audience/`, `lib/actions/scoring.ts`
 **Acceptance:** search, band filter and pagination server-side; approve checkboxes + bulk + approve-all-≥-threshold; re-run scoring and editable config; phone edit; quarantine badge visible.
 
-### [ ] C8 — Registration + Zoom
+### [x] C8 — Registration + Zoom
 **Scope:** REG-1..5, ZOM-1..4, PST-6, PST-7, SAF-9..11.
 **Files:** `app/r/[token]/route.ts` (new), `lib/registration.ts` (new), `lib/zoom/` (new), `prisma/schema.prisma`
 **Acceptance:** click a real one-click link → registered → redirected to join URL; double-click creates nothing extra; Zoom link/create works; CSV fallback still works.

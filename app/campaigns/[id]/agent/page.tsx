@@ -1,6 +1,5 @@
 import { db } from '@/lib/db';
 import { ControlPanel } from './ControlPanel';
-import { ZoomPanel } from './ZoomPanel';
 import { SimulateClockCard } from './SimulateClockCard';
 import { LinkedInInviteCard } from './LinkedInInviteCard';
 import { eventPublicUrl } from '@/lib/linkedin/events';
@@ -30,7 +29,6 @@ export default async function ControlPage({ params }: { params: Promise<{ id: st
               pendingRegistrations={pendingLinkedinRegs}
             />
           )}
-          <ZoomPanel campaignId={id} />
           <SimulateClockCard campaignId={id} simulatedNow={campaign.simulatedNow?.toISOString() ?? null} />
         </div>
       </div>

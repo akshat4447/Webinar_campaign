@@ -61,6 +61,12 @@ model Campaign {
   /// contact outright, with no landing-page form.
   oneClickSignup Boolean  @default(true)
 
+  /// Which Zoom meeting backs this webinar, if any — existing (linked) or new
+  /// (created from the wizard). Null means no Zoom meeting is linked yet, or
+  /// the operator only pasted a join link by hand.
+  zoomMode       String?  // existing | new
+  zoomMeetingId  String?
+
   cadenceStatus  String   @default("not_started") // not_started | running | paused | stopped
   linkedinMode   String   @default("assisted") // assisted (manual) | automated (simulated bot)
   simulatedNow   DateTime?
@@ -139,6 +145,12 @@ model Contact {
   extraFieldsJson  String?
   emailSimulated   Boolean @default(false)
   emailVerified    Boolean @default(false)
+
+  /// When this contact registered, and how it reached us. Registration used to
+  /// exist only as a LinkedIn Lead Sync side-effect; making it a contact state
+  /// is what lets the funnel talk about registrations at all.
+  registeredAt       DateTime?
+  registrationSource String?   // one_click | linkedin | manual | import
 
   attended     Boolean @default(false)
   watchMinutes Int?

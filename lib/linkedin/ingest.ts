@@ -3,8 +3,7 @@
 //   webhook row ─▶ resolve campaign by event URN ─▶ fetch/normalize registrant
 //     ─▶ dedupe by email ─▶ create Contact (source "LinkedIn Event")
 //     ─▶ Claude scores it (existing path) ─▶ LeadSquared sync (existing path)
-//     ─▶ queue the `confirm` cadence step (dead since launch — this is its
-//        missing registration trigger, see lib/stepTrigger.ts)
+//     ─▶ registerContact() queues every registration-triggered cadence step
 //
 // Failures deliberately do NOT mark the row processed (except data-terminal
 // ones like "no email"), so scripts/linkedin-process.ts can retry them.
@@ -12,6 +11,7 @@ import { createHash } from 'crypto';
 import type { LinkedinRegistration, Campaign } from '@/lib/generated/prisma/client';
 import { db } from '@/lib/db';
 import { revalidateCampaign } from '@/lib/revalidate';
+import { registerContact } from '@/lib/registerContact';
 import { upsertAttentionItem } from '@/lib/attentionItems';
 import { scoreContacts } from '@/lib/claude';
 import { syncContactsToLeadSquared } from '@/lib/leadSync';
@@ -176,6 +176,12 @@ async function processOne(
           dot: 'var(--accent-500)',
         },
       });
+      // registerContact is idempotent, so this is a no-op for a contact that
+      // registered before. For one that only existed from an import or a
+      // manual add, THIS is their registration — set it and queue whatever
+      // registration-triggered steps are enabled, exactly as a fresh contact
+      // gets below.
+      await registerContact(campaign.id, existingContactId, 'linkedin', row.occurredAt ?? undefined);
       await revalidateCampaign(campaign.id);
       return 'ok';
     }
@@ -227,21 +233,13 @@ async function processOne(
       });
     }
 
-    // Revive the event-anchored steps: `confirm` (email) and `whatsapp` (opt-in
-    // gated at send time) both fire on a registration, so they're queued here
-    // rather than at launch. The tick sends them once the cadence is running.
-    const eventKeys = ['confirm', 'whatsapp'];
-    const [eventSteps, eventTemplates] = await Promise.all([
-      db.cadenceStep.findMany({ where: { campaignId: campaign.id, key: { in: eventKeys }, enabled: true, removedAt: null } }),
-      db.template.findMany({ where: { campaignId: campaign.id, key: { in: eventKeys } }, select: { key: true } }),
-    ]);
-    const templateKeys = new Set(eventTemplates.map((t) => t.key));
-    for (const key of eventKeys) {
-      if (!eventSteps.some((s) => s.key === key) || !templateKeys.has(key)) continue;
-      await db.cadenceSend
-        .create({ data: { campaignId: campaign.id, contactId: contact.id, stepKey: key, dueAt: new Date(), status: 'queued' } })
-        .catch(() => undefined); // @@unique([campaignId,contactId,stepKey]) backstop
-    }
+    // Registration is a first-class contact state (lib/registerContact.ts),
+    // shared with the one-click sign-up path: it sets registeredAt/source and
+    // queues every enabled registration-triggered step (not just confirm and
+    // whatsapp — any step the operator has added in the planner), resolving
+    // its template through the shared library rather than the legacy
+    // per-campaign table this used to read.
+    await registerContact(campaign.id, contact.id, 'linkedin', row.occurredAt ?? undefined);
 
     await db.$transaction([
       db.$executeRaw`UPDATE "Campaign" SET "registrations" = COALESCE("registrations", 0) + 1 WHERE "id" = ${campaign.id}`,

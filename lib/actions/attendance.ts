@@ -11,3 +11,10 @@ export async function importAttendanceAction(campaignId: string, formData: FormD
   revalidateCampaign(campaignId);
   return result;
 }
+
+export async function importAttendanceFromZoomAction(campaignId: string) {
+  const { importAttendanceFromZoom } = await import('@/lib/attendance');
+  const result = await importAttendanceFromZoom(campaignId);
+  if (result.ok) revalidateCampaign(campaignId);
+  return result;
+}

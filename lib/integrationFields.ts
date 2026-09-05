@@ -27,7 +27,11 @@ export const INTEGRATION_FIELDS: Record<string, IntegrationField[]> = {
   claude: [{ key: 'apiKey', label: 'API Key', secret: true, placeholder: 'Paste your Anthropic API key' }],
   apollo: [{ key: 'apiKey', label: 'API Key', secret: true, placeholder: 'Paste your Apollo API key' }],
   apify: [{ key: 'apiToken', label: 'API Token', secret: true, placeholder: 'Paste your Apify API token' }],
-  zoom: [],
+  zoom: [
+    { key: 'accountId', label: 'Account ID', secret: false, placeholder: 'Zoom Server-to-Server OAuth app Account ID' },
+    { key: 'clientId', label: 'Client ID', secret: false, placeholder: 'Zoom Server-to-Server OAuth app Client ID' },
+    { key: 'clientSecret', label: 'Client Secret', secret: true, placeholder: 'Zoom Server-to-Server OAuth app Client Secret' },
+  ],
   linkedin: [
     { key: 'clientId', label: 'Client ID', secret: false, placeholder: 'LinkedIn app Client ID' },
     { key: 'clientSecret', label: 'Client Secret', secret: true, placeholder: 'Paste your LinkedIn app Client Secret' },

@@ -8,6 +8,8 @@ import { validateRenderedMessage, validateRenderedMessageForChannel } from '@/li
 import { normalizeChannel, isAutomatableChannel } from '@/lib/channels';
 import { deliverChannelMessage, sandboxTargetPhone, postSentActivityIfMapped, type DeliveryChannel } from '@/lib/channelDelivery';
 import { resolveStepTemplate } from '@/lib/messageTemplates';
+import { registrationUrl } from '@/lib/registration';
+import { appOrigin } from '@/lib/appOrigin';
 
 export { isAutomatableChannel } from '@/lib/channels';
 
@@ -22,6 +24,31 @@ export function addDays(d: Date, days: number): Date {
 export async function effectiveNow(campaignId: string): Promise<Date> {
   const c = await db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { simulatedNow: true } });
   return c.simulatedNow ?? new Date();
+}
+
+/**
+ * The link a message should carry for one contact.
+ *
+ * An unregistered contact on a one-click campaign gets a signed link that
+ * registers them the moment they click it — that is the entire point of
+ * one-click sign-up. A contact who has already registered gets the plain
+ * event link instead: sending an already-registered person another "register
+ * here" link is redundant, and reminders/confirmations should read as being
+ * about the event, not as a second invitation.
+ *
+ * This is a per-contact decision, not a per-step one, because the same rule
+ * is correct whether the send is the first invite or the T-1 hour reminder —
+ * what matters is whether THIS contact has registered yet, not which step is
+ * firing.
+ */
+function effectiveLink(
+  campaign: { id: string; oneClickSignup: boolean; registrationLink: string | null; zoomLink: string | null },
+  contact: { id: string; registeredAt: Date | null }
+): string {
+  if (campaign.oneClickSignup && !contact.registeredAt) {
+    return registrationUrl(appOrigin(), campaign.id, contact.id);
+  }
+  return campaign.registrationLink || campaign.zoomLink || '';
 }
 
 export function renderMergeFields(str: string, opts: { firstName: string; company: string; topic: string; link: string }): string {
@@ -290,7 +317,7 @@ async function processSingleSend(
     const personalizedRaw = await db.personalizedMessage.findUnique({
       where: { campaignId_contactId_stepKey: { campaignId, contactId: contact.id, stepKey: send.stepKey } },
     });
-    const link = campaign.registrationLink ?? '';
+    const link = effectiveLink(campaign, contact);
     const personalizedValidation = personalizedRaw ? validateRenderedMessage(personalizedRaw.subject, personalizedRaw.body, send.stepKey !== 'linkedin', link) : null;
     const personalized = personalizedValidation?.valid ? personalizedRaw : null;
     if (personalizedRaw && !personalizedValidation?.valid) {
@@ -398,7 +425,7 @@ async function processChannelSend(
   if (channel === 'whatsapp' && !contact.whatsappOptIn) return skip('No WhatsApp opt-in on record — Meta template messages require it');
 
   // Render from personalized copy when one exists and validates, else template.
-  const link = campaign.registrationLink ?? '';
+  const link = effectiveLink(campaign, contact);
   const personalizedRaw = await db.personalizedMessage.findUnique({
     where: { campaignId_contactId_stepKey: { campaignId, contactId: contact.id, stepKey: send.stepKey } },
   });

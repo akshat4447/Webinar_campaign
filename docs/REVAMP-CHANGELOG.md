@@ -709,3 +709,107 @@ filters moved out) fixed before commit.
 - Temp campaign deleted; database back to 16 campaigns
 
 **Status:** complete
+
+---
+
+## C8 — Registration + Zoom
+
+**Date:** 2026-09-05
+**Scope:** REG-1..5, ZOM-1..4, PST-6, PST-7, SAF-9..11.
+
+### Features completed
+`Contact.registeredAt` + `registrationSource` · signed one-click sign-up route
+`/r/[token]` · idempotent under replay · confirmation step fires on
+registration · LinkedIn Lead Sync registration (kept, and repaired — see bugs)
+· Zoom Server-to-Server OAuth · list / link / create meeting · participants
+report fetch · **CSV fallback retained** as a parallel path, not a replacement.
+
+### Schema
+`Contact.registeredAt`, `Contact.registrationSource`
+(migration `contact_registration`) · `Campaign.zoomMode`, `Campaign.zoomMeetingId`
+(migration `campaign_zoom_meeting`). 16 campaigns, 57+ contacts preserved.
+
+### Design
+
+**One-click links are signed, not stored.** `lib/registration.ts` mints an
+HMAC-signed token over `{campaignId, contactId, iat}` — no database token
+table, no row to clean up, no read on the hot path. Idempotency comes from the
+contact's own `registeredAt`, not from consuming a token. Verified with a
+constant-time comparison so the endpoint can't be used as a signature oracle.
+
+**The link decision is per-contact, not per-step.** `effectiveLink()` in
+`lib/cadence.ts` gives an unregistered contact a one-click link (clicking it
+registers them) and a registered contact the plain event link (a second
+"register here" link would be redundant, and a reminder should read as being
+about the event, not as another invitation). This is correct for the very
+first invite and for the T-1 hour reminder alike — what matters is whether
+*this contact* has registered, not which step is firing.
+
+**Zoom mirrors the LinkedIn integration's sandbox/live shape.** A sandbox mode
+that fabricates fixtures so the whole flow is exercisable without credentials,
+and a live mode behind Server-to-Server OAuth (chosen over user OAuth because
+the app acts as the organisation, not a signed-in person). The switch is
+explicit — silently going live because a key happens to be present is how test
+data reaches real people.
+
+**CSV import is kept, not replaced.** Zoom's participant-report endpoints need
+a paid plan; CSV export works on any plan and is the only route when no
+meeting is linked at all. Both write through one shared `applyAttendance()`
+core so "attended" means the same thing regardless of source.
+
+### Bugs found — two real, both in the existing LinkedIn ingest path
+
+**1. Every LinkedIn-sourced registration on every campaign made since C6 queued
+nothing.** `lib/linkedin/ingest.ts` read `db.template` (the legacy per-campaign
+table) for the `confirm`/`whatsapp` steps' copy. That table has been empty for
+every campaign provisioned since messages moved to the shared library — so the
+lookup always came back empty and the block silently queued zero sends,
+however many registration-triggered steps were enabled. Same failure shape as
+every other legacy-table bug this revamp has hit: nothing errors, there's
+nothing to notice.
+
+**2. The queueing itself only knew two hardcoded keys** (`confirm`,
+`whatsapp`) — the exact allowlist bug C3 fixed for the launch path, reintroduced
+here. A registration-triggered step added in the planner would never queue for
+a LinkedIn-sourced registrant.
+
+**Fix:** both paths — one-click and LinkedIn — now share one `registerContact()`
+function. It sets `registeredAt`/`registrationSource` idempotently and queues
+*every* enabled `trigger: 'registration'` step, resolved through
+`resolveStepTemplate` like every other send. `registerContact` gained an
+optional timestamp override so a LinkedIn registration is stamped with
+LinkedIn's own `occurredAt`, not the moment the webhook happened to process.
+
+Also closed: a contact that existed before registering (e.g. from a CSV
+import) but then registered via LinkedIn previously got no registration
+handling at all — that branch only handled true duplicates. It now calls the
+same `registerContact()`, so a first-time registration is recognised
+regardless of how the contact originally entered the system.
+
+### Verification
+- `GATE PASS` — `next typegen`, 132 tests / 14 files, `tsc` exit 0, `eslint` clean
+- `scripts/diag-registration.ts` (one-click, end to end against the running
+  server): valid link → registers + redirects to the Zoom join URL; **same
+  link clicked twice queues nothing further**; tampered signature refused;
+  contact-from-another-campaign refused
+- `scripts/diag-oneclick-link.ts`: unregistered contact → one-click token in
+  the rendered body; registered contact → plain link; `oneClickSignup=false`
+  → plain link always
+- `scripts/diag-linkedin-registration.ts` — **written specifically to catch
+  the bug above**: against a campaign with **0 legacy Template rows** (the
+  exact precondition), `confirm` and `whatsapp` both now queue
+- `VISUAL VERIFIED`, **0 console errors** throughout:
+  - wizard "Use existing event" lists 3 sandbox meetings, selecting one
+    auto-fills title/date/time and shows the "Pulled from Zoom" banner;
+    persisted correctly (`zoomMode: existing`, real `zoomMeetingId`/`zoomLink`)
+  - wizard "Create new event" creates a sandbox meeting and persists
+    `zoomMode: new` with its own generated join link
+  - Post-event: "Pull attendance from Zoom" only appears when a meeting is
+    linked; in sandbox it fails **gracefully** with guidance to use the CSV
+    fallback instead — no crash
+  - CSV attendance import **re-tested and still works** after the shared-core
+    refactor
+- Every temp campaign/contact created during verification deleted afterward;
+  database back to 16 campaigns
+
+**Status:** complete
