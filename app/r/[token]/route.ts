@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifyRegistrationToken } from '@/lib/registration';
+import { ensureAbsoluteUrl, verifyRegistrationToken } from '@/lib/registration';
 import { registerContact } from '@/lib/registerContact';
 
 // One-click sign-up. A contact clicks the link in their invite and is
@@ -27,7 +27,7 @@ export async function GET(request: Request, ctx: RouteContext<'/r/[token]'>) {
 
   // Straight to the join link when there is one — the point of one-click is
   // that the contact ends up somewhere useful, not on a receipt page.
-  if (result.joinUrl) return NextResponse.redirect(result.joinUrl);
+  if (result.joinUrl) return NextResponse.redirect(ensureAbsoluteUrl(result.joinUrl));
 
   return NextResponse.redirect(
     `${origin}/r/result?status=${result.alreadyRegistered ? 'already' : 'registered'}&c=${encodeURIComponent(result.campaignName)}`

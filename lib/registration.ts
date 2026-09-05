@@ -96,3 +96,16 @@ export function verifyRegistrationToken(token: string, now = new Date()): Verify
 export function registrationUrl(origin: string, campaignId: string, contactId: string): string {
   return `${origin.replace(/\/$/, '')}/r/${mintRegistrationToken(campaignId, contactId)}`;
 }
+
+/**
+ * A campaign's zoomLink/registrationLink is stored and displayed as a bare,
+ * scheme-less short link ("lsq.co/w/my-webinar") — fine as text in a message
+ * body, but `NextResponse.redirect` requires a real absolute URL and throws
+ * `ERR_INVALID_URL` on anything else. This is only needed at the one place
+ * such a link is ever actually navigated to (the one-click join redirect in
+ * `app/r/[token]/route.ts`), so the fixup lives here rather than on the
+ * stored value itself.
+ */
+export function ensureAbsoluteUrl(url: string): string {
+  return /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`;
+}

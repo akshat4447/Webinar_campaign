@@ -1442,3 +1442,69 @@ change. Nothing to build here.
 All 13 checkpoints (C1–C13) done. Every row in the §5 feature register is
 checked. The anti-hallucination checklist (§10) is fully satisfied. The
 branch `revamp/webinar-studio` is ready for review against `main`.
+
+## Post-revamp verification pass — 2026-09-05
+
+A full, real-interaction test pass across every route and feature, at the
+user's request, after C13 closed. Not a new checkpoint — no features added —
+but it found one real, previously-undetected bug in a core, must-keep flow.
+
+### What was tested (real interactions, not just page loads)
+- Full regression gate, `scripts/e2e-journey.ts`, `scripts/diag-template-
+  resolution.ts`, `scripts/deep-audit-db.ts` — all clean
+- Home page: view-tab filtering, kebab menu Archive/Delete (incl. confirm
+  dialog), campaign deletion verified in DB
+- Dashboard: range switching (30d/all)
+- Templates: opened an editor, edited a body, saved, verified the DB write,
+  used "Revert to saved", restored the original content
+- **A full campaign creation end to end**: wizard steps 1–3 (details → CSV
+  import of a real 24-row fixture → real Apollo enrichment + real Claude
+  scoring → messaging config → finish), landing on Overview with correct
+  live numbers, then Cadence planner → **Launch cadence** (real confirm
+  dialog → real queueing: "30 send(s) queued across 6 step(s) for 7
+  approved contact(s)"), then deleted the test campaign to clean up
+- Audience tab: score-band filter
+- Messaging tab: real Claude-generated personalization for 7 contacts
+  (verified in DB, then discarded)
+- Cadence planner: LinkedIn assisted-send queue panel
+- Post-event: real attendance CSV upload (3 attended / 4 no-show), verified
+  stats and account-engagement table, then reverted
+- Integrations, Agent run, chat widget: spot-checked, all still correct
+
+### Bug found and fixed: one-click registration link crashed with a 500
+Clicking a real one-click registration link (`/r/[token]`) threw
+`TypeError: Invalid URL` and returned HTTP 500 whenever the campaign's
+`registrationLink`/`zoomLink` was in this app's own normal short-link
+display format — a bare, scheme-less string like `lsq.co/w/my-webinar`.
+`NextResponse.redirect()` requires a real absolute URL and throws on
+anything else. This isn't an edge case: **15 of 16 campaigns in the
+dataset** store their registration link exactly this way (it's the
+default format the app itself generates and displays everywhere else as
+plain text), so any real contact clicking their real invite link would
+have hit this in production. Confirmed the registration side effect itself
+(`registerContact()`) ran correctly before the crash — only the final
+redirect was broken.
+
+**Fix:** `ensureAbsoluteUrl()` in `lib/registration.ts` prefixes `https://`
+onto the join URL only when it has no scheme already, used at the one
+place (`app/r/[token]/route.ts`) such a link is ever actually navigated to
+— the stored/displayed value itself is untouched, since a bare short link
+is exactly right as plain text in a message body. Added 3 unit tests
+(bare link, already-absolute http(s), a non-http scheme like
+`zoommtg://`). Verified live: the redirect now issues an HTTP 307 instead
+of crashing (confirmed in the server log and by a real browser follow —
+which then hit `ERR_CONNECTION_TIMED_OUT` on the placeholder `lsq.co`
+domain itself, an unrelated, expected consequence of test/demo data
+pointing at a non-resolving host, not an app defect).
+
+### Verification
+- `GATE PASS` — `next typegen`, **181 tests / 19 files**, `tsc` exit 0,
+  `eslint` clean
+- All test-created data (draft personalizations, attendance import, a
+  temporary campaign, a temporary edit) reverted or deleted afterward —
+  `dev.db` row counts for `Campaign`/`Contact`/`PersonalizedMessage`/
+  `CadenceSend` diffed against a pre-pass backup and confirmed to match
+  exactly
+- Dev server restarted clean; screenshots taken of the webinars list,
+  dashboard, a campaign Overview tab, Integrations (all 7 cards), and
+  Agent run — all rendering correctly with no visual regressions

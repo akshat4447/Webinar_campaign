@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   TOKEN_TTL_DAYS,
+  ensureAbsoluteUrl,
   mintRegistrationToken,
   verifyRegistrationToken,
   registrationUrl,
@@ -72,5 +73,20 @@ describe('registration tokens', () => {
     const url = registrationUrl('https://example.com', CAMPAIGN, CONTACT);
     const token = url.split('/r/')[1];
     expect(verifyRegistrationToken(token).ok).toBe(true);
+  });
+});
+
+describe('ensureAbsoluteUrl', () => {
+  it('adds https:// to a bare, scheme-less link — the stored/displayed format for a registration link', () => {
+    expect(ensureAbsoluteUrl('lsq.co/w/my-webinar')).toBe('https://lsq.co/w/my-webinar');
+  });
+
+  it('leaves an already-absolute http(s) URL untouched', () => {
+    expect(ensureAbsoluteUrl('https://zoom.us/j/123')).toBe('https://zoom.us/j/123');
+    expect(ensureAbsoluteUrl('http://example.com')).toBe('http://example.com');
+  });
+
+  it('leaves any other real URL scheme untouched, not just http(s)', () => {
+    expect(ensureAbsoluteUrl('zoommtg://zoom.us/join?id=123')).toBe('zoommtg://zoom.us/join?id=123');
   });
 });
