@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { resolveStepTemplate } from '@/lib/messageTemplates';
 import { DashboardClient } from './DashboardClient';
 import { HistoricalSummary } from './HistoricalSummary';
 
@@ -12,14 +13,11 @@ const SCORE_BANDS = [
 export default async function DashboardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [campaign, contacts, sendCounts, invitedSends, templates, steps] = await Promise.all([
+  const [campaign, contacts, sendCounts, invitedSends, steps] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id } }),
     db.contact.findMany({ where: { campaignId: id } }),
     db.cadenceSend.groupBy({ by: ['stepKey', 'status'], where: { campaignId: id }, _count: true }),
     db.cadenceSend.findMany({ where: { campaignId: id, stepKey: 'invite', status: 'sent' }, select: { contactId: true } }),
-    // Template carries both the human label and the real channel, so the
-    // dashboard no longer needs its own hardcoded copy of either.
-    db.template.findMany({ where: { campaignId: id }, select: { key: true, label: true, channel: true } }),
     db.cadenceStep.findMany({ where: { campaignId: id, removedAt: null }, select: { key: true } }),
   ]);
 
@@ -105,11 +103,17 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
   }).filter((b) => b.contacts > 0);
 
   // Derived, never hardcoded: the old fixed list silently omitted sms, t3, t1d
-  // and t1h, so real sends rendered nowhere. Union the campaign's own steps,
-  // its templates, and anything that has actually been sent, so a newly added
-  // channel can never go missing again.
-  const stepMeta = new Map(templates.map((t) => [t.key, { label: t.label, channel: t.channel }]));
-  const stepOrder = [...new Set([...steps.map((s) => s.key), ...templates.map((t) => t.key), ...Object.keys(sentByStep), ...Object.keys(failedByStep), ...Object.keys(queuedByStep)])];
+  // and t1h, so real sends rendered nowhere. Union the campaign's own steps
+  // and anything that has actually been sent, so a newly added channel can
+  // never go missing again.
+  const stepOrder = [...new Set([...steps.map((s) => s.key), ...Object.keys(sentByStep), ...Object.keys(failedByStep), ...Object.keys(queuedByStep)])];
+
+  // Label/channel come from resolveStepTemplate — the same source-of-truth
+  // chain the send path uses — rather than the legacy per-campaign Template
+  // table, which is empty for every campaign provisioned since the shared
+  // library replaced it.
+  const resolvedSteps = await Promise.all(stepOrder.map((key) => resolveStepTemplate(id, key)));
+  const stepMeta = new Map(stepOrder.map((key, i) => [key, resolvedSteps[i] ? { label: resolvedSteps[i]!.label, channel: resolvedSteps[i]!.channel } : undefined]));
 
   const maxSent = Math.max(1, ...stepOrder.map((k) => sentByStep[k] ?? 0));
   const stepBreakdown = stepOrder
@@ -195,9 +199,76 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
     };
   }
 
+  // Six pipeline stages, always the same six regardless of what's been
+  // imported yet — a tile reading 0 is still informative ("nothing invited
+  // yet"), whereas dropping it would look like the stage doesn't exist.
+  const pipeline = (['Imported', 'Enriched', 'Scored', 'Approved', 'Invited', 'Attended'] as const).map((label) => ({
+    label,
+    value: stageContacts[label].length,
+    pctOfTotal: total ? Math.round((stageContacts[label].length / total) * 100) : 0,
+  }));
+
+  const about = {
+    name: campaign.name,
+    vertical: campaign.vertical,
+    date: campaign.date,
+    description: campaign.description,
+    speakerName: campaign.speakerName,
+    speakerTitle: campaign.speakerTitle,
+    capacity: campaign.capacity,
+  };
+
+  // "What the agent learned" — honest, computed observations about this one
+  // campaign, not a generated narrative. Each line only appears if there's
+  // enough data behind it; a quiet campaign gets no fabricated insight.
+  const learnings: string[] = [];
+  const MIN_GROUP = 2;
+  function bestGroup(key: (c: (typeof contacts)[number]) => string, noun: string) {
+    const byGroup = new Map<string, { approved: number; total: number }>();
+    for (const c of contacts.filter((c) => c.score !== null)) {
+      const k = key(c);
+      const b = byGroup.get(k) ?? { approved: 0, total: 0 };
+      b.total++;
+      if (c.approved) b.approved++;
+      byGroup.set(k, b);
+    }
+    const ranked = [...byGroup.entries()]
+      .filter(([, v]) => v.total >= MIN_GROUP)
+      .map(([label, v]) => ({ label, rate: Math.round((v.approved / v.total) * 100), total: v.total }))
+      .sort((a, b) => b.rate - a.rate);
+    const overallRate = scored ? Math.round((approved / scored) * 100) : null;
+    if (ranked.length > 0 && overallRate !== null && ranked[0].rate > overallRate) {
+      learnings.push(`${ranked[0].label} converts best by ${noun}: ${ranked[0].rate}% approved (${ranked[0].total} scored) vs. ${overallRate}% overall.`);
+    }
+  }
+  bestGroup((c) => `${c.seniority}-level, ${c.function}`, 'persona');
+  bestGroup((c) => c.source, 'source');
+
+  if (scoreBands.length >= 2) {
+    const top = scoreBands[0];
+    const bottom = scoreBands[scoreBands.length - 1];
+    if (top.approvalRate !== null && bottom.approvalRate !== null) {
+      learnings.push(
+        top.approvalRate > bottom.approvalRate
+          ? `The score is predictive here: the ${top.label} band approves at ${top.approvalRate}% vs. ${bottom.approvalRate}% for ${bottom.label}.`
+          : `The score isn't tracking outcomes yet: the ${top.label} band (${top.approvalRate}%) isn't outperforming ${bottom.label} (${bottom.approvalRate}%).`
+      );
+    }
+  }
+
+  const failedChannel = channelBreakdown.filter((c) => c.failed > 0).sort((a, b) => b.failed - a.failed)[0];
+  if (failedChannel) {
+    learnings.push(`${failedChannel.label} has the most delivery failures so far (${failedChannel.failed}) — worth a look in Control Center.`);
+  } else if (totalDelivered > 0) {
+    learnings.push(`Every send has gone through clean so far — ${totalDelivered} delivered, zero failures.`);
+  }
+
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
       <DashboardClient
+        pipeline={pipeline}
+        about={about}
+        learnings={learnings}
         kpis={kpis}
         funnel={funnel}
         scoreBands={scoreBands}

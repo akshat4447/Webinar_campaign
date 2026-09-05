@@ -4,7 +4,6 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { db } from '@/lib/db';
 import { statusMeta } from '@/lib/demo-data';
 import { getCampaignCardStats, getListKpis } from '@/lib/campaignCardStats';
-import { getPersonaLearning } from '@/lib/personaLearning';
 import { campaignCadenceHref, campaignLandingHref, campaignPrimaryCta } from '@/lib/campaignRoutes';
 import { NewCampaignButton } from './NewCampaignButton';
 import { CampaignCardMenu } from './CampaignCardMenu';
@@ -40,10 +39,9 @@ export default async function WebinarsPage(props: PageProps<'/'>) {
     ? (rawView as ViewId)
     : 'all';
 
-  const [campaigns, counts, personaLearning] = await Promise.all([
+  const [campaigns, counts] = await Promise.all([
     db.campaign.findMany({ where: whereFor(view), orderBy: { createdAt: 'desc' } }),
     Promise.all(VIEWS.map((v) => db.campaign.count({ where: whereFor(v.id) }))),
-    getPersonaLearning(),
   ]);
 
   const cards = await Promise.all(
@@ -259,64 +257,6 @@ export default async function WebinarsPage(props: PageProps<'/'>) {
               </div>
             );
           })}
-        </div>
-
-        {/* Cross-campaign persona track record. Moves to /dashboard in C11. */}
-        <div className="lsq-card" style={{ marginTop: 24, padding: '18px 20px' }}>
-          <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 'var(--fw-bold)', color: 'var(--n90)', marginBottom: 4 }}>
-            Approval rate by persona
-          </div>
-          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 14, maxWidth: '72ch' }}>
-            Share of scored contacts approved, by seniority and function, across every webinar with at least 3 scored
-            contacts in that persona — a track record to inform scoring criteria by hand, not an automatic feedback loop.
-          </div>
-          {personaLearning.length === 0 ? (
-            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>
-              Not enough scored contacts yet — run scoring on a campaign to see persona trends here.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {personaLearning.map((row) => (
-                <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div
-                    style={{
-                      width: 200,
-                      fontSize: 'var(--fs-label-1)',
-                      color: 'var(--n70)',
-                      flexShrink: 0,
-                      overflowWrap: 'anywhere',
-                    }}
-                  >
-                    {row.label} <span style={{ color: 'var(--n50)' }}>({row.sampleSize})</span>
-                  </div>
-                  <div
-                    style={{
-                      flex: 1,
-                      background: 'var(--n20)',
-                      borderRadius: 'var(--radius-full)',
-                      height: 8,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${row.pct}%`,
-                        height: '100%',
-                        background: 'var(--accent-500)',
-                        borderRadius: 'var(--radius-full)',
-                      }}
-                    />
-                  </div>
-                  <div
-                    className="lsq-num"
-                    style={{ width: 40, textAlign: 'right', fontSize: 'var(--fs-label-1)', fontWeight: 'var(--fw-bold)', color: 'var(--n90)' }}
-                  >
-                    {row.pct}%
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     </main>

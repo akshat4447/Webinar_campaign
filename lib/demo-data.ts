@@ -232,16 +232,6 @@ export const needsAttention = [
   { id: 'na3', icon: 'InformationProperty1Outline', color: 'warning', title: 'Scoring config using defaults', detail: 'No custom criteria set — using the default persona-match heuristic.', actions: ['fix'] },
 ];
 
-export const stageBadges: Record<string, { text: string; color: string }> = {
-  setup: { text: 'Draft — not yet launched', color: 'gray' },
-  scoring: { text: 'Scoring running', color: 'blue' },
-  templates: { text: 'Templates in progress', color: 'blue' },
-  personalize: { text: 'Personalizing outreach', color: 'blue' },
-  schedule: { text: 'Ready to launch', color: 'blue' },
-  control: { text: 'Cadence live', color: 'success' },
-  dashboard: { text: 'Post-event complete', color: 'success' },
-};
-
 /**
  * Campaign workspace tabs.
  *

@@ -25,11 +25,6 @@ function pct(part: number, whole: number): string {
  * A campaign with no imported contacts (the seeded historical campaigns, or a
  * fresh draft) falls back to its stored summary fields. Once real contacts
  * exist, everything here is computed live.
- *
- * NOTE: registration is not yet a first-class contact state — it exists only
- * for LinkedIn Lead Sync arrivals, so "Registered" reads from the stored field
- * plus the LinkedIn registration table. C8 makes `Contact.registeredAt` real
- * and this function should then count that instead.
  */
 export async function getCampaignCardStats(campaign: Campaign): Promise<CardStats> {
   const contactCount = await db.contact.count({ where: { campaignId: campaign.id } });
@@ -56,15 +51,15 @@ export async function getCampaignCardStats(campaign: Campaign): Promise<CardStat
     ];
   }
 
-  const [sentCount, scoredCount, approvedCount, attendedCount, linkedinRegs] = await Promise.all([
+  const [sentCount, scoredCount, approvedCount, attendedCount, registeredCount] = await Promise.all([
     db.cadenceSend.count({ where: { campaignId: campaign.id, status: 'sent' } }),
     db.contact.count({ where: { campaignId: campaign.id, score: { not: null } } }),
     db.contact.count({ where: { campaignId: campaign.id, approved: true } }),
     db.contact.count({ where: { campaignId: campaign.id, attended: true } }),
-    db.linkedinRegistration.count({ where: { campaignId: campaign.id, leadAction: 'CREATED' } }),
+    db.contact.count({ where: { campaignId: campaign.id, registeredAt: { not: null } } }),
   ]);
 
-  const registered = campaign.registrations ?? linkedinRegs;
+  const registered = campaign.registrations ?? registeredCount;
 
   if (campaign.status === 'draft') {
     return [

@@ -46,6 +46,22 @@ interface AccountRow {
   actionColor: string;
 }
 
+interface PipelineStage {
+  label: string;
+  value: number;
+  pctOfTotal: number;
+}
+
+interface About {
+  name: string;
+  vertical: string;
+  date: string;
+  description: string | null;
+  speakerName: string | null;
+  speakerTitle: string | null;
+  capacity: number | null;
+}
+
 // Sequential single-hue ramp, lightness-monotonic (verified), used only to shade
 // a rate column. Single-hue sequential avoids the categorical-palette problem of
 // same-hue series being indistinguishable under colour-vision deficiency.
@@ -64,6 +80,9 @@ const toneColor: Record<Kpi['tone'], string> = {
 };
 
 export function DashboardClient({
+  pipeline,
+  about,
+  learnings,
   kpis,
   funnel,
   scoreBands,
@@ -76,6 +95,9 @@ export function DashboardClient({
   attendanceImported,
   drawers,
 }: {
+  pipeline: PipelineStage[];
+  about: About;
+  learnings: string[];
   kpis: Kpi[];
   funnel: FunnelStage[];
   scoreBands: ScoreBand[];
@@ -109,6 +131,74 @@ export function DashboardClient({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* 6-tile pipeline — the whole journey at a glance, click any tile for the records behind it */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 10 }}>
+        {pipeline.map((stage) => (
+          <div
+            key={stage.label}
+            onClick={() => setDrawer(drawers[stage.label] ?? null)}
+            className="lsq-card lsq-card--interactive"
+            style={{ padding: '12px 14px', cursor: 'pointer' }}
+          >
+            <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {stage.label}
+            </div>
+            <div className="lsq-num" style={{ fontSize: 'var(--fs-heading-2)', fontWeight: 700, color: 'var(--n90)', marginTop: 5 }}>{stage.value}</div>
+            <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 2 }}>{stage.pctOfTotal}% of total</div>
+          </div>
+        ))}
+      </div>
+
+      {/* About + what the agent learned */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16 }}>
+        <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
+          <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 10 }}>About this webinar</div>
+          <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.6, marginBottom: about.description ? 12 : 0 }}>
+            {about.description || 'No description set yet.'}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, fontSize: 'var(--fs-label-1)' }}>
+            <div>
+              <div style={{ color: 'var(--n50)', fontSize: 'var(--fs-label-2)' }}>Vertical</div>
+              <div style={{ color: 'var(--n80)', fontWeight: 600 }}>{about.vertical}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--n50)', fontSize: 'var(--fs-label-2)' }}>Date</div>
+              <div style={{ color: 'var(--n80)', fontWeight: 600 }}>{about.date}</div>
+            </div>
+            {about.speakerName && (
+              <div>
+                <div style={{ color: 'var(--n50)', fontSize: 'var(--fs-label-2)' }}>Speaker</div>
+                <div style={{ color: 'var(--n80)', fontWeight: 600 }}>
+                  {about.speakerName}
+                  {about.speakerTitle ? `, ${about.speakerTitle}` : ''}
+                </div>
+              </div>
+            )}
+            {about.capacity !== null && (
+              <div>
+                <div style={{ color: 'var(--n50)', fontSize: 'var(--fs-label-2)' }}>Capacity</div>
+                <div style={{ color: 'var(--n80)', fontWeight: 600 }}>{about.capacity.toLocaleString()} seats</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
+          <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 10 }}>What the agent has learned</div>
+          {learnings.length === 0 ? (
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>Not enough data yet to draw a pattern for this campaign.</div>
+          ) : (
+            <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {learnings.map((line) => (
+                <li key={line} style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.5 }}>
+                  {line}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
       {/* KPI row — the headline numbers, read before any chart */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
         {kpis.map((k) => (

@@ -214,7 +214,7 @@ it, must be reinstated.
 | LST-4 | Archived view | filter option | KEEP | C2 | [x] |
 | LST-5 | Archive · Unarchive · Delete kebab menu | card corner | RESTORE | C2 | [x] |
 | LST-6 | Cadence deep-link CTA | card | NEW | C2 | [x] |
-| LST-7 | Approval-rate-by-persona panel | → `/dashboard` | MOVE | C11 | [ ] |
+| LST-7 | Approval-rate-by-persona panel | → `/dashboard` | MOVE | C11 | [x] |
 
 ### 5.3 Creation wizard
 | ID | Feature | Target home | Action | CP | Done |
@@ -345,26 +345,26 @@ it, must be reinstated.
 ### 5.10 Overview & Dashboard
 | ID | Feature | Target home | Action | CP | Done |
 |---|---|---|---|---|---|
-| OVR-1 | 4 stat cards | Overview tab | MOVE | C11 | [ ] |
-| OVR-2 | 6-tile clickable campaign pipeline | Overview tab | NEW | C11 | [ ] |
-| OVR-3 | Registration funnel | Overview tab | MOVE | C11 | [ ] |
-| OVR-4 | Step-to-step conversion % w/ >100% guard | Overview tab | RESTORE | C11 | [ ] |
-| OVR-5 | Score-band predictiveness table | Overview tab | RESTORE | C11 | [ ] |
-| OVR-6 | **Step + channel delivery breakdown** | Overview tab | RESTORE | C11 | [ ] |
-| OVR-7 | Breakdowns: persona / score band / source / vertical | Overview tab | RESTORE | C11 | [ ] |
-| OVR-8 | Account table | Overview tab | KEEP | C11 | [ ] |
-| OVR-9 | Drill-down drawers (records behind a stage) | Overview tab | RESTORE | C11 | [ ] |
-| OVR-10 | About / description panel | Overview tab | NEW | C11 | [ ] |
-| OVR-11 | Per-campaign "what the agent learned" | Overview tab | NEW | C11 | [ ] |
-| OVR-12 | Historical summary for empty campaigns | Overview tab | RESTORE | C11 | [ ] |
-| DSH-1 | Cross-campaign dashboard | `/dashboard` | NEW | C11 | [ ] |
-| DSH-2 | 30d / 90d / 6m / all range selector | `/dashboard` | NEW | C11 | [ ] |
-| DSH-3 | 5 KPIs with deltas | `/dashboard` | NEW | C11 | [ ] |
-| DSH-4 | Registrations-over-time trend chart | `/dashboard` | NEW | C11 | [ ] |
-| DSH-5 | Registrations by channel | `/dashboard` | NEW | C11 | [ ] |
-| DSH-6 | Webinars-in-range table | `/dashboard` | NEW | C11 | [ ] |
-| DSH-7 | Persona conversion table | `/dashboard` | MOVE | C11 | [ ] |
-| DSH-8 | Campaign-over-campaign learnings | `/dashboard` | NEW | C11 | [ ] |
+| OVR-1 | 4 stat cards | Overview tab | MOVE | C11 | [x] |
+| OVR-2 | 6-tile clickable campaign pipeline | Overview tab | NEW | C11 | [x] |
+| OVR-3 | Registration funnel | Overview tab | MOVE | C11 | [x] |
+| OVR-4 | Step-to-step conversion % w/ >100% guard | Overview tab | RESTORE | C11 | [x] |
+| OVR-5 | Score-band predictiveness table | Overview tab | RESTORE | C11 | [x] |
+| OVR-6 | **Step + channel delivery breakdown** | Overview tab | RESTORE | C11 | [x] |
+| OVR-7 | Breakdowns: persona / score band / source / vertical | Overview tab | RESTORE | C11 | [x] |
+| OVR-8 | Account table | Overview tab | KEEP | C11 | [x] |
+| OVR-9 | Drill-down drawers (records behind a stage) | Overview tab | RESTORE | C11 | [x] |
+| OVR-10 | About / description panel | Overview tab | NEW | C11 | [x] |
+| OVR-11 | Per-campaign "what the agent learned" | Overview tab | NEW | C11 | [x] |
+| OVR-12 | Historical summary for empty campaigns | Overview tab | RESTORE | C11 | [x] |
+| DSH-1 | Cross-campaign dashboard | `/dashboard` | NEW | C11 | [x] |
+| DSH-2 | 30d / 90d / 6m / all range selector | `/dashboard` | NEW | C11 | [x] |
+| DSH-3 | 5 KPIs with deltas | `/dashboard` | NEW | C11 | [x] |
+| DSH-4 | Registrations-over-time trend chart | `/dashboard` | NEW | C11 | [x] |
+| DSH-5 | Registrations by channel | `/dashboard` | NEW | C11 | [x] |
+| DSH-6 | Webinars-in-range table | `/dashboard` | NEW | C11 | [x] |
+| DSH-7 | Persona conversion table | `/dashboard` | MOVE | C11 | [x] |
+| DSH-8 | Campaign-over-campaign learnings | `/dashboard` | NEW | C11 | [x] |
 
 ### 5.11 Registration & Zoom
 | ID | Feature | Target home | Action | CP | Done |
@@ -572,7 +572,7 @@ intact so the migration is reversible.
 **Files:** `app/campaigns/[id]/agent/`, `app/campaigns/[id]/post-event/`, `lib/actions/control.ts`, `lib/actions/attendance.ts`
 **Acceptance:** numbered log renders; every Control Center action available and working; post-event follow-up cards + account rollup + push-to-LSQ.
 
-### [ ] C11 — Overview + Dashboard
+### [x] C11 — Overview + Dashboard
 **Scope:** OVR-1..12, DSH-1..8, LST-7.
 **Files:** `app/campaigns/[id]/overview/`, `app/dashboard/`, `lib/analytics.ts` (new)
 **Acceptance:** all prototype panels plus restored step/channel breakdown, score-band predictiveness, 4 breakdown dimensions and drill-down drawers; dashboard ranges aggregate correctly.

@@ -1002,3 +1002,137 @@ app bugs:
   verification
 
 **Status:** complete
+
+## C11 — Overview + Dashboard
+
+**Date:** 2026-09-05
+**Scope:** OVR-1..12, DSH-1..8, LST-7.
+
+### Features completed
+6-tile clickable pipeline (Imported/Enriched/Scored/Approved/Invited/Attended,
+each opening the same drill-down drawer as the funnel) · About panel (name,
+vertical, date, description, speaker, capacity) · "What the agent has
+learned" per-campaign insight card · step + channel delivery breakdown
+(**repaired**, see bugs) · score-band predictiveness table · 4-dimension
+segment breakdown · account table · drill-down drawers · historical summary
+for contact-less campaigns — all reconfirmed working, mostly pre-existing.
+New cross-campaign `/dashboard`: 30d/90d/6m/all range selector, 5 KPIs with
+period-over-period deltas, registrations-over-time bar chart, registrations
+by channel, persona conversion table (moved from the webinars list), and a
+vertical/source "what the agent has learned" panel.
+
+### Files
+- `lib/analyticsMath.ts` (new) — pure date/number math behind the dashboard
+  (range windows, delta math, date bucketing, the campaign-range `where`
+  builder), split out specifically so it's unit-testable: vitest has no `@/`
+  alias, so any module importing `@/lib/db` can't be reached from a test at
+  all, pure or not.
+- `lib/analytics.ts` (new) — `getDashboardKpis`, `getRegistrationsTrend`,
+  `getRegistrationsByChannel`, `getWebinarsInRange`, `getCrossCampaignLearnings`,
+  and a re-export of the existing `getPersonaLearning`.
+- `lib/analyticsMath.test.ts` (new) — 13 tests: range windows, count/ratio
+  delta math, date bucketing (day/week/month, zero-filled gaps), the
+  campaign-range `where` builder.
+- `app/dashboard/page.tsx` — rewritten: removed the `Placeholder`, wires in
+  every `lib/analytics.ts` export.
+- `app/page.tsx` — removed the persona-learning panel and its data fetch
+  (moved to `/dashboard`, per the comment already on that code marking it as
+  a C11 move).
+- `app/campaigns/[id]/overview/page.tsx` — added the pipeline/about/learnings
+  computations; **fixed the step-label/channel bug** (see bugs).
+- `app/campaigns/[id]/overview/DashboardClient.tsx` — added the pipeline tile
+  row and the About/learnings panels; every pre-existing section (funnel,
+  score bands, segment breakdown, account table, drawers) untouched.
+- `lib/campaignCardStats.ts` — `registered` now counts `Contact.registeredAt`
+  directly instead of the LinkedIn-only fallback the code comment had been
+  waiting on since C8 landed real registration tracking.
+- `app/campaigns/[id]/StageBadge.tsx`, `app/campaigns/[id]/layout.tsx`,
+  `lib/demo-data.ts` — **fixed the campaign-status badge** (see bugs).
+
+### Design
+
+**Pipeline tiles are always six, never fewer.** A tile reading 0 ("nothing
+invited yet") is informative; dropping a stage because it's empty would read
+as though that stage doesn't exist yet.
+
+**"What the agent has learned" only speaks when it has enough to say.**
+Per-campaign learnings need at least 2 scored contacts in a group before
+naming it as a standout, and the panel says "not enough data yet" rather
+than showing nothing when no group clears that bar — matching the existing
+cross-campaign persona-learning panel's honesty rule (there: 3 contacts, a
+higher bar because it's pooling many campaigns' worth of noise).
+
+**The campaign-range filter distinguishes "no date" from "not in range."** A
+campaign with a real `scheduledAt` is filtered on it, bounded on both ends
+(this checkpoint's own bug — see below — was forgetting the upper bound). A
+campaign with none only counts via `createdAt`, and only if it's still a
+draft: a fresh unscheduled draft showing up under "recent activity" is
+right, but crediting a completed campaign's decade-old *database row* as
+"recent" because that's when someone ran the seed script is not.
+
+### Bugs found — three real, one pre-existing and cross-cutting
+
+**1. Every cadence step showed its raw key, and every channel breakdown
+showed only "Other," for any campaign made after the shared template library
+replaced per-campaign templates.** `app/campaigns/[id]/overview/page.tsx`
+read `db.template` (the legacy per-campaign table) for step labels and
+channels — the same bug class as C8's LinkedIn ingest fix, in a different
+file. Confirmed empty (`legacyCount: 0`) for a campaign created through the
+real `createCampaignAction`, vs. 14 rows for every campaign in the seeded
+dev dataset (which writes legacy rows directly, masking the bug there).
+Fixed by resolving each step through `resolveStepTemplate()` — the same
+source of truth the send path itself uses — instead.
+
+**2. The campaign-range filter for `/dashboard` had no upper bound.** First
+pass filtered campaigns by `scheduledAt >= start` with nothing capping the
+top end, so a campaign scheduled weeks in the future (e.g. Oct 15 against a
+Sep 5 "now") showed up under "last 30 days." Caught by hand-checking the
+"Webinars in range" table's dates against the selected range rather than
+trusting the row count alone. Fixed by passing `now` as the upper bound for
+the current period in both `getDashboardKpis` and `getWebinarsInRange`.
+
+**3. The campaign-status badge always read "Draft — not yet launched,"
+regardless of a campaign's real status, on every tab of every campaign.**
+`StageBadge.tsx` keyed off `usePathname()`'s last segment against
+`stageBadges` — a lookup table keyed by the *pre-C2B* tab names (`setup`,
+`scoring`, `templates`, `personalize`, `schedule`, `control`, `dashboard`).
+None of the current tab routes (`overview`, `audience`, `messaging`,
+`cadence`, `agent`, `post-event`) match any key except by coincidence, so the
+lookup missed on every real tab and silently fell back to `setup`'s value.
+Found incidentally while eyeballing a completed campaign's Overview page and
+noticing the header still called it a draft. Out of C11's stated scope, but
+cross-cutting and visible on every single page in the app, so fixed rather
+than deferred: `StageBadge` now takes `status`/`cadenceStatus` as props from
+`layout.tsx` (which already had the campaign loaded) and derives the badge
+from real campaign state instead of the current route.
+
+### Verification
+- `GATE PASS` — `next typegen`, 145 tests / 16 files, `tsc` exit 0, `eslint` clean
+- `VISUAL VERIFIED`, **0 console errors**, on a mix of a live campaign with
+  real send/score/attendance data, a scored-but-undecided draft, a
+  contact-less historical campaign, and a completed campaign:
+  - 6-tile pipeline matches the funnel's own numbers exactly; clicking a tile
+    opens the correct drawer (confirmed: "Approved — 7 of 24 contacts")
+  - real cadence-step labels ("Initial invite", "Nudge (+4 days)", etc.) and
+    correct per-channel rollup ("EMAIL 15 sent · 5 queued · 10 failed")
+    render for a campaign resolved entirely through the shared library, zero
+    legacy rows
+  - About panel shows a real stored description, or an honest "No
+    description set yet."; "what the agent learned" shows real computed
+    lines for a campaign with scored contacts, and the honest fallback line
+    for one with none
+  - pre-existing funnel table toggle and segment-breakdown tabs (persona/
+    score band/source/vertical) still work, unchanged
+  - historical-summary branch (zero-contact campaigns) still renders
+    unmodified
+  - `/dashboard` checked at all four ranges: KPI values, trend bucket
+    granularity (daily/weekly/monthly), persona/vertical/source tables, and
+    the webinars-in-range table's date coverage all matched hand-computed
+    expectations, including the post-fix exclusion of a completed campaign
+    with no `scheduledAt` from the 30-day view and the post-fix exclusion of
+    a future-scheduled campaign from every range but "All time"
+  - status badge confirmed correct across draft ("Draft — not yet
+    launched"), live-with-running-cadence ("Cadence live"), and completed
+    ("Post-event complete") campaigns
+
+**Status:** complete

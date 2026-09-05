@@ -54,7 +54,7 @@ export default async function CampaignLayout({
           </Link>
           <div style={{ fontSize: 'var(--fs-heading-4)', fontWeight: 700, color: 'var(--n90)', letterSpacing: '-0.01em', overflowWrap: 'anywhere' }}>{campaign.name}</div>
         </div>
-        <StageBadge />
+        <StageBadge status={campaign.status} cadenceStatus={campaign.cadenceStatus} />
       </header>
 
       <WorkspaceTabs campaignId={id} completedTabs={completedTabs} />
