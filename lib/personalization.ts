@@ -134,8 +134,12 @@ export async function repairLinks(
   return { count: stale.length, bodies };
 }
 
-export async function generatePersonalized(campaignId: string, stepKey: string): Promise<GenerateResult> {
-  const [campaign, template, contacts] = await Promise.all([
+export async function generatePersonalized(
+  campaignId: string,
+  stepKey: string,
+  options: { onlyMissing?: boolean; autoReview?: boolean } = {}
+): Promise<GenerateResult> {
+  const [campaign, template, allApprovedContacts] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id: campaignId } }),
     // Same resolution the send path uses. Reading the legacy per-campaign
     // table would find nothing for a campaign created after messages moved to
@@ -145,7 +149,20 @@ export async function generatePersonalized(campaignId: string, stepKey: string):
   ]);
 
   if (!template) return { ok: false, error: `No "${stepKey}" template on this campaign yet.` };
-  if (contacts.length === 0) return { ok: false, error: 'No approved contacts — approve some on the Scoring tab first.' };
+  if (allApprovedContacts.length === 0) return { ok: false, error: 'No approved contacts — approve some on the Scoring tab first.' };
+
+  let contacts = allApprovedContacts;
+  if (options.onlyMissing) {
+    const existing = await db.personalizedMessage.findMany({
+      where: { campaignId, stepKey },
+      select: { contactId: true },
+    });
+    const existingIds = new Set(existing.map((e) => e.contactId));
+    contacts = allApprovedContacts.filter((c) => !existingIds.has(c.id));
+    if (contacts.length === 0) {
+      return { ok: true, generated: 0, skipped: 0, linkRepaired: 0, messages: [] };
+    }
+  }
 
   const link = campaign.registrationLink || campaign.zoomLink || '';
   const channel = channelFor(template.channel);
@@ -172,6 +189,12 @@ export async function generatePersonalized(campaignId: string, stepKey: string):
         vertical: campaign.vertical,
         whenLabel: campaign.date,
         link,
+        brief: campaign.brief,
+        tone: campaign.tone,
+        msgLength: campaign.msgLength,
+        aiInstructions: campaign.aiInstructions,
+        speakerName: campaign.speakerName,
+        speakerTitle: campaign.speakerTitle,
       },
       channel,
       stepLabel: template.label,
@@ -183,6 +206,8 @@ export async function generatePersonalized(campaignId: string, stepKey: string):
 
     const validIds = new Set(contacts.map((c) => c.id));
     let linkRepaired = 0;
+    const autoReview = options.autoReview !== false;
+    const now = new Date();
 
     const writes = drafts
       .filter((d) => validIds.has(d.id))
@@ -195,10 +220,10 @@ export async function generatePersonalized(campaignId: string, stepKey: string):
           body,
           rationale: d.rationale,
           linkUsed: link || null,
-          status: 'draft',
-          generatedAt: new Date(),
+          status: autoReview ? 'reviewed' : 'draft',
+          generatedAt: now,
           editedAt: null,
-          reviewedAt: null,
+          reviewedAt: autoReview ? now : null,
         };
         return db.personalizedMessage.upsert({
           where: { campaignId_contactId_stepKey: { campaignId, contactId: d.id, stepKey } },
@@ -252,7 +277,19 @@ export async function regenerateOne(campaignId: string, contactId: string, stepK
 
   try {
     const [draft] = await personalizeMessages({
-      campaign: { name: campaign.name, description: campaign.description, vertical: campaign.vertical, whenLabel: campaign.date, link },
+      campaign: {
+        name: campaign.name,
+        description: campaign.description,
+        vertical: campaign.vertical,
+        whenLabel: campaign.date,
+        link,
+        brief: campaign.brief,
+        tone: campaign.tone,
+        msgLength: campaign.msgLength,
+        aiInstructions: campaign.aiInstructions,
+        speakerName: campaign.speakerName,
+        speakerTitle: campaign.speakerTitle,
+      },
       channel,
       stepLabel: template.label,
       templateSubject: template.hasSubject ? template.subject : null,
@@ -277,16 +314,17 @@ export async function regenerateOne(campaignId: string, contactId: string, stepK
     if (!draft) return { ok: false, error: 'Claude returned nothing usable.' };
 
     const { body } = ensureLink(draft.body, link);
+    const now = new Date();
     const data = {
       channel,
       subject: channel === 'email' ? draft.subject : null,
       body,
       rationale: draft.rationale,
       linkUsed: link || null,
-      status: 'draft',
-      generatedAt: new Date(),
+      status: 'reviewed',
+      generatedAt: now,
       editedAt: null,
-      reviewedAt: null,
+      reviewedAt: now,
     };
     const written = await db.personalizedMessage.upsert({
       where: { campaignId_contactId_stepKey: { campaignId, contactId, stepKey } },
@@ -298,3 +336,26 @@ export async function regenerateOne(campaignId: string, contactId: string, stepK
     return { ok: false, error: String(err).slice(0, 250) };
   }
 }
+
+/** Generates personalized drafts for all enabled personalizable steps for this campaign. */
+export async function generateAllSteps(
+  campaignId: string,
+  options: { onlyMissing?: boolean; autoReview?: boolean } = {}
+): Promise<{ ok: boolean; totalGenerated: number; errors: string[] }> {
+  const steps = await db.cadenceStep.findMany({
+    where: { campaignId, enabled: true, removedAt: null, key: { in: PERSONALIZABLE_STEPS as unknown as string[] } },
+    select: { key: true },
+  });
+  let totalGenerated = 0;
+  const errors: string[] = [];
+  for (const s of steps) {
+    const res = await generatePersonalized(campaignId, s.key, options);
+    if (res.ok) {
+      totalGenerated += res.generated ?? 0;
+    } else if (res.error) {
+      errors.push(`${s.key}: ${res.error}`);
+    }
+  }
+  return { ok: errors.length === 0, totalGenerated, errors };
+}
+

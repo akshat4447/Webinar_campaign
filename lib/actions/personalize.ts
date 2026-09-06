@@ -1,11 +1,24 @@
 'use server';
 
 import { db } from '@/lib/db';
-import { generatePersonalized, regenerateOne, repairLinks, DEFAULT_PERSONALIZATION_PROMPT, type GenerateResult } from '@/lib/personalization';
+import { generatePersonalized, generateAllSteps, regenerateOne, repairLinks, DEFAULT_PERSONALIZATION_PROMPT, type GenerateResult } from '@/lib/personalization';
 import { revalidateCampaign } from '@/lib/revalidate';
 
-export async function generatePersonalizedAction(campaignId: string, stepKey: string): Promise<GenerateResult> {
-  const result = await generatePersonalized(campaignId, stepKey);
+export async function generatePersonalizedAction(
+  campaignId: string,
+  stepKey: string,
+  options?: { onlyMissing?: boolean }
+): Promise<GenerateResult> {
+  const result = await generatePersonalized(campaignId, stepKey, options);
+  revalidateCampaign(campaignId);
+  return result;
+}
+
+export async function generateAllStepsAction(
+  campaignId: string,
+  options?: { onlyMissing?: boolean }
+): Promise<{ ok: boolean; totalGenerated: number; errors: string[] }> {
+  const result = await generateAllSteps(campaignId, options);
   revalidateCampaign(campaignId);
   return result;
 }
@@ -74,6 +87,24 @@ export async function updatePersonalizationPromptAction(campaignId: string, prom
   revalidateCampaign(campaignId);
   return { savedAt: new Date().toISOString() };
 }
+
+/** Saves prompt, brief and aiInstructions together. */
+export async function updateCampaignMessagingInstructionsAction(
+  campaignId: string,
+  data: { prompt: string; brief?: string; aiInstructions?: string }
+) {
+  await db.campaign.update({
+    where: { id: campaignId },
+    data: {
+      personalizationPrompt: data.prompt,
+      ...(data.brief !== undefined ? { brief: data.brief } : {}),
+      ...(data.aiInstructions !== undefined ? { aiInstructions: data.aiInstructions } : {}),
+    },
+  });
+  revalidateCampaign(campaignId);
+  return { savedAt: new Date().toISOString() };
+}
+
 
 /**
  * Read-only — hands back the built-in default text so "Reset to default" can

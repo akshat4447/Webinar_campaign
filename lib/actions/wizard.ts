@@ -93,6 +93,12 @@ export async function updateWizardDetailsAction(campaignId: string, details: Wiz
 
 /** Step 3 → messaging mode and which channels this campaign uses. */
 export async function saveWizardMessagingAction(campaignId: string, messaging: WizardMessaging) {
+  const instructions = [
+    messaging.aiInstructions?.trim(),
+    messaging.tone ? `Tone: ${messaging.tone}.` : null,
+    messaging.msgLength ? `Length: ${messaging.msgLength}.` : null,
+  ].filter(Boolean).join(' ');
+
   await db.campaign.update({
     where: { id: campaignId },
     data: {
@@ -102,8 +108,31 @@ export async function saveWizardMessagingAction(campaignId: string, messaging: W
       aiInstructions: messaging.aiInstructions,
       brief: messaging.brief,
       oneClickSignup: messaging.oneClickSignup,
+      personalizationPrompt: instructions || undefined,
     },
   });
+
+  // If templatized mode with custom copy, persist into a campaign-specific MessageTemplate override for invite
+  if (messaging.msgMode === 'templatized' && messaging.brief?.trim()) {
+    const customTemplate = await db.messageTemplate.upsert({
+      where: { campaignId_key: { campaignId, key: 'invite' } },
+      update: { body: messaging.brief.trim() },
+      create: {
+        campaignId,
+        key: 'invite',
+        name: 'Initial invite (Custom)',
+        channel: 'email',
+        hasSubject: true,
+        subject: "You're invited: {{topic}}",
+        body: messaging.brief.trim(),
+        status: 'ready',
+      },
+    });
+    await db.cadenceStep.updateMany({
+      where: { campaignId, key: 'invite' },
+      data: { templateId: customTemplate.id },
+    });
+  }
 
   // Channel choice is expressed by enabling/disabling that channel's steps —
   // the same switch the planner uses, so the two can never disagree.
@@ -120,6 +149,19 @@ export async function saveWizardMessagingAction(campaignId: string, messaging: W
       })
     )
   );
+
+  // When AI mode is chosen, auto-generate reviewed drafts for approved contacts for the active initial step
+  if (messaging.msgMode === 'ai') {
+    try {
+      const approvedCount = await db.contact.count({ where: { campaignId, approved: true } });
+      if (approvedCount > 0) {
+        const { generatePersonalized } = await import('@/lib/personalization');
+        await generatePersonalized(campaignId, 'invite', { autoReview: true });
+      }
+    } catch (err) {
+      console.error('Initial auto-generation on wizard finish failed (non-blocking):', err);
+    }
+  }
 
   revalidateCampaign(campaignId);
 }

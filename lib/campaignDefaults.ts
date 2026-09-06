@@ -27,9 +27,13 @@ export async function provisionCampaignDefaults(campaignId: string) {
   const byChannel = new Map<string, string>();
   for (const t of library) if (!byChannel.has(t.channel)) byChannel.set(t.channel, t.id);
 
+  const DEFAULT_ENABLED_CHANNELS = new Set<string>(['email', 'linkedin']);
+
   await Promise.all(
-    cadenceStepsData.map((s) =>
-      db.cadenceStep.upsert({
+    cadenceStepsData.map((s) => {
+      const routable = normalizeChannel(s.channel);
+      const isDefaultEnabled = s.toggleable && DEFAULT_ENABLED_CHANNELS.has(routable);
+      return db.cadenceStep.upsert({
         where: { campaignId_key: { campaignId, key: s.id } },
         update: {},
         create: {
@@ -41,16 +45,16 @@ export async function provisionCampaignDefaults(campaignId: string) {
           channel: s.channel,
           desc: s.desc,
           toggleable: s.toggleable,
-          enabled: s.toggleable,
+          enabled: isDefaultEnabled,
           isRoadmap: !!s.isRoadmap,
           trigger: defaultTriggerFor(s.id),
           // Prefer the library message for this exact step; fall back to any
           // library message on the same channel so a step is never left with
           // nothing to send.
-          templateId: byKey.get(s.id) ?? byChannel.get(normalizeChannel(s.channel)) ?? null,
+          templateId: byKey.get(s.id) ?? byChannel.get(routable) ?? null,
           ...(STEP_DEFAULTS[s.id] ?? {}),
         },
-      })
-    )
+      });
+    })
   );
 }

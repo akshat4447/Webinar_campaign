@@ -3,6 +3,7 @@ import { CadenceGroups } from './CadenceGroups';
 import { LinkedInPanel } from './LinkedInPanel';
 import { LaunchCadenceCard } from './LaunchCadenceCard';
 import { renderMergeFields } from '@/lib/cadence';
+import { resolveStepTemplate } from '@/lib/messageTemplates';
 import { sendModeLabel } from '@/lib/sendGuard';
 import { getLinkedInProgressAction } from '@/lib/actions/linkedin';
 import { getServerNow } from '@/lib/actions/clock';
@@ -17,7 +18,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
     db.cadenceStep.findMany({ where: { campaignId: id, removedAt: null } }),
     db.contact.findMany({ where: { campaignId: id, approved: true }, orderBy: [{ score: 'desc' }, { name: 'asc' }] }),
     db.cadenceSend.groupBy({ by: ['stepKey', 'status'], where: { campaignId: id }, _count: true }),
-    db.template.findUnique({ where: { campaignId_key: { campaignId: id, key: 'linkedin' } } }),
+    resolveStepTemplate(id, 'linkedin'),
   ]);
   // Personalized LinkedIn drafts win over the shared template, same as email.
   const personalizedLinkedIn = await db.personalizedMessage.findMany({
@@ -58,7 +59,14 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
     // flags a broken personalized draft so the human doesn't ship it unaware.
     const personalizedValid = personalizedBody ? validateRenderedMessage(null, personalizedBody, false, link).valid : true;
     const fallback = linkedinTemplate
-      ? renderMergeFields(linkedinTemplate.body, { firstName: c.name.split(' ')[0] || c.name, company: c.account, topic: campaign.name, link })
+      ? renderMergeFields(linkedinTemplate.body, {
+          firstName: c.name.split(' ')[0] || c.name,
+          company: c.account,
+          topic: campaign.name,
+          link,
+          date: campaign.date,
+          speaker: campaign.speakerName ?? '',
+        })
       : `Hi ${c.name.split(' ')[0]} — noticed ${c.account}'s work in this space. We're running ${campaign.name} and thought it'd be relevant.`;
     return {
       id: c.id,

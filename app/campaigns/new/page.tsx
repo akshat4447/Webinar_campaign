@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { getEnrichmentStats } from '@/lib/actions/enrichment';
+import { normalizeChannel } from '@/lib/channels';
 import { WizardClient } from './WizardClient';
 
 // The wizard is server-rendered per step and carries its draft in the URL
@@ -15,19 +16,38 @@ export default async function NewCampaignPage(props: PageProps<'/campaigns/new'>
 
   const campaign = id ? await db.campaign.findUnique({ where: { id } }) : null;
 
-  const [contactCount, scoredCount, enrichmentStats] = campaign
+  const [contactCount, scoredCount, enrichmentStats, cadenceSteps] = campaign
     ? await Promise.all([
         db.contact.count({ where: { campaignId: campaign.id } }),
         db.contact.count({ where: { campaignId: campaign.id, score: { not: null } } }),
         getEnrichmentStats(campaign.id),
+        db.cadenceStep.findMany({
+          where: { campaignId: campaign.id, removedAt: null },
+          select: { channel: true, enabled: true },
+        }),
       ])
-    : [0, 0, null];
+    : [0, 0, null, []];
+
+  const initialChannels: Record<string, boolean> = { email: true, linkedin: true, whatsapp: false, sms: false };
+  if (cadenceSteps.length > 0) {
+    initialChannels.email = false;
+    initialChannels.linkedin = false;
+    initialChannels.whatsapp = false;
+    initialChannels.sms = false;
+    for (const s of cadenceSteps) {
+      const norm = normalizeChannel(s.channel);
+      if (s.enabled) {
+        initialChannels[norm] = true;
+      }
+    }
+  }
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '28px 32px 64px 32px' }}>
       <div style={{ maxWidth: 760, margin: '0 auto' }}>
         <WizardClient
           step={campaign ? step : 0}
+          initialChannels={initialChannels}
           campaign={
             campaign
               ? {

@@ -59,6 +59,23 @@ export async function linkZoomMeetingAction(campaignId: string, meetingId: strin
       zoomMode: 'existing',
     },
   });
+
+  // Reschedule anchor synchronization: update dueAt for all queued sends anchored to the webinar
+  if (scheduledAt) {
+    const { applyOffset } = await import('@/lib/stepSchedule');
+    const webinarSteps = await db.cadenceStep.findMany({
+      where: { campaignId, anchor: 'webinar' },
+      select: { key: true, offsetValue: true, offsetUnit: true },
+    });
+    for (const s of webinarSteps) {
+      const newDue = applyOffset(scheduledAt, s.offsetValue, s.offsetUnit);
+      await db.cadenceSend.updateMany({
+        where: { campaignId, stepKey: s.key, status: 'queued' },
+        data: { dueAt: newDue },
+      });
+    }
+  }
+
   revalidateCampaign(campaignId);
   return { ok: true as const, meeting };
 }

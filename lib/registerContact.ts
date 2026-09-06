@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { resolveStepDate } from '@/lib/stepSchedule';
+import { revalidateCampaign } from '@/lib/revalidate';
 
 export type RegisterResult =
   | { ok: false; reason: 'unknown-campaign' | 'unknown-contact' }
@@ -104,5 +105,6 @@ export async function registerContact(
     return { ok: true, alreadyRegistered: true, joinUrl, campaignName: campaign.name, queued: 0 };
   }
 
+  revalidateCampaign(campaignId);
   return { ok: true, alreadyRegistered: false, joinUrl, campaignName: campaign.name, queued };
 }

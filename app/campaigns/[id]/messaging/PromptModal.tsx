@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
-import { updatePersonalizationPromptAction, getDefaultPersonalizationPromptAction } from '@/lib/actions/personalize';
+import { updateCampaignMessagingInstructionsAction, getDefaultPersonalizationPromptAction } from '@/lib/actions/personalize';
 
 const ALWAYS_TRUE = [
   "Keeps the template's offer and registration link exactly as given — never altered, shortened, or dropped.",
@@ -16,26 +16,36 @@ export function PromptModal({
   campaignId,
   campaignName,
   prompt,
+  brief = '',
+  aiInstructions = '',
   onClose,
   onSaved,
 }: {
   campaignId: string;
   campaignName: string;
   prompt: string;
+  brief?: string;
+  aiInstructions?: string;
   onClose: () => void;
-  onSaved: (prompt: string) => void;
+  onSaved: (prompt: string, brief?: string, aiInstructions?: string) => void;
 }) {
   const [text, setText] = useState(prompt);
+  const [briefText, setBriefText] = useState(brief);
+  const [instructionsText, setInstructionsText] = useState(aiInstructions);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const dirty = text !== prompt;
+  const dirty = text !== prompt || briefText !== brief || instructionsText !== aiInstructions;
 
   async function save() {
     if (!dirty) return;
     setSaving(true);
-    await updatePersonalizationPromptAction(campaignId, text);
+    await updateCampaignMessagingInstructionsAction(campaignId, {
+      prompt: text,
+      brief: briefText,
+      aiInstructions: instructionsText,
+    });
     setSaving(false);
-    onSaved(text);
+    onSaved(text, briefText, instructionsText);
   }
 
   async function reset() {
@@ -54,7 +64,7 @@ export function PromptModal({
           top: '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
-          width: 600,
+          width: 620,
           maxHeight: 'calc(100vh - 48px)',
           background: '#fff',
           borderRadius: 'var(--radius-lg)',
@@ -95,18 +105,46 @@ export function PromptModal({
           </div>
 
           <div>
-            <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-              Personalization instructions for this webinar
+            <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+              Webinar brief &amp; angle
             </div>
             <textarea
               className="lsq-input"
-              rows={7}
+              rows={2}
+              value={briefText}
+              onChange={(e) => setBriefText(e.target.value)}
+              placeholder="e.g. Lead with the operational problem their role owns..."
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+              AI instructions &amp; guidance
+            </div>
+            <textarea
+              className="lsq-input"
+              rows={2}
+              value={instructionsText}
+              onChange={(e) => setInstructionsText(e.target.value)}
+              placeholder="e.g. Vary angle by seniority and function. Keep tone practical."
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+              Tone &amp; prompt overrides
+            </div>
+            <textarea
+              className="lsq-input"
+              rows={4}
               value={text}
               onChange={(e) => setText(e.target.value)}
               style={{ width: '100%' }}
             />
             <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 8, lineHeight: 1.5 }}>
-              Applies to every step on this webinar — invite, nudge, follow-ups, and LinkedIn. Existing drafts aren&apos;t rewritten
+              Applies to every personalizable step — invite, nudge, follow-ups, and LinkedIn. Existing drafts aren&apos;t rewritten
               automatically; use Regenerate to apply new instructions.
             </div>
           </div>

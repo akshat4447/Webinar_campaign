@@ -46,6 +46,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
   const approved = contacts.filter((c) => c.approved).length;
   const invitedIds = new Set(invitedSends.map((s) => s.contactId));
   const invited = invitedIds.size;
+  const registered = contacts.filter((c) => c.registeredAt).length;
   const attended = contacts.filter((c) => c.attended).length;
   const synced = contacts.filter((c) => c.lsqLeadId).length;
   const attendanceImported = !!campaign.attendanceImportedAt;
@@ -62,6 +63,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
     { label: 'Scored', value: scored },
     { label: 'Approved', value: approved },
     { label: 'Invited (invite step)', value: invited },
+    { label: 'Registered', value: registered },
     ...(attendanceImported ? [{ label: 'Attended', value: attended }] : []),
   ];
   const funnel = rawFunnel.map((stage, i) => {
@@ -83,8 +85,8 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
     { label: 'Messages delivered', value: String(totalDelivered), sub: 'every channel and step', tone: 'neutral' as const },
     {
       label: 'Attendance rate',
-      value: attendanceImported && approved ? `${Math.round((attended / approved) * 100)}%` : '—',
-      sub: attendanceImported ? `${attended} of ${approved} approved` : zoomLinked ? 'pulls in automatically post-webinar' : 'link a Zoom meeting on Setup',
+      value: attendanceImported && (registered || approved) ? `${Math.round((attended / (registered || approved)) * 100)}%` : '—',
+      sub: attendanceImported ? `${attended} of ${registered || approved} ${registered ? 'registered' : 'approved'}` : zoomLinked ? 'pulls in automatically post-webinar' : 'link a Zoom meeting on Setup',
       tone: 'neutral' as const,
     },
     { label: 'CRM synced', value: total ? `${Math.round((synced / total) * 100)}%` : '—', sub: `${synced} leads written back`, tone: 'good' as const },

@@ -19,6 +19,7 @@ import {
 import type { GenerateResult } from '@/lib/personalization';
 import { validateRenderedMessageForChannel, type ValidationResult } from '@/lib/messageValidation';
 import type { Channel } from '@/lib/channels';
+import { renderMergeFields } from '@/lib/mergeFields';
 import { PromptModal } from './PromptModal';
 
 interface MessageState {
@@ -51,10 +52,19 @@ interface StepOption {
 }
 
 const statusMeta: Record<string, { color: string; label: string }> = {
-  draft: { color: 'blue', label: 'AI draft' },
+  draft: { color: 'blue', label: 'Ready (AI draft)' },
   edited: { color: 'warning', label: 'Edited' },
   reviewed: { color: 'success', label: 'Reviewed' },
 };
+
+function renderLocalMerge(text: string, contact: Row, topic: string, link: string) {
+  return renderMergeFields(text, {
+    firstName: contact.name.split(' ')[0] || contact.name,
+    company: contact.account,
+    topic,
+    link,
+  });
+}
 
 export function PersonalizeClient({
   campaignId,
@@ -69,6 +79,8 @@ export function PersonalizeClient({
   rows: initialRows,
   currentLink,
   personalizationPrompt,
+  brief = '',
+  aiInstructions = '',
   confirmThreshold,
   msgMode,
 }: {
@@ -84,6 +96,8 @@ export function PersonalizeClient({
   rows: Row[];
   currentLink: string;
   personalizationPrompt: string;
+  brief?: string;
+  aiInstructions?: string;
   confirmThreshold: number;
   /** Campaign-level messaging mode set in the wizard — governs the run
    *  summary's copy only; generation itself is unconditional (AI mode uses
@@ -101,6 +115,8 @@ export function PersonalizeClient({
   const [repairing, setRepairing] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
   const [savedPrompt, setSavedPrompt] = useState(personalizationPrompt);
+  const [savedBrief, setSavedBrief] = useState(brief);
+  const [savedAiInstructions, setSavedAiInstructions] = useState(aiInstructions);
   // Text as it stands in the DB, keyed by message id — lets the editor tell a
   // real edit from an untouched message, so saving can't demote a reviewed
   // message back to "edited" for nothing.
@@ -344,6 +360,23 @@ export function PersonalizeClient({
                 Generate anyway
               </Button>
             </>
+          ) : msgMode === 'templatized' ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Badge color="success" text="Templatized mode active" dot />
+                <span style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>
+                  Messages merge each recipient&apos;s details with the template automatically on send.
+                </span>
+              </div>
+              {generatedCount > 0 && (
+                <Button hierarchy="tertiary" size="md" onClick={discard}>
+                  Reset custom overrides ({generatedCount})
+                </Button>
+              )}
+              <Button hierarchy="tertiary" size="md" onClick={() => setShowTemplate((v) => !v)}>
+                {showTemplate ? 'Hide base template' : 'View base template'}
+              </Button>
+            </>
           ) : (
             <>
               <Button hierarchy="primary" size="md" onClick={onGenerateClick} disabled={generating || rows.length === 0}>
@@ -528,6 +561,8 @@ export function PersonalizeClient({
                       <Badge color="warning" text="Old link" />
                     ) : meta ? (
                       <Badge color={meta.color} text={meta.label} />
+                    ) : msgMode === 'templatized' ? (
+                      <Badge color="neutral" text="Auto-merged" />
                     ) : (
                       <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>—</span>
                     )}
@@ -540,13 +575,70 @@ export function PersonalizeClient({
           {/* Editable preview */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {!selected ? null : !selected.message ? (
-              <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '28px 24px', textAlign: 'center' }}>
-                <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 6 }}>Nothing written for {selected.name} yet</div>
-                <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 16 }}>Generate the whole step, or just this one recipient.</div>
-                <Button hierarchy="secondary" size="sm" onClick={() => regenerate(selected.contactId)} disabled={busyRow === selected.contactId}>
-                  {busyRow === selected.contactId ? 'Writing…' : 'Write this one'}
-                </Button>
-              </div>
+              msgMode === 'templatized' ? (
+                <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>{selected.name}</div>
+                        <Badge color="success" text="Auto-merged on send" dot />
+                      </div>
+                      <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>
+                        {selected.title} · {selected.account} · {selected.vertical}
+                        {selected.score !== null ? ` · score ${selected.score}` : ''}
+                      </div>
+                    </div>
+                    <Button
+                      hierarchy="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const mergedSub = templateSubject ? renderLocalMerge(templateSubject, selected, campaignName, currentLink) : null;
+                        const mergedBody = renderLocalMerge(templateBody, selected, campaignName, currentLink);
+                        setRows((rs) =>
+                          rs.map((r) =>
+                            r.contactId === selected.contactId
+                              ? {
+                                  ...r,
+                                  message: {
+                                    id: `custom_${r.contactId}`,
+                                    subject: mergedSub,
+                                    body: mergedBody,
+                                    rationale: 'Custom override based on template',
+                                    status: 'edited',
+                                    linkStale: false,
+                                  },
+                                }
+                              : r
+                          )
+                        );
+                      }}
+                    >
+                      Customize for this contact
+                    </Button>
+                  </div>
+                  <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: 14, marginBottom: 12 }}>
+                    {templateSubject && (
+                      <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>
+                        Subject: {renderLocalMerge(templateSubject, selected, campaignName, currentLink)}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                      {renderLocalMerge(templateBody, selected, campaignName, currentLink)}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>
+                    This preview shows the exact message {selected.name.split(' ')[0]} will receive with merge fields resolved.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '28px 24px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 6 }}>Nothing written for {selected.name} yet</div>
+                  <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 16 }}>Generate the whole step, or just this one recipient.</div>
+                  <Button hierarchy="secondary" size="sm" onClick={() => regenerate(selected.contactId)} disabled={busyRow === selected.contactId}>
+                    {busyRow === selected.contactId ? 'Writing…' : 'Write this one'}
+                  </Button>
+                </div>
+              )
             ) : (
               <>
                 <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
@@ -686,8 +778,10 @@ export function PersonalizeClient({
           to be personalized first. */}
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', maxWidth: '56ch' }}>
-          {generatedCount > 0
-            ? `${generatedCount} of ${rows.length} recipients have personalized copy for this step. Steps left on the shared template send that instead.`
+          {msgMode === 'templatized'
+            ? 'Templatized mode active — all recipients receive the shared template merged with their info on send.'
+            : generatedCount > 0
+            ? `${generatedCount} of ${rows.length} recipients have personalized copy ready for this step. Steps left on the shared template send that instead.`
             : 'No personalized copy yet for this step — that\u2019s fine, it will send the shared template until you generate some.'}
         </div>
         <NavButton href={`/campaigns/${campaignId}/cadence`}>Continue to schedule</NavButton>
@@ -698,9 +792,13 @@ export function PersonalizeClient({
           campaignId={campaignId}
           campaignName={campaignName}
           prompt={savedPrompt}
+          brief={savedBrief}
+          aiInstructions={savedAiInstructions}
           onClose={() => setPromptOpen(false)}
-          onSaved={(next) => {
-            setSavedPrompt(next);
+          onSaved={(nextPrompt, nextBrief, nextAi) => {
+            setSavedPrompt(nextPrompt);
+            if (nextBrief !== undefined) setSavedBrief(nextBrief);
+            if (nextAi !== undefined) setSavedAiInstructions(nextAi);
             setPromptOpen(false);
             setNotice({ tone: 'good', text: 'Saved. Regenerate to apply the new instructions to existing drafts.' });
           }}

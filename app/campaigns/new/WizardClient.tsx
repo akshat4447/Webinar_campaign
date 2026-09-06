@@ -103,12 +103,14 @@ export function WizardClient({
   contactCount,
   scoredCount,
   enrichmentStats,
+  initialChannels,
 }: {
   step: number;
   campaign: WizardCampaign | null;
   contactCount: number;
   scoredCount: number;
   enrichmentStats: EnrichmentStats | null;
+  initialChannels?: Record<string, boolean>;
 }) {
   const router = useRouter();
   const { showToast } = useToast();
@@ -192,7 +194,7 @@ export function WizardClient({
       campaign?.brief ??
       'Invite the reader to a live session on the webinar topic, tied to the operational problem their role owns. Lead with the problem, not a pitch. Keep it short and specific.',
     oneClickSignup: campaign?.oneClickSignup ?? true,
-    channels: { email: true, linkedin: true, whatsapp: false, sms: false } as Record<string, boolean>,
+    channels: initialChannels ?? ({ email: true, linkedin: true, whatsapp: false, sms: false } as Record<string, boolean>),
   });
 
   const set = (k: keyof WizardDetails, v: string) => setDetails((d) => ({ ...d, [k]: v }));
@@ -270,6 +272,21 @@ export function WizardClient({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function continueFromScore() {
+    if (campaign) {
+      try {
+        await updateScoringConfigAction(campaign.id, {
+          prompt: scoring.prompt,
+          criteria: scoring.criteria,
+          threshold: scoring.threshold,
+        });
+      } catch (err) {
+        console.error('Failed to auto-save scoring config on continue:', err);
+      }
+    }
+    go(3);
   }
 
   async function launch() {
@@ -704,7 +721,7 @@ export function WizardClient({
             {busy ? 'Saving…' : 'Finish setup'}
           </Button>
         ) : (
-          <Button disabled={busy} onClick={step === 0 ? continueFromDetails : () => go(step + 1)}>
+          <Button disabled={busy} onClick={step === 0 ? continueFromDetails : step === 2 ? continueFromScore : () => go(step + 1)}>
             {busy ? 'Saving…' : 'Continue'}
           </Button>
         )}

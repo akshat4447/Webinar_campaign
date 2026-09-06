@@ -62,14 +62,8 @@ function escapeHtml(text: string): string {
   }[m] || m));
 }
 
-export function renderMergeFields(str: string, opts: { firstName: string; company: string; topic: string; link: string }): string {
-  return str
-    .replace(/\{\{\s*firstName\s*\}\}/g, () => opts.firstName)
-    .replace(/\{\{\s*lastName\s*\}\}/g, () => '')
-    .replace(/\{\{\s*company\s*\}\}/g, () => opts.company)
-    .replace(/\{\{\s*topic\s*\}\}/g, () => opts.topic)
-    .replace(/\{\{\s*link\s*\}\}/g, () => opts.link);
-}
+import { renderMergeFields } from './mergeFields';
+export { renderMergeFields };
 
 export async function launchCadence(campaignId: string) {
   const [campaign, allLaunchSteps, approvedContacts] = await Promise.all([
@@ -404,7 +398,14 @@ async function processSingleSend(
       });
     }
 
-    const mergeOpts = { firstName: contact.name.split(' ')[0] || contact.name, company: contact.account, topic: campaign.name, link };
+    const mergeOpts = {
+      firstName: contact.name.split(' ')[0] || contact.name,
+      company: contact.account,
+      topic: campaign.name,
+      link,
+      date: campaign.date,
+      speaker: campaign.speakerName ?? '',
+    };
     // Personalized copy is rendered too: the model is told not to leave merge
     // tokens behind, but rendering anyway means a stray one resolves instead of
     // shipping raw to a real inbox.
@@ -503,7 +504,14 @@ async function processChannelSend(
   const personalizedRaw = await db.personalizedMessage.findUnique({
     where: { campaignId_contactId_stepKey: { campaignId, contactId: contact.id, stepKey: send.stepKey } },
   });
-  const mergeOpts = { firstName: contact.name.split(' ')[0] || contact.name, company: contact.account, topic: campaign.name, link };
+  const mergeOpts = {
+    firstName: contact.name.split(' ')[0] || contact.name,
+    company: contact.account,
+    topic: campaign.name,
+    link,
+    date: campaign.date,
+    speaker: campaign.speakerName ?? '',
+  };
   const body = renderMergeFields(personalizedRaw ? personalizedRaw.body : template.body, mergeOpts);
 
   const validation = validateRenderedMessageForChannel(null, body, false, link, channel);

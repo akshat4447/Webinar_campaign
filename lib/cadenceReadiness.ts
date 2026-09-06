@@ -10,8 +10,8 @@ import { db } from '@/lib/db';
 import { normalizeChannel } from '@/lib/channels';
 import { validateTemplateContentForChannel, validateRenderedMessageForChannel } from '@/lib/messageValidation';
 import { resolveStepTemplate } from '@/lib/messageTemplates';
-
-export const KNOWN_MERGE_VARS = ['firstName', 'lastName', 'company', 'topic', 'link', 'date'];
+import { KNOWN_MERGE_VARS } from '@/lib/mergeFields';
+export { KNOWN_MERGE_VARS };
 
 export interface Readiness {
   ok: boolean;

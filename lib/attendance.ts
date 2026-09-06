@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { processDueSends } from '@/lib/cadence';
 import { pushEngagementActivities } from '@/lib/activityPush';
+import { revalidateCampaign } from '@/lib/revalidate';
 
 // Attendance always comes from Zoom's reporting API (see importAttendanceFromZoom
 // below), pulled automatically once a webinar has ended — see
@@ -21,11 +22,11 @@ export interface AttendanceImportResult {
  * engagement activities to LeadSquared. Neither import path duplicates this.
  */
 async function applyAttendance(campaignId: string, emailToDuration: Map<string, number>): Promise<AttendanceImportResult> {
-  const approvedContacts = await db.contact.findMany({ where: { campaignId, approved: true } });
+  const candidateContacts = await db.contact.findMany({ where: { campaignId } });
   const attendedIds: string[] = [];
   const noShowIds: string[] = [];
 
-  for (const contact of approvedContacts) {
+  for (const contact of candidateContacts) {
     const email = contact.email?.trim().toLowerCase();
     const duration = email ? emailToDuration.get(email) : undefined;
     if (duration !== undefined) {
@@ -74,6 +75,7 @@ async function applyAttendance(campaignId: string, emailToDuration: Map<string, 
     },
   });
 
+  revalidateCampaign(campaignId);
   return { ok: true, attendedCount: attendedIds.length, noShowCount: noShowIds.length, matchedEmails: [...emailToDuration.keys()] };
 }
 
