@@ -126,13 +126,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 
 /* ---------- form controls -------------------------------------------------- */
 
-select.lsq-select {
-  appearance: none;
-  -webkit-appearance: none;
+/* Shared look for both a real <select> and the <button>-based combobox
+   trigger (components/ui/SearchableSelect.tsx) — the tag qualifier below
+   matters: without it, "button.lsq-select" would also pick up the native
+   appearance-reset + background-image chevron meant only for <select>,
+   fighting with the combobox's own <Icon> chevron. */
+select.lsq-select,
+button.lsq-select {
   background-color: var(--surface-card);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23465972' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
   border: none;
   border-radius: var(--radius-sm);
   box-shadow: inset 0 0 0 1px var(--border-default);
@@ -142,8 +143,17 @@ select.lsq-select {
   color: var(--text-primary);
   transition: var(--transition-colors);
 }
-select.lsq-select:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--border-strong); }
-select.lsq-select:disabled { color: var(--text-disabled); background-color: var(--surface-subtle); cursor: not-allowed; }
+select.lsq-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23465972' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+select.lsq-select:hover:not(:disabled),
+button.lsq-select:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--border-strong); }
+select.lsq-select:disabled,
+button.lsq-select:disabled { color: var(--text-disabled); background-color: var(--surface-subtle); cursor: not-allowed; }
 
 input.lsq-input, textarea.lsq-input {
   width: 100%;

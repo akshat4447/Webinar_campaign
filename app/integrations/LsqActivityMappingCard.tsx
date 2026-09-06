@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
+import { Icon } from '@/components/ui/Icon';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { listLsqActivityTypesAction, getActivityMappingAction, saveLsqActivityMappingAction } from '@/lib/actions/integrations';
 
@@ -29,6 +30,7 @@ export function LsqActivityMappingCard() {
   const [error, setError] = useState<string | null>(null);
   const [sourcePath, setSourcePath] = useState<string | null>(null);
   const [everSaved, setEverSaved] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // Both halves load on open. The types used to require clicking a quiet
   // tertiary button, so the card rendered four empty dropdowns and looked
@@ -79,20 +81,15 @@ export function LsqActivityMappingCard() {
   }
 
   return (
-    <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '14px 20px', marginBottom: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+    <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>Activity mapping — hooks for your LSQ Automations</div>
-          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', lineHeight: 1.5, marginTop: 2 }}>
             Pick which activity type we post when a channel message goes out. Your automations then trigger on that activity.
           </div>
-          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--warning-700)', lineHeight: 1.5, marginTop: 4 }}>
-            Don&apos;t map a channel to an activity type whose automation <em>sends that same channel</em> — the app already sent it,
-            so the automation sends a second copy. Email is sent directly by the app; leave it unmapped unless your automation only
-            logs or scores.
-          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           {!loadingTypes && types.length > 0 && (
             <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }} title={sourcePath ?? undefined}>
               {types.length} types loaded
@@ -104,7 +101,16 @@ export function LsqActivityMappingCard() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10, marginBottom: 10 }}>
+      <div style={{ display: 'flex', gap: 8, background: 'var(--warning-100)', borderRadius: 'var(--radius-md)', padding: '10px 12px', marginBottom: 14 }}>
+        <Icon name="error" size={14} style={{ color: 'var(--warning-700)', flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
+        <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--warning-700)', lineHeight: 1.55 }}>
+          Don&apos;t map a channel to an activity type whose automation <em>sends that same channel</em> — the app already sent
+          it, so the automation sends a second copy. Email is sent directly by the app; leave it unmapped unless your
+          automation only logs or scores.
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10, marginBottom: 14 }}>
         {CHANNELS.map(({ key, label }) => (
           <div key={key} style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 10 }}>
             <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n80)', marginBottom: 6 }}>{label}</div>
@@ -118,17 +124,47 @@ export function LsqActivityMappingCard() {
         ))}
       </div>
 
-      <details style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginBottom: 10 }}>
-        <summary style={{ cursor: 'pointer' }}>Advanced: trigger activity field schema names</summary>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-          {(['channel', 'stepKey', 'message'] as const).map((k) => (
-            <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 140 }}>
-              <span>{k}</span>
-              <input className="lsq-input" type="text" value={(triggerFields as Record<string, string>)[k]} onChange={(e) => setTriggerFields((f) => ({ ...f, [k]: e.target.value }))} />
-            </label>
-          ))}
-        </div>
-      </details>
+      <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12, marginBottom: 14 }}>
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((o) => !o)}
+          aria-expanded={advancedOpen}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            fontSize: 'var(--fs-label-2)',
+            fontWeight: 600,
+            color: 'var(--n70)',
+          }}
+        >
+          <Icon
+            name="chevron-down"
+            size={11}
+            style={{ color: 'var(--n50)', transition: 'transform var(--dur-fast) var(--ease-standard)', transform: advancedOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+          />
+          Advanced: trigger activity field schema names
+        </button>
+        {advancedOpen && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+            {(['channel', 'stepKey', 'message'] as const).map((k) => (
+              <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 140 }}>
+                <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', fontWeight: 600 }}>{k}</span>
+                <input
+                  className="lsq-input"
+                  type="text"
+                  value={(triggerFields as Record<string, string>)[k]}
+                  onChange={(e) => setTriggerFields((f) => ({ ...f, [k]: e.target.value }))}
+                />
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <Button hierarchy="primary" size="sm" onClick={save} disabled={saving}>
