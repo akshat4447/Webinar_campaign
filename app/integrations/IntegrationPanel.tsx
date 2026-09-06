@@ -218,6 +218,16 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
               )}
               {id === 'linkedin' && (
                 <div style={{ marginBottom: 12 }}>
+                  <div style={{ marginBottom: 10, padding: 8, background: '#f1f5f9', borderRadius: 'var(--radius-sm)', border: '1px solid #cbd5e1' }}>
+                    <strong style={{ color: 'var(--n90)', fontSize: 'var(--fs-label-2)' }}>OAuth Redirect URL:</strong>
+                    <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#1d4ed8', wordBreak: 'break-all', marginTop: 2, userSelect: 'all' }}>
+                      {origin ? `${origin}/api/auth/linkedin/callback` : 'Loading…'}
+                    </div>
+                    <span style={{ color: 'var(--n60)', fontSize: 11, display: 'block', marginTop: 2 }}>
+                      Derived from the URL you&apos;re viewing this page on right now. Add this exact value to your LinkedIn
+                      app&apos;s Authorized redirect URLs before connecting.
+                    </span>
+                  </div>
                   <a
                     href="/api/auth/linkedin/connect"
                     target="_blank"

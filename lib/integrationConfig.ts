@@ -21,6 +21,7 @@ function envFallback(id: string, key: string): string | undefined {
     'claude.apiKey': process.env.ANTHROPIC_API_KEY,
     'zoom.mode': process.env.ZOOM_MODE,
     'zoom.redirectUri': process.env.ZOOM_REDIRECT_URI,
+    'linkedin.mode': process.env.LINKEDIN_MODE,
     'linkedin.redirectUri': process.env.LINKEDIN_REDIRECT_URI,
     // zoom.clientId/clientSecret deliberately not here — same as linkedin,
     // each OAuth call site falls back to its env var itself (see

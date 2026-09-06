@@ -9,11 +9,11 @@ import { getEnrichmentStats } from '@/lib/actions/enrichment';
 import { getServerNow } from '@/lib/actions/clock';
 import { getSetupEditImpactAction } from '@/lib/actions/setup';
 import { resolveIntegrationField } from '@/lib/integrationConfig';
-import { linkedinMode } from '@/lib/linkedin/client';
+import { getLinkedinMode } from '@/lib/linkedin/client';
 
 export default async function SetupPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [campaign, activityLog, enrichmentStats, serverNow, contactCount, scoredCount, orgName, orgUrn, impact] = await Promise.all([
+  const [campaign, activityLog, enrichmentStats, serverNow, contactCount, scoredCount, orgName, orgUrn, impact, mode] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id } }),
     db.activityLogEntry.findMany({ where: { campaignId: id }, orderBy: { createdAt: 'desc' }, take: 20 }),
     getEnrichmentStats(id),
@@ -23,8 +23,8 @@ export default async function SetupPage({ params }: { params: Promise<{ id: stri
     resolveIntegrationField('linkedin', 'organizationName'),
     resolveIntegrationField('linkedin', 'organizationUrn'),
     getSetupEditImpactAction(id),
+    getLinkedinMode(),
   ]);
-  const mode = linkedinMode();
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>

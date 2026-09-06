@@ -10,9 +10,23 @@ export const LINKEDIN_API_BASE = 'https://api.linkedin.com/rest';
 export const LINKEDIN_TOKEN_URL = 'https://www.linkedin.com/oauth/v2/accessToken';
 const RESTLI_PROTOCOL_VERSION = '2.0.0';
 
-/** sandbox (default) makes every network path refuse politely — mirrors SEND_MODE. */
-export function linkedinMode(): 'sandbox' | 'live' {
-  return process.env.LINKEDIN_MODE === 'live' ? 'live' : 'sandbox';
+/** Whether a real account has completed OAuth — an access token is on file. */
+export async function linkedinIsConfigured(): Promise<boolean> {
+  return !!(await storedAccessToken());
+}
+
+/**
+ * Resolves active LinkedIn mode: checks the DB setting, then the env var,
+ * then defaults to live once an account is actually connected — same
+ * resolution order as lib/zoom/client.ts's getZoomMode(), so connecting a
+ * real account doesn't also require an env-var change plus a server restart
+ * just to start using it.
+ */
+export async function getLinkedinMode(): Promise<'sandbox' | 'live'> {
+  const configured = await resolveIntegrationField('linkedin', 'mode');
+  if (configured === 'live' || configured === 'sandbox') return configured;
+  if (process.env.LINKEDIN_MODE === 'live') return 'live';
+  return (await linkedinIsConfigured()) ? 'live' : 'sandbox';
 }
 
 export class LinkedInError extends Error {
@@ -46,28 +60,42 @@ async function storedRefreshCredentials(): Promise<{ clientId?: string; clientSe
   };
 }
 
-/** One best-effort refresh; returns the new token or gives up quietly. */
+let activeRefreshPromise: Promise<string | undefined> | null = null;
+
+/** One best-effort refresh; returns the new token or gives up quietly.
+ * Uses an in-flight promise lock so concurrent 401s (e.g. several cadence
+ * sends hitting an expired token in the same tick) share one refresh call
+ * instead of racing — same fix as lib/zoom/client.ts's tryRefreshAccessToken.
+ */
 async function tryRefreshAccessToken(): Promise<string | undefined> {
-  const { clientId, clientSecret, refreshToken } = await storedRefreshCredentials();
-  if (!clientId || !clientSecret || !refreshToken) return undefined;
-  try {
-    const res = await fetch(LINKEDIN_TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type: 'refresh_token', client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken }),
-      cache: 'no-store',
-    });
-    const body = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number };
-    if (!res.ok || !body.access_token) return undefined;
-    await saveIntegrationConfig('linkedin', {
-      accessToken: body.access_token,
-      ...(body.refresh_token ? { refreshToken: body.refresh_token } : {}),
-      ...(body.expires_in ? { tokenExpiresAt: new Date(Date.now() + body.expires_in * 1000).toISOString() } : {}),
-    });
-    return body.access_token;
-  } catch {
-    return undefined;
-  }
+  if (activeRefreshPromise) return activeRefreshPromise;
+
+  activeRefreshPromise = (async () => {
+    const { clientId, clientSecret, refreshToken } = await storedRefreshCredentials();
+    if (!clientId || !clientSecret || !refreshToken) return undefined;
+    try {
+      const res = await fetch(LINKEDIN_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ grant_type: 'refresh_token', client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken }),
+        cache: 'no-store',
+      });
+      const body = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number };
+      if (!res.ok || !body.access_token) return undefined;
+      await saveIntegrationConfig('linkedin', {
+        accessToken: body.access_token,
+        ...(body.refresh_token ? { refreshToken: body.refresh_token } : {}),
+        ...(body.expires_in ? { tokenExpiresAt: new Date(Date.now() + body.expires_in * 1000).toISOString() } : {}),
+      });
+      return body.access_token;
+    } catch {
+      return undefined;
+    } finally {
+      activeRefreshPromise = null;
+    }
+  })();
+
+  return activeRefreshPromise;
 }
 
 export interface RestResult {

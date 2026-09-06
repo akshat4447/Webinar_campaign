@@ -149,7 +149,11 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
       const f = await resolveTestFields('claude', typedFields);
       if (!f.apiKey) throw new Error('An API key is required.');
       const client = new Anthropic({ apiKey: f.apiKey });
-      const res = await client.messages.create({ model: 'claude-opus-5', max_tokens: 16, messages: [{ role: 'user', content: 'Reply with just: ok' }] });
+      // Same model resolution as lib/claude.ts's real usage — otherwise an
+      // ANTHROPIC_MODEL override could pass Test here while every real
+      // scoring/personalization call uses a different (possibly broken) one.
+      const model = process.env.ANTHROPIC_MODEL || 'claude-opus-5';
+      const res = await client.messages.create({ model, max_tokens: 16, messages: [{ role: 'user', content: 'Reply with just: ok' }] });
       const text = res.content.find((b) => b.type === 'text');
       result = { ok: true, detail: `200 · model responded "${text && 'text' in text ? text.text.trim() : ''}" · ${Date.now() - started}ms` };
     } else if (id === 'apollo') {
@@ -195,7 +199,8 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
       }
     } else if (id === 'linkedin') {
       const f = await resolveTestFields('linkedin', typedFields);
-      const mode = process.env.LINKEDIN_MODE === 'live' ? 'live' : 'sandbox';
+      const { getLinkedinMode } = await import('@/lib/linkedin/client');
+      const mode = await getLinkedinMode();
       if (mode !== 'live') {
         result = { ok: true, detail: `sandbox mode — every LinkedIn call is simulated until LINKEDIN_MODE=live${f.clientId ? ' · app credentials saved' : ''}` };
       } else {

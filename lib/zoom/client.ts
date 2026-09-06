@@ -14,10 +14,6 @@ import { ZOOM_TOKEN_URL } from './auth';
 
 export const ZOOM_API_BASE = 'https://api.zoom.us/v2';
 
-export function zoomMode(): 'sandbox' | 'live' {
-  return process.env.ZOOM_MODE === 'live' ? 'live' : 'sandbox';
-}
-
 /** Resolves active Zoom mode: checks DB setting, env var, or defaults to live when an account is connected. */
 export async function getZoomMode(): Promise<'sandbox' | 'live'> {
   const configured = await resolveIntegrationField('zoom', 'mode');

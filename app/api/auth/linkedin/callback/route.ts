@@ -3,11 +3,14 @@
 // human-readable result in the query string.
 import { resolveIntegrationField, saveIntegrationConfig } from '@/lib/integrationConfig';
 import { exchangeCodeForToken, fetchAdministeredOrganizations } from '@/lib/linkedin/auth';
+import { db } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
 function back(request: Request, params: Record<string, string>) {
-  const url = new URL('/integrations', request.url);
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || new URL(request.url).host;
+  const proto = request.headers.get('x-forwarded-proto') || (request.url.startsWith('https') ? 'https' : 'http');
+  const url = new URL('/integrations', `${proto}://${host}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   return Response.redirect(url.toString(), 302);
 }
@@ -22,22 +25,39 @@ export async function GET(request: Request) {
   }
   if (!code || !state) return back(request, { connected: 'error', detail: 'Missing code/state from LinkedIn.' });
 
-  // CSRF check: the state must match the HttpOnly cookie this browser received
-  // from /connect (single browser-bound token — no shared server row).
+  // CSRF check: check HttpOnly cookie first, or fall back to a short-lived
+  // DB state record — same fallback as app/api/auth/zoom/callback/route.ts.
   const cookieState = (request.headers.get('cookie') ?? '')
     .split(';')
     .map((c) => c.trim())
     .find((c) => c.startsWith('li_oauth_state='))
     ?.split('=')[1];
 
-  if (!state || !cookieState || cookieState !== state) {
+  let stateValid = !!(state && cookieState && cookieState === state);
+
+  if (!stateValid && state) {
+    try {
+      const row = await db.appSetting.findUnique({ where: { key: `linkedin.oauth_state.${state}` } });
+      if (row && Number(row.value) > Date.now()) {
+        stateValid = true;
+        await db.appSetting.delete({ where: { key: `linkedin.oauth_state.${state}` } }).catch(() => {});
+      }
+    } catch {
+      // ignore db error
+    }
+  }
+
+  if (!stateValid) {
     return back(request, { connected: 'error', detail: 'OAuth state mismatch or expired — start the connection again.' });
   }
 
   try {
     const clientId = (await resolveIntegrationField('linkedin', 'clientId')) || process.env.LINKEDIN_CLIENT_ID!;
     const clientSecret = (await resolveIntegrationField('linkedin', 'clientSecret')) || process.env.LINKEDIN_CLIENT_SECRET!;
-    const redirectUri = process.env.LINKEDIN_REDIRECT_URI || `${new URL(request.url).origin}/api/auth/linkedin/callback`;
+    const redirectUri =
+      (await resolveIntegrationField('linkedin', 'redirectUri')) ||
+      process.env.LINKEDIN_REDIRECT_URI ||
+      `${new URL(request.url).origin}/api/auth/linkedin/callback`;
 
     const token = await exchangeCodeForToken({ clientId, clientSecret, code, redirectUri });
     await saveIntegrationConfig('linkedin', {

@@ -4,6 +4,7 @@ import { ConnectResultBanner } from './ConnectResultBanner';
 import { integrationsData } from '@/lib/demo-data';
 import { getTestResult, resolveIntegrationField } from '@/lib/integrationConfig';
 import { zoomIsConfigured, getZoomMode } from '@/lib/zoom/client';
+import { linkedinIsConfigured, getLinkedinMode } from '@/lib/linkedin/client';
 
 // Reads live DB credentials/test-results on every request — this page must
 // NEVER be statically prerendered with build-time values frozen into HTML.
@@ -23,7 +24,8 @@ export default async function IntegrationsPage(props: PageProps<'/integrations'>
     resolveIntegrationField('lsq', 'whatsappStrategy'),
   ]);
   const sendMode = process.env.SEND_MODE === 'live' ? 'live' : 'sandbox';
-  const liMode = process.env.LINKEDIN_MODE === 'live' ? 'live' : 'sandbox';
+  const liMode = await getLinkedinMode();
+  const liConnected = await linkedinIsConfigured();
   const zoomMode = await getZoomMode();
   const zoomConnected = await zoomIsConfigured();
   const zoomAutosyncOn = process.env.ZOOM_AUTOSYNC === '1' || process.env.ZOOM_AUTOSYNC === 'true';
@@ -35,11 +37,17 @@ export default async function IntegrationsPage(props: PageProps<'/integrations'>
         : zoomAutosyncOn
           ? 'Live · auto-sync running'
           : 'Live · connected, auto-sync off (set ZOOM_AUTOSYNC=1)';
+  const liValue =
+    liMode !== 'live'
+      ? 'Sandbox — Events API simulated · touches manual either way'
+      : !liConnected
+        ? 'Live mode, but not connected — click Connect with LinkedIn'
+        : 'Live · Events API connected · touches manual';
   const delivery = [
     { label: 'Email', value: `${sendMode}${sendMode === 'sandbox' ? ' → allowlisted lead' : ''}` },
     { label: 'SMS', value: `LSQ ${(smsStrategy || 'trigger').toLowerCase()} strategy` },
     { label: 'WhatsApp', value: `LSQ ${(waStrategy || 'trigger').toLowerCase()} strategy` },
-    { label: 'LinkedIn', value: liMode === 'live' ? 'Events API live' : 'Events API sandbox · touches manual' },
+    { label: 'LinkedIn', value: liValue },
     { label: 'Zoom', value: zoomValue },
   ];
 

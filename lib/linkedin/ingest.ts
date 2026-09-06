@@ -15,13 +15,13 @@ import { registerContact } from '@/lib/registerContact';
 import { upsertAttentionItem } from '@/lib/attentionItems';
 import { scoreContacts } from '@/lib/claude';
 import { syncContactsToLeadSquared } from '@/lib/leadSync';
-import { linkedinMode, restRequest } from './client';
+import { getLinkedinMode, restRequest } from './client';
 import { normalizeRegistrant } from './webhook';
 import { buildContactFields } from './mapping';
 
 /** Live mode reads LinkedIn's lead-form response record; sandbox fabricates a stable fixture. */
 async function fetchRegistrantRaw(row: LinkedinRegistration): Promise<unknown> {
-  if (linkedinMode() !== 'live') {
+  if ((await getLinkedinMode()) !== 'live') {
     const suffix = createHash('sha1').update(row.responseUrn).digest('hex').slice(0, 6);
     return {
       firstName: 'Priya',
@@ -208,7 +208,7 @@ async function processOne(
       return 'ok';
     }
 
-    const fields = buildContactFields(registrant, campaign.vertical, linkedinMode() !== 'live');
+    const fields = buildContactFields(registrant, campaign.vertical, (await getLinkedinMode()) !== 'live');
     const contact = await db.contact.create({ data: { campaignId: campaign.id, ...fields } });
     if (fields.email) {
       emailMap.set(fields.email.toLowerCase(), contact.id);

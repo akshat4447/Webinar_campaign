@@ -148,17 +148,19 @@ export async function ensureTriggerActivityTypeId(): Promise<number> {
 // The allowlist lead's phone (the same lead email receives every sandboxed
 // send), cached to avoid an LSQ round trip per message.
 //
-// ONLY a successful lookup is cached. Caching the miss — which this used to do
-// for the life of the process — made the error message a lie: it tells you to
-// add a Phone in LeadSquared, but every later send re-threw from cache without
-// re-reading, so the fix appeared not to work until the server was restarted.
-// A config problem the operator is actively fixing has to be re-checked.
-let cachedSandboxPhone: string | null = null;
+// ONLY a successful lookup is cached, and the cache is keyed by the email
+// itself — not just a bare value — so changing SEND_ALLOWLIST_LEAD_EMAIL
+// takes effect on the next send with no restart. Caching the MISS — which
+// this used to do for the life of the process — made the error message a
+// lie: it tells you to add a Phone in LeadSquared, but every later send
+// re-threw from cache without re-reading, so the fix appeared not to work
+// until the server was restarted. A config problem the operator is actively
+// fixing has to be re-checked.
+let cachedSandboxPhone: { email: string; phone: string } | null = null;
 export async function sandboxTargetPhone(): Promise<string> {
-  if (cachedSandboxPhone) return cachedSandboxPhone;
-
   const email = process.env.SEND_ALLOWLIST_LEAD_EMAIL;
   if (!email) throw new Error('SEND_ALLOWLIST_LEAD_EMAIL is not set — required while SEND_MODE=sandbox.');
+  if (cachedSandboxPhone && cachedSandboxPhone.email === email) return cachedSandboxPhone.phone;
 
   const lead = await getLeadByEmailAddress(email);
   // LSQ exposes both; either is a usable SMS/WhatsApp target.
@@ -168,16 +170,15 @@ export async function sandboxTargetPhone(): Promise<string> {
       `The allowlist lead (${email}) has no Phone or Mobile in LeadSquared — add one so sandboxed SMS/WhatsApp sends have a target. It is re-checked on the next send; no restart needed.`
     );
   }
-  cachedSandboxPhone = phone;
+  cachedSandboxPhone = { email, phone };
   return phone;
 }
 
-let cachedSandboxLeadId: string | null = null;
+let cachedSandboxLeadId: { email: string; leadId: string } | null = null;
 export async function sandboxTargetLeadId(): Promise<string> {
-  if (cachedSandboxLeadId) return cachedSandboxLeadId;
-
   const email = process.env.SEND_ALLOWLIST_LEAD_EMAIL;
   if (!email) throw new Error('SEND_ALLOWLIST_LEAD_EMAIL is not set — required while SEND_MODE=sandbox.');
+  if (cachedSandboxLeadId && cachedSandboxLeadId.email === email) return cachedSandboxLeadId.leadId;
 
   const lead = await getLeadByEmailAddress(email);
   const leadId = (lead?.ProspectID || lead?.ProspectId || lead?.LeadId) as string | undefined;
@@ -186,7 +187,7 @@ export async function sandboxTargetLeadId(): Promise<string> {
       `The allowlist lead (${email}) was not found in LeadSquared — create it so sandboxed sends have a target lead.`
     );
   }
-  cachedSandboxLeadId = leadId;
+  cachedSandboxLeadId = { email, leadId };
   return leadId;
 }
 

@@ -12,7 +12,7 @@
 // automatically; the exact submit/review endpoint has shifted between doc
 // versions, so we poll status rather than calling an unverifiable action.
 import { createHash } from 'crypto';
-import { restRequest, responseIdFromHeaders, linkedinMode } from './client';
+import { restRequest, responseIdFromHeaders, getLinkedinMode } from './client';
 
 export type FormStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
@@ -62,7 +62,7 @@ export async function ensureApprovedRegistrationForm(args: {
   displayName: string;
   description: string;
 }): Promise<EnsureFormResult> {
-  if (linkedinMode() !== 'live') {
+  if ((await getLinkedinMode()) !== 'live') {
     // Deterministic per-Page sandbox URN so repeated dry-runs look stable.
     const hash = createHash('sha1').update(`${args.organizationUrn}:${INTERNAL_FORM_NAME}`).digest('hex').slice(0, 10);
     return { formUrn: `urn:li:registrationForm:sbx${hash}`, status: 'APPROVED' };

@@ -43,6 +43,7 @@ export const INTEGRATION_FIELDS: Record<string, IntegrationField[]> = {
   linkedin: [
     { key: 'clientId', label: 'Client ID', secret: false, placeholder: 'LinkedIn app Client ID' },
     { key: 'clientSecret', label: 'Client Secret', secret: true, placeholder: 'Paste your LinkedIn app Client Secret' },
+    { key: 'mode', label: 'Mode (live | sandbox)', secret: false, optional: true, placeholder: 'live (default when connected) or sandbox' },
     { key: 'accessToken', label: 'Access Token', secret: true, optional: true, placeholder: 'Auto-filled by Connect (paste manually to skip OAuth)' },
     { key: 'refreshToken', label: 'Refresh Token', secret: true, optional: true, placeholder: 'Auto-filled by Connect' },
     { key: 'organizationUrn', label: 'Page URN', secret: false, optional: true, placeholder: 'urn:li:organization:1234567 (auto-detected on Connect)' },

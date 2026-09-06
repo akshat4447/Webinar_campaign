@@ -15,7 +15,7 @@ import { db } from '@/lib/db';
 import { revalidateCampaign } from '@/lib/revalidate';
 import { upsertAttentionItem } from '@/lib/attentionItems';
 import { createHash } from 'crypto';
-import { linkedinMode, resolveOrganizationUrn } from './client';
+import { getLinkedinMode, resolveOrganizationUrn } from './client';
 import { validateCampaignForPublish, buildEventPayload, buildAnnouncementPostPayload, eventPublicUrl } from './events';
 import { ensureApprovedRegistrationForm } from './registrationForms';
 import { createEvent, deleteEvent, listEventsByOrganizer, publishAnnouncementPost } from './eventsApi';
@@ -44,7 +44,7 @@ export async function publishWebinarToLinkedIn(campaignId: string): Promise<Publ
     return { ok: true, status: 'published', detail: `Already live: ${eventPublicUrl(campaign.linkedinEventUrn)}` };
   }
 
-  const mode = linkedinMode();
+  const mode = await getLinkedinMode();
   const validation = validateCampaignForPublish(
     {
       name: campaign.name,
@@ -217,7 +217,7 @@ export async function publishWebinarToLinkedIn(campaignId: string): Promise<Publ
 /** Cancels/deletes the remote event (best-effort in live mode) and clears all local linkage. */
 export async function cancelLinkedInEvent(campaignId: string): Promise<PublishOutcome> {
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { name: true, linkedinEventUrn: true } });
-  if (linkedinMode() === 'live' && campaign.linkedinEventUrn) {
+  if ((await getLinkedinMode()) === 'live' && campaign.linkedinEventUrn) {
     try {
       await deleteEvent(campaign.linkedinEventUrn);
     } catch (err) {
