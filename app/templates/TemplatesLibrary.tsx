@@ -182,10 +182,10 @@ export function TemplatesLibrary({
                 fontSize: 'var(--fs-label-1)',
                 fontWeight: 'var(--fw-bold)',
                 color: active ? 'var(--accent-500)' : 'var(--n50)',
-                borderBottom: `2px solid ${active ? 'var(--accent-500)' : 'transparent'}`,
                 background: 'none',
-                border: 'none',
-                borderBottomStyle: 'solid',
+                borderStyle: 'solid',
+                borderWidth: '0 0 2px 0',
+                borderColor: active ? 'var(--accent-500)' : 'transparent',
                 cursor: 'pointer',
               }}
             >

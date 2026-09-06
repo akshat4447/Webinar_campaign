@@ -4,10 +4,13 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { statusMeta } from '@/lib/demo-data';
 import { campaignLandingHref } from '@/lib/campaignRoutes';
 import {
+  DASH,
   getCrossCampaignLearnings,
   getDashboardKpis,
   getPersonaLearning,
+  getPersonaRegistrationRate,
   getRegistrationsByChannel,
+  getRegistrationsByInviteChannel,
   getRegistrationsTrend,
   getWebinarsInRange,
   type DashboardRange,
@@ -28,17 +31,20 @@ export default async function DashboardPage(props: PageProps<'/dashboard'>) {
   const { range: rawRange } = await props.searchParams;
   const range: DashboardRange = isRange(typeof rawRange === 'string' ? rawRange : undefined) ? (rawRange as DashboardRange) : '30d';
 
-  const [kpis, trend, channels, webinars, personas, learnings] = await Promise.all([
+  const [kpis, trend, channels, inviteChannels, webinars, personas, personaRegRates, learnings] = await Promise.all([
     getDashboardKpis(range),
     getRegistrationsTrend(range),
     getRegistrationsByChannel(range),
+    getRegistrationsByInviteChannel(range),
     getWebinarsInRange(range),
     getPersonaLearning(),
+    getPersonaRegistrationRate(),
     getCrossCampaignLearnings(),
   ]);
 
   const maxTrend = Math.max(1, ...trend.map((t) => t.count));
   const maxChannel = Math.max(1, ...channels.map((c) => c.count));
+  const maxInviteChannel = Math.max(1, ...inviteChannels.map((c) => c.count));
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '32px 40px 48px 40px' }}>
@@ -173,6 +179,66 @@ export default async function DashboardPage(props: PageProps<'/dashboard'>) {
           </div>
         </div>
 
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16, marginBottom: 20 }}>
+          {/* Registrations by invite channel — a different axis than "Registrations
+              by channel" above: that one groups by how someone registered
+              (one-click link / LinkedIn form / manual / import), this by which
+              invite actually reached them. */}
+          <div className="lsq-card" style={{ padding: '18px 20px' }}>
+            <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Registrations by invite channel</div>
+            <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginBottom: 14 }}>
+              Which invite (email/SMS/WhatsApp cadence step, or a LinkedIn form) reached each registrant. A contact invited on
+              more than one channel counts under each.
+            </div>
+            {inviteChannels.length === 0 ? (
+              <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>No registrations in this range yet.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {inviteChannels.map((c) => (
+                  <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 108, fontSize: 'var(--fs-label-1)', color: 'var(--n70)', flexShrink: 0 }}>{c.label}</div>
+                    <div style={{ flex: 1, background: 'var(--n10)', borderRadius: 4, height: 14, overflow: 'hidden' }}>
+                      <div style={{ width: `${Math.max(1.5, (c.count / maxInviteChannel) * 100)}%`, height: '100%', background: 'var(--chart-1)', borderRadius: '0 4px 4px 0' }} />
+                    </div>
+                    <div style={{ width: 34, textAlign: 'right', fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', fontVariantNumeric: 'tabular-nums' }}>{c.count}</div>
+                    <div style={{ width: 34, textAlign: 'right', fontSize: 'var(--fs-label-2)', color: 'var(--n50)', fontVariantNumeric: 'tabular-nums' }}>{c.pct}%</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Registration rate by persona — a different question than "Approval
+              rate by persona" above: of contacts actually invited, which
+              persona registers best. Real computed rate, not a narrative claim. */}
+          <div className="lsq-card" style={{ padding: '18px 20px' }}>
+            <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Registration rate by persona</div>
+            <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginBottom: 14 }}>
+              Share of invited contacts who registered, by seniority and function, across every webinar with at least 3
+              invited contacts in that persona.
+            </div>
+            {personaRegRates.length === 0 ? (
+              <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>
+                Not enough invited contacts yet — launch a cadence to see persona trends here.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {personaRegRates.map((row) => (
+                  <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 170, fontSize: 'var(--fs-label-1)', color: 'var(--n70)', flexShrink: 0, overflowWrap: 'anywhere' }}>
+                      {row.label} <span style={{ color: 'var(--n50)' }}>({row.sampleSize})</span>
+                    </div>
+                    <div style={{ flex: 1, background: 'var(--n20)', borderRadius: 'var(--radius-full)', height: 8, overflow: 'hidden' }}>
+                      <div style={{ width: `${row.pct}%`, height: '100%', background: 'var(--accent-500)', borderRadius: 'var(--radius-full)' }} />
+                    </div>
+                    <div style={{ width: 40, textAlign: 'right', fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', fontVariantNumeric: 'tabular-nums' }}>{row.pct}%</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Campaign-over-campaign learnings — vertical and source, persona has its own panel above */}
         <div className="lsq-card" style={{ padding: '18px 20px', marginBottom: 20 }}>
           <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>What the agent has learned</div>
@@ -211,7 +277,7 @@ export default async function DashboardPage(props: PageProps<'/dashboard'>) {
             <div style={{ padding: '24px 20px', fontSize: 'var(--fs-label-1)', color: 'var(--n60)', textAlign: 'center' }}>No webinars in this range.</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table className="lsq-table" style={{ width: '100%', minWidth: 560, fontSize: 'var(--fs-label-1)' }}>
+              <table className="lsq-table" style={{ width: '100%', minWidth: 660, fontSize: 'var(--fs-label-1)' }}>
                 <thead>
                   <tr style={{ textAlign: 'left' }}>
                     <th style={{ padding: '10px 20px' }}>Webinar</th>
@@ -219,6 +285,7 @@ export default async function DashboardPage(props: PageProps<'/dashboard'>) {
                     <th style={{ padding: '10px 20px' }}>Status</th>
                     <th className="num" style={{ padding: '10px 20px' }}>Registered</th>
                     <th className="num" style={{ padding: '10px 20px' }}>Attendance</th>
+                    <th className="num" style={{ padding: '10px 20px' }}>Demos</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -238,6 +305,7 @@ export default async function DashboardPage(props: PageProps<'/dashboard'>) {
                       </td>
                       <td className="num" style={{ padding: '11px 20px' }}>{w.registered}</td>
                       <td className="num" style={{ padding: '11px 20px' }}>{w.attendanceRate}</td>
+                      <td className="num" style={{ padding: '11px 20px' }}>{w.demoRequests || DASH}</td>
                     </tr>
                   ))}
                 </tbody>
