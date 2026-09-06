@@ -26,7 +26,16 @@ export const INTEGRATION_FIELDS: Record<string, IntegrationField[]> = {
   ],
   claude: [{ key: 'apiKey', label: 'API Key', secret: true, placeholder: 'Paste your Anthropic API key' }],
   apollo: [{ key: 'apiKey', label: 'API Key', secret: true, placeholder: 'Paste your Apollo API key' }],
-  apify: [{ key: 'apiToken', label: 'API Token', secret: true, placeholder: 'Paste your Apify API token' }],
+  apify: [
+    { key: 'apiToken', label: 'API Token', secret: true, placeholder: 'Paste your Apify API token' },
+    {
+      key: 'actorId',
+      label: 'Actor ID',
+      secret: false,
+      optional: true,
+      placeholder: 'apify/google-search-scraper (default) — or your own Actor, e.g. username/actor-name',
+    },
+  ],
   // User-managed OAuth, same shape as the linkedin entry below — the
   // operator's own Zoom Marketplace app credentials, then Connect does the
   // real three-legged OAuth to a specific Zoom account.

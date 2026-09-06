@@ -134,12 +134,24 @@ export const accountBreakdownData = [
   { account: 'Cascade Realty Group', persona: 'Marketing Manager', invited: 1, registered: 1, watched: '19 min', action: 'Nurture', actionColor: 'gray blue' },
 ];
 
-export const integrationsData = [
+export const integrationsData: Array<{
+  id: string;
+  name: string;
+  role: string;
+  initial: string;
+  avatarBg: string;
+  statusColor: string;
+  statusLabel: string;
+  lastOp: string;
+  endpoint: string;
+  hasError?: boolean;
+  error?: string;
+}> = [
   { id: 'lsq', name: 'LeadSquared', role: 'CRM + email sending', initial: 'L', avatarBg: 'var(--accent-500)', statusColor: 'success', statusLabel: 'Connected', lastOp: 'Synced engagement summary, 2 min ago', endpoint: 'POST /v2/LeadManagement.svc/Lead.CreateOrUpdate' },
   { id: 'zoom', name: 'Zoom', role: 'Webinar hosting', initial: 'Z', avatarBg: '#2563EB', statusColor: 'gray', statusLabel: 'Not connected', lastOp: 'Attendance imported automatically, 40 min ago', endpoint: 'User-managed OAuth · meeting sync + participant reports, both automatic' },
   { id: 'claude', name: 'Claude', role: 'Propensity scoring, rewrites & chat', initial: 'C', avatarBg: 'var(--accent-purple)', statusColor: 'success', statusLabel: 'Connected', lastOp: 'Scored 342 contacts, today', endpoint: 'POST /v1/messages' },
-  { id: 'apollo', name: 'Apollo', role: 'Contact enrichment', initial: 'A', avatarBg: '#7C3AED', statusColor: 'success', statusLabel: 'Connected', lastOp: 'Enriched contact details, today', endpoint: 'POST /v1/people/match' },
-  { id: 'apify', name: 'Apify', role: 'Web + profile enrichment', initial: 'A', avatarBg: '#F97316', statusColor: 'error', statusLabel: 'Error', lastOp: 'Attempted enrichment, today', hasError: true, error: 'Rate limit exceeded on last batch — retry in 15 min.', endpoint: 'POST /v2/acts/lsq~linkedin-company/runs' },
+  { id: 'apollo', name: 'Apollo', role: 'Real email enrichment via people-match', initial: 'A', avatarBg: '#7C3AED', statusColor: 'gray', statusLabel: 'Not tested yet', lastOp: 'Fills missing contact emails during Setup enrichment', endpoint: 'POST /v1/people/match (reveal_personal_emails)' },
+  { id: 'apify', name: 'Apify', role: 'Live web context for enrichment', initial: 'A', avatarBg: '#F97316', statusColor: 'gray', statusLabel: 'Not tested yet', lastOp: 'Grounds Claude enrichment with a real search result per company', endpoint: 'POST /v2/acts/{actorId}/run-sync-get-dataset-items' },
   { id: 'linkedin', name: 'LinkedIn', role: 'Events — create · publish · Lead Sync', initial: 'in', avatarBg: 'var(--brand-linkedin)', statusColor: 'gray', statusLabel: 'Not connected', lastOp: 'Connect to publish events and stream registrations in', endpoint: 'POST /rest/events · POST /rest/posts · LEAD_ACTION webhook' },
   { id: 'messaging', name: 'SMS & WhatsApp Business', role: 'DLT + WABA compliance metadata', initial: 'S', avatarBg: '#0D9488', statusColor: 'gray', statusLabel: 'Reference only', lastOp: 'Delivery itself runs through the LeadSquared card above', endpoint: 'No live API — reference fields only' },
 ];

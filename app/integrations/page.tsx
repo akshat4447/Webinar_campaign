@@ -83,10 +83,12 @@ export default async function IntegrationsPage(props: PageProps<'/integrations'>
       </div>
 
       <div style={{ marginTop: 24, fontSize: 'var(--fs-label-2)', color: 'var(--n50)', lineHeight: 1.6, maxWidth: 760 }}>
-        Build note — LeadSquared, Claude, Apollo and Zoom (User-managed OAuth, connected per account via Connect with Zoom)
-        all make live API calls. Meeting creation/linking and attendance both run automatically once Zoom is connected and
-        ZOOM_AUTOSYNC is on — there is no manual upload path. LinkedIn outreach is manual by design; its Events API is real.
-        Contact details that were inferred rather than supplied are held back from sending until a human verifies them.
+        Build note — LeadSquared, Claude, Apollo, Apify and Zoom (User-managed OAuth, connected per account via Connect with
+        Zoom) all make live API calls, none of them simulated. Meeting creation/linking and attendance both run
+        automatically once Zoom is connected and ZOOM_AUTOSYNC is on — there is no manual upload path. LinkedIn outreach is
+        manual by design; its Events API is real. Apollo enrichment falls back to an unverified pattern-guess only when it
+        has no real match (or isn&apos;t configured) — that guess, and any contact detail inferred rather than supplied, is
+        held back from sending until a human verifies it.
       </div>
     </main>
   );

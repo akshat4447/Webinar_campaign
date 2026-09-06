@@ -36,6 +36,7 @@ export function EnrichmentCard({ campaignId, stats }: { campaignId: string; stat
         <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)' }}>Enrichment</div>
         <div style={{ display: 'flex', gap: 6 }}>
           <Badge color="blue light" text="Apollo" />
+          <Badge color="blue light" text="Apify" />
           <Badge color="blue light" text="Claude" />
         </div>
       </div>
@@ -52,14 +53,16 @@ export function EnrichmentCard({ campaignId, stats }: { campaignId: string; stat
           </div>
 
           <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', lineHeight: 1.55, marginBottom: 14 }}>
-            Claude normalizes messy titles into function + seniority, infers each account&apos;s vertical, and writes a persona
-            note. Apollo fills in missing contact details.
+            Apify pulls a real web result per company (if connected) to ground the inference; Claude normalizes messy titles
+            into function + seniority, infers each account&apos;s vertical, and writes a persona note; Apollo fills in missing
+            emails with a real people-match, falling back to an unverified guess only where Apollo has no match.
           </div>
 
           {result?.ok && (
             <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--success-700)', lineHeight: 1.6, marginBottom: 12 }}>
-              ✓ Claude enriched {result.personasEnriched} personas · Apollo inferred {result.emailsInferred} email
-              {result.emailsInferred === 1 ? '' : 's'}
+              ✓ Claude enriched {result.personasEnriched} personas
+              {!!result.emailsFoundReal && ` · Apollo found ${result.emailsFoundReal} real email${result.emailsFoundReal === 1 ? '' : 's'}`}
+              {!!result.emailsInferred && ` · guessed ${result.emailsInferred} more (unverified)`}
               {result.couldNotEnrich ? ` · ${result.couldNotEnrich} too sparse to enrich` : ''}
             </div>
           )}

@@ -186,3 +186,80 @@ export async function verifyContactsForLinkedIn(
 
   return { results, usedLiveApi: true };
 }
+
+export interface ApolloEnrichedContact {
+  found: boolean;
+  email?: string;
+  phone?: string;
+  title?: string;
+  company?: string;
+}
+
+interface RawApolloEnrichResponse {
+  person?: {
+    email?: string | null;
+    title?: string;
+    organization?: { name?: string };
+    phone_numbers?: Array<{ raw_number?: string; sanitized_number?: string }>;
+  } | null;
+}
+
+/**
+ * Real Apollo enrichment (not verification) — the same people/match endpoint,
+ * but asking Apollo to reveal the person's email (and phone, if it has one on
+ * file) instead of just confirming title/company. This is the genuine Apollo
+ * API call behind "enrich this sparse contact", as opposed to the local
+ * pattern-guess fallback lib/enrichment.ts uses when Apollo has no match or
+ * isn't configured at all.
+ */
+export async function enrichContactsViaApollo(
+  contacts: Array<{ id: string } & ContactBaseline>,
+  opts: { apiKey: string }
+): Promise<{ results: Map<string, ApolloEnrichedContact>; usedLiveApi: boolean }> {
+  const apiKey = opts.apiKey;
+  if (!apiKey) return { results: new Map(), usedLiveApi: false };
+
+  const results = new Map<string, ApolloEnrichedContact>();
+  let rateLimited = false;
+
+  for (const c of contacts) {
+    if (rateLimited) continue;
+    try {
+      const res = await fetch(APOLLO_MATCH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+        body: JSON.stringify({
+          q_organization_name: c.account || undefined,
+          name: c.name,
+          reveal_personal_emails: true,
+        }),
+        cache: 'no-store',
+      });
+
+      if (res.status === 429 || res.status === 401 || res.status === 403) {
+        rateLimited = true;
+        continue;
+      }
+      if (!res.ok) continue;
+
+      const json = (await res.json().catch(() => null)) as RawApolloEnrichResponse | null;
+      const p = json?.person;
+      if (p) {
+        results.set(c.id, {
+          found: true,
+          email: p.email?.trim() || undefined,
+          phone: p.phone_numbers?.[0]?.sanitized_number || p.phone_numbers?.[0]?.raw_number || undefined,
+          title: p.title,
+          company: p.organization?.name,
+        });
+      } else {
+        results.set(c.id, { found: false });
+      }
+    } catch {
+      results.set(c.id, { found: false });
+    }
+    await new Promise((r) => setTimeout(r, CALL_GAP_MS));
+  }
+
+  return { results, usedLiveApi: true };
+}
