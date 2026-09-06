@@ -246,8 +246,9 @@ model Template {
 /// The channel decides which fields matter, because the channels are genuinely
 /// different products, not one message with a delivery flag:
 ///   email     subject + body + {{merge}} fields
-///   whatsapp  Meta-approved template — category, language, numbered {{1}}
-///             placeholders, optional footer and buttons, approval status
+///   whatsapp  Meta-approved template — category, language, the same
+///             {{merge}} fields as every other channel, optional footer and
+///             buttons, approval status
 ///   sms       DLT-registered content template id and sender id, mandatory
 ///             opt-out, segment-counted body
 ///   linkedin  assisted only; no approval exists because nothing is sent by API

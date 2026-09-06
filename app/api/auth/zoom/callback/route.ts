@@ -2,7 +2,7 @@
 // which Zoom account connected, and land back on Integrations with a
 // human-readable result in the query string. Mirrors
 // app/api/auth/linkedin/callback.
-import { resolveIntegrationField, saveIntegrationConfig } from '@/lib/integrationConfig';
+import { resolveIntegrationField, saveIntegrationConfig, saveTestResult } from '@/lib/integrationConfig';
 import { exchangeCodeForToken, fetchConnectedUser } from '@/lib/zoom/auth';
 
 export const runtime = 'nodejs';
@@ -50,10 +50,12 @@ export async function GET(request: Request) {
     const user = await fetchConnectedUser(token.accessToken);
     if (user.email) await saveIntegrationConfig('zoom', { connectedEmail: user.email });
 
-    return back(request, {
-      connected: 'ok',
-      detail: user.email ? `Connected as ${user.email}` : 'Connected, but could not read the account email.',
-    });
+    const detail = user.email ? `Connected as ${user.email}` : 'Connected, but could not read the account email.';
+    // So the card's badge reflects reality immediately, rather than sitting on
+    // "Not tested yet" until someone happens to open Configure and click Test.
+    await saveTestResult('zoom', true, detail);
+
+    return back(request, { connected: 'ok', detail });
   } catch (err) {
     return back(request, { connected: 'error', detail: String(err instanceof Error ? err.message : err).slice(0, 280) });
   }

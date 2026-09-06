@@ -4,7 +4,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { db } from '@/lib/db';
 import { statusMeta } from '@/lib/demo-data';
 import { getCampaignCardStats, getListKpis } from '@/lib/campaignCardStats';
-import { campaignCadenceHref, campaignLandingHref, campaignPrimaryCta } from '@/lib/campaignRoutes';
+import { campaignCadenceHref, campaignLandingHref, campaignOverviewHref, campaignPrimaryCta } from '@/lib/campaignRoutes';
 import { NewCampaignButton } from './NewCampaignButton';
 import { CampaignCardMenu } from './CampaignCardMenu';
 
@@ -245,6 +245,13 @@ export default async function WebinarsPage(props: PageProps<'/'>) {
                     style={{ flex: 1, textDecoration: 'none' }}
                   >
                     {campaignPrimaryCta(c.status)}
+                  </Link>
+                  <Link
+                    href={campaignOverviewHref(c.id)}
+                    className="lsq-btn lsq-btn--secondary lsq-btn--sm"
+                    style={{ textDecoration: 'none' }}
+                  >
+                    Overview
                   </Link>
                   <Link
                     href={campaignCadenceHref(c.id)}

@@ -81,13 +81,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .lsq-table td.num,
 .lsq-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
-/* Quiet control that only reveals itself on hover of its parent — kebab menus,
-   inline edit affordances. */
-.lsq-reveal { opacity: 0; transition: opacity var(--dur-fast) var(--ease-standard); }
-.lsq-reveal:focus-visible,
-*:hover > .lsq-reveal,
-.lsq-reveal[data-open='true'] { opacity: 1; }
-
 /* ---------- buttons --------------------------------------------------------
    Hover, active and disabled all live here rather than in the component, so
    they exist at all — a React inline style cannot express a pseudo-class. */

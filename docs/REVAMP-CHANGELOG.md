@@ -1810,3 +1810,89 @@ behind a flag:
   backup: identical. No stray `AppSetting` rows, no test campaigns created
   by `zoomAutosync` logic (never triggered live — `ZOOM_AUTOSYNC` was never
   set during testing)
+
+## Four reported bugs: dashboard Overview shortcut, hidden kebab menu, a WhatsApp template trap, and a silent Zoom connect — 2026-09-06
+
+Four independent reports in one message. Each investigated to a concrete,
+reproducible cause before touching anything — no guessing.
+
+### Dashboard card: no quick way to the Overview tab
+The card's action row only had the status-dependent primary CTA (Setup or
+Cadence, per `campaignPrimaryCta`) plus a "Cadence" shortcut — nothing
+jumped straight to Overview regardless of status. Added `campaignOverviewHref()`
+to **`lib/campaignRoutes.ts`** and a second secondary button in **`app/page.tsx`**'s
+card action row, next to Cadence.
+
+### Kebab menu (archive/delete) was invisible by design, not by accident
+**`app/CampaignCardMenu.tsx`** carried a `.lsq-reveal` class that set
+`opacity: 0` and only showed the button on `:hover` of its *immediate* parent
+(a narrow flex row, not the whole card) — a real "hover to reveal" affordance,
+just one narrow enough that archive/delete was effectively undiscoverable.
+Removed the class from the component and the now-unused rule from
+**`app/globals.css`** (its only user) — the button is unconditionally visible now.
+
+### WhatsApp templates: the editor taught a token scheme nothing else understood
+Reproduced concretely before fixing: built a WhatsApp template using exactly
+the numbered `{{1}}`/`{{2}}`/`{{3}}`/`{{4}}` placeholders `variablesFor()`,
+`CHANNEL_RULES.whatsapp`, and the Buttons field's placeholder text all told
+the operator to use. Result — `validateTemplateContentForChannel` flagged it
+with two errors ("Unknown variables", "No `{{link}}` placeholder"), and
+`renderMergeFields` (the real send-time substitution in `lib/cadence.ts`)
+sent the literal string `{{1}}, {{2}}...` verbatim, since it only ever
+implemented named tokens. The Prisma schema's own doc comment on
+`MessageTemplate` still described "numbered `{{1}}` placeholders" too — a
+leftover from an earlier design that named tokens replaced everywhere except
+this documentation/UI-hint layer. The seeded WhatsApp templates and
+`messageValidation.test.ts` both already assumed named tokens, confirming
+which scheme is actually real.
+- **`app/templates/TemplatesLibrary.tsx`** — `variablesFor()` replaced with a
+  single `TEMPLATE_VARIABLES` constant (named tokens for every channel, no
+  WhatsApp special case); `CHANNEL_RULES.whatsapp` and the Buttons field
+  placeholder rewritten to match.
+- **`prisma/schema.prisma`** — doc comment corrected; `npx prisma generate`
+  re-run to refresh the generated copies.
+
+### Zoom connect: worked, but said nothing
+Confirmed the OAuth mechanics themselves were never broken (verified again
+here, live): `/api/auth/zoom/connect` still redirects to a real, correctly-
+encoded Zoom authorize URL, and the callback still exchanges the code and
+saves the tokens. The actual bug — every redirect back to `/integrations`
+carries `?connected=ok&detail=...` or `?connected=error&detail=...`, and
+**nothing on that page ever read it**: no `searchParams` prop, no client
+component watching the URL, nothing. A real connect (or a real failure)
+landed the operator back on an unchanged-looking page with zero
+confirmation either way — indistinguishable from "it doesn't work."
+- **`app/integrations/ConnectResultBanner.tsx`** (new) — client component,
+  lazy-inits its shown state from the `connected`/`detail` props on first
+  render (so the banner survives the URL cleanup that follows), then
+  `router.replace`s the query params away. Success renders green, failure
+  red, dismissible either way.
+- **`app/integrations/page.tsx`** — now reads `props.searchParams` and
+  renders the banner. Since LinkedIn's callback redirects with the exact
+  same `connected`/`detail` shape and had the identical silent-redirect bug,
+  this fixes both connectors, not just Zoom.
+- **`app/api/auth/zoom/callback/route.ts`** — a successful connect now also
+  calls `saveTestResult('zoom', true, detail)`, so the Zoom card's own badge
+  flips to "Connected" immediately rather than sitting on "Not tested yet"
+  until someone happens to open Configure and click Test.
+
+### Verification
+- `GATE PASS` — `next typegen`, 182 tests (+1 for `campaignOverviewHref`),
+  `tsc` exit 0, `eslint` clean
+- Reproduced the WhatsApp bug directly (`validateTemplateContentForChannel`
+  + `renderMergeFields` against a `{{1}}..{{4}}` body) before fixing, then
+  confirmed the Templates page for the `whatsapp` channel now shows the
+  named-token guidance and chips, with zero remaining `{{1}}`-style
+  references anywhere in the tree
+- Dashboard cards fetched live: every card now renders both "Overview" and
+  "Cadence" secondary buttons, and the kebab's `aria-label="Campaign
+  actions"` button is present unconditionally (no `lsq-reveal` class left
+  in the response)
+- Zoom connect verified live end-to-end again: `/api/auth/zoom/connect`
+  with test credentials redirected to a real, correctly-encoded
+  `zoom.us/oauth/authorize` URL; `/integrations?connected=ok&detail=...`
+  and the `error`/`error_description` callback path both render their
+  message text in the page's initial HTML; confirmed the identical
+  LinkedIn redirect shape now renders too
+- `dev.db` restored and diffed byte-for-byte against a pre-session backup
+  after testing: identical, no stray `AppSetting` rows left over

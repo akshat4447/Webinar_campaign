@@ -1,5 +1,6 @@
 import { IntegrationCard } from './IntegrationCard';
 import { LsqActivityMappingCard } from './LsqActivityMappingCard';
+import { ConnectResultBanner } from './ConnectResultBanner';
 import { integrationsData } from '@/lib/demo-data';
 import { getTestResult, resolveIntegrationField } from '@/lib/integrationConfig';
 import { zoomIsConfigured } from '@/lib/zoom/client';
@@ -8,7 +9,11 @@ import { zoomIsConfigured } from '@/lib/zoom/client';
 // NEVER be statically prerendered with build-time values frozen into HTML.
 export const dynamic = 'force-dynamic';
 
-export default async function IntegrationsPage() {
+export default async function IntegrationsPage(props: PageProps<'/integrations'>) {
+  const sp = await props.searchParams;
+  const connected = typeof sp.connected === 'string' ? sp.connected : undefined;
+  const detail = typeof sp.detail === 'string' ? sp.detail : undefined;
+
   const cards = await Promise.all(integrationsData.map(async (ig) => ({ ig, testResult: await getTestResult(ig.id) })));
 
   // One glanceable answer to "where do messages actually go right now?" — the
@@ -46,6 +51,8 @@ export default async function IntegrationsPage() {
           <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 3 }}>Manage the connections the agent uses to run campaigns end to end</div>
         </div>
       </div>
+
+      <ConnectResultBanner connected={connected} detail={detail} />
 
       <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '14px 20px', marginBottom: 20 }}>
         <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>Delivery settings</div>

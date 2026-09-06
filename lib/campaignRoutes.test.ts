@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { campaignLandingHref, campaignCadenceHref, campaignPrimaryCta } from './campaignRoutes';
+import { campaignLandingHref, campaignCadenceHref, campaignOverviewHref, campaignPrimaryCta } from './campaignRoutes';
 
 describe('campaignLandingHref', () => {
   it('opens a completed campaign on its results', () => {
@@ -15,6 +15,12 @@ describe('campaignLandingHref', () => {
 describe('campaignCadenceHref', () => {
   it('links straight to a campaign\'s cadence planner', () => {
     expect(campaignCadenceHref('abc123')).toBe('/campaigns/abc123/cadence');
+  });
+});
+
+describe('campaignOverviewHref', () => {
+  it('links straight to a campaign\'s overview tab', () => {
+    expect(campaignOverviewHref('abc123')).toBe('/campaigns/abc123/overview');
   });
 });
 

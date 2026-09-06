@@ -39,11 +39,11 @@ export function CampaignCardMenu({ campaignId, campaignName, archived }: { campa
   return (
     <div
       ref={ref}
-      className="lsq-reveal"
-      data-open={open || confirmDelete ? 'true' : 'false'}
       // Positioned by the card's own header row rather than absolutely: the
       // card carries its own CTAs now, so it is no longer one big anchor that
-      // this had to sit on top of.
+      // this had to sit on top of. Always visible — archive/delete is a real
+      // action a hover-to-reveal affordance was hiding from anyone who didn't
+      // think to mouse over this exact row.
       style={{ position: 'relative', flexShrink: 0 }}
       onClick={(e) => e.stopPropagation()}
     >

@@ -55,7 +55,7 @@ const CHANNEL_RULES: Record<string, string> = {
   email:
     'Free-form subject and body. Personalize with {{variables}}, or let a campaign in AI mode rewrite this per recipient. Sends from your verified LeadSquared sending domain.',
   whatsapp:
-    'WhatsApp Business only sends pre-approved templates for marketing and utility messages. Draft here, submit to Meta, and use it once approved — the recipient must also have opted in. Numbered {{1}} placeholders only; free text is allowed solely inside the 24-hour service window.',
+    'WhatsApp Business only sends pre-approved templates for marketing and utility messages. Draft here, submit to Meta, and use it once approved — the recipient must also have opted in. Uses the same {{merge}} tokens as every other channel; free text is allowed solely inside the 24-hour service window.',
   sms:
     'Every SMS template needs a DLT content-template ID and a registered sender ID before it can send. Promotional messages must carry an opt-out and respect DND windows.',
   linkedin:
@@ -88,11 +88,13 @@ function labelStyle(): React.CSSProperties {
   };
 }
 
-/** Variables each channel understands. WhatsApp is numbered by Meta's rules. */
-function variablesFor(channel: string): string[] {
-  if (channel === 'whatsapp') return ['{{1}} name', '{{2}} topic', '{{3}} date', '{{4}} link'];
-  return ['{{firstName}}', '{{company}}', '{{topic}}', '{{link}}', '{{date}}'];
-}
+/** Variables every channel understands — the same {{merge}} tokens the send
+ *  pipeline (lib/cadence.ts renderMergeFields) actually resolves. WhatsApp
+ *  used to advertise Meta's numbered {{1}}..{{4}} scheme here, but nothing
+ *  in this app ever resolved those: a template written that way failed
+ *  validation, and would have gone out to a real recipient with the literal
+ *  "{{1}}" text still in it. */
+const TEMPLATE_VARIABLES = ['{{firstName}}', '{{company}}', '{{topic}}', '{{link}}', '{{date}}'];
 
 function renderPreview(text: string, sample: { name: string; account: string }): string {
   return text
@@ -100,11 +102,7 @@ function renderPreview(text: string, sample: { name: string; account: string }):
     .replace(/\{\{\s*company\s*\}\}/g, sample.account)
     .replace(/\{\{\s*topic\s*\}\}/g, 'Patient Journeys at Scale')
     .replace(/\{\{\s*link\s*\}\}/g, 'lsq.co/w/example')
-    .replace(/\{\{\s*date\s*\}\}/g, 'Oct 15, 2026')
-    .replace(/\{\{\s*1\s*\}\}/g, sample.name.split(' ')[0] || sample.name)
-    .replace(/\{\{\s*2\s*\}\}/g, 'Patient Journeys at Scale')
-    .replace(/\{\{\s*3\s*\}\}/g, 'Oct 15, 2026')
-    .replace(/\{\{\s*4\s*\}\}/g, 'lsq.co/w/example');
+    .replace(/\{\{\s*date\s*\}\}/g, 'Oct 15, 2026');
 }
 
 export function TemplatesLibrary({
@@ -434,7 +432,7 @@ export function TemplatesLibrary({
                       className="lsq-input"
                       value={(value('buttons') as string) ?? ''}
                       onChange={(e) => set('buttons', e.target.value)}
-                      placeholder="Register now (URL — {{4}})"
+                      placeholder="Register now (URL — {{link}})"
                     />
                   </div>
                 </div>
@@ -443,7 +441,7 @@ export function TemplatesLibrary({
               <div>
                 <div style={labelStyle()}>Variables</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {variablesFor(channel).map((v) => (
+                  {TEMPLATE_VARIABLES.map((v) => (
                     <span
                       key={v}
                       style={{

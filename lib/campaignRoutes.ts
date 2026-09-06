@@ -19,6 +19,12 @@ export function campaignCadenceHref(campaignId: string): string {
   return `/campaigns/${campaignId}/cadence`;
 }
 
+/** Straight to a campaign's overview tab, regardless of status — the landing
+ *  href above only goes there for a completed campaign. */
+export function campaignOverviewHref(campaignId: string): string {
+  return `/campaigns/${campaignId}/overview`;
+}
+
 /** Label for the card's primary action, which differs by what the campaign needs next. */
 export function campaignPrimaryCta(status: string): string {
   if (status === 'draft') return 'Finish setup';
