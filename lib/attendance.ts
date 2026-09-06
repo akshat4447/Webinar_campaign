@@ -69,10 +69,10 @@ async function applyAttendance(campaignId: string, emailToDuration: Map<string, 
 }
 
 /**
- * Pull attendance straight from Zoom's reporting API for the meeting this
- * campaign is linked to. Needs a paid Zoom plan — the report endpoints are
- * not on the free tier, so a campaign on a free/basic Zoom plan simply never
- * gets attendance filled in automatically until the account is upgraded.
+ * Pull attendance straight from Zoom's Meetings API (past meeting
+ * participants) for the meeting this campaign is linked to — see
+ * lib/zoom/meetings.ts fetchParticipants for why this endpoint rather than
+ * the Reports API one.
  */
 export async function importAttendanceFromZoom(campaignId: string): Promise<AttendanceImportResult> {
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { zoomMeetingId: true } });
@@ -88,7 +88,7 @@ export async function importAttendanceFromZoom(campaignId: string): Promise<Atte
     return { ok: false, error: `Zoom's participants report could not be fetched: ${String(err)}` };
   }
   if (participants.length === 0) {
-    return { ok: false, error: 'Zoom returned no participants for this meeting — the report may need the paid Webinar add-on, or nobody has joined yet.' };
+    return { ok: false, error: 'Zoom returned no participants for this meeting — nobody may have joined yet, or the meeting has not ended.' };
   }
 
   const emailToDuration = new Map<string, number>();

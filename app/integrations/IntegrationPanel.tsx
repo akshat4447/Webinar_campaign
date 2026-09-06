@@ -173,11 +173,16 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ marginBottom: 10, padding: 10, background: 'var(--n10)', borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-label-2)', color: 'var(--n70)', lineHeight: 1.6 }}>
                     A User-managed OAuth app&apos;s Client ID and Client Secret (Zoom Marketplace → Build App → OAuth), the same
-                    app type a real Zoom Marketplace integration uses. Save these first, then Connect to authorize a specific
-                    Zoom account.
+                    app type a real Zoom Marketplace integration uses. Its Scopes tab needs exactly these 4 added:{' '}
+                    <code>meeting:read:list_upcoming_meetings</code>, <code>meeting:write:meeting</code>,{' '}
+                    <code>meeting:read:list_past_participants</code>, <code>user:read:user</code>. Its Redirect URL for OAuth
+                    must match this app&apos;s origin — <code>&lt;your app URL&gt;/api/auth/zoom/callback</code>. Save the
+                    Client ID/Secret first, then Connect to authorize a specific Zoom account.
                   </div>
                   <a
                     href="/api/auth/zoom/connect"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     style={{
                       display: 'inline-flex', alignItems: 'center', height: 32, padding: '0 12px', fontSize: 'var(--fs-label-1)', fontWeight: 600,
                       background: '#2563EB', color: '#fff', borderRadius: 'var(--radius-md)', textDecoration: 'none',
@@ -186,9 +191,9 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                     Connect with Zoom
                   </a>
                   <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 6, lineHeight: 1.5 }}>
-                    Authorizes reading and creating meetings, and reading participant reports (meeting:read · meeting:write ·
-                    report:read). Once connected, meeting sync and attendance both run automatically in the background — see
-                    Delivery settings above for the current sync state. Tokens are stored server-side only.
+                    Authorizes reading and creating meetings, and reading past-meeting participants for attendance. Once
+                    connected, meeting sync and attendance both run automatically in the background — see Delivery settings
+                    above for the current sync state. Tokens are stored server-side only. Opens in a new tab.
                   </div>
                 </div>
               )}
@@ -196,6 +201,8 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                 <div style={{ marginBottom: 12 }}>
                   <a
                     href="/api/auth/linkedin/connect"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     style={{
                       display: 'inline-flex', alignItems: 'center', height: 32, padding: '0 12px', fontSize: 'var(--fs-label-1)', fontWeight: 600,
                       background: 'var(--brand-linkedin)', color: '#fff', borderRadius: 'var(--radius-md)', textDecoration: 'none',
@@ -204,7 +211,7 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                     Connect with LinkedIn
                   </a>
                   <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 6, lineHeight: 1.5 }}>
-                    Authorizes your Page for Events, registration forms and Lead Sync (r_events · rw_events · leadgen automation). Tokens are stored server-side only.
+                    Authorizes your Page for Events, registration forms and Lead Sync (r_events · rw_events · leadgen automation). Tokens are stored server-side only. Opens in a new tab.
                   </div>
                 </div>
               )}

@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { db } from '@/lib/db';
 import { statusMeta } from '@/lib/demo-data';
 import { getCampaignCardStats, getListKpis } from '@/lib/campaignCardStats';
+import { getAttendeeChannelBreakdownAcrossCampaigns } from '@/lib/attendeeChannels';
 import { campaignCadenceHref, campaignLandingHref, campaignOverviewHref, campaignPrimaryCta } from '@/lib/campaignRoutes';
 import { NewCampaignButton } from './NewCampaignButton';
 import { CampaignCardMenu } from './CampaignCardMenu';
@@ -66,6 +67,7 @@ export default async function WebinarsPage(props: PageProps<'/'>) {
     })
   );
   const kpis = getListKpis(campaigns, attendedByCampaign);
+  const attendeeChannelBreakdown = await getAttendeeChannelBreakdownAcrossCampaigns(campaigns.map((c) => c.id));
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '32px 40px 48px 40px' }}>
@@ -112,6 +114,25 @@ export default async function WebinarsPage(props: PageProps<'/'>) {
             </div>
           ))}
         </div>
+
+        {attendeeChannelBreakdown.length > 0 && (
+          <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '14px 20px', marginBottom: 20 }}>
+            <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 2 }}>Attendees by invite channel</div>
+            <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginBottom: 10 }}>
+              Across every webinar in this view. A contact invited on more than one channel counts under each.
+            </div>
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+              {attendeeChannelBreakdown.map((d) => (
+                <div key={d.label}>
+                  <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{d.label}</div>
+                  <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n80)', marginTop: 2 }}>
+                    {d.attended} attended <span style={{ color: 'var(--n50)', fontWeight: 400 }}>({d.pctOfAttendees}%)</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
           {VIEWS.map((v, i) => {

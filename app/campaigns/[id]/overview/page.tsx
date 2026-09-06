@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { resolveStepTemplate } from '@/lib/messageTemplates';
+import { getAttendeeChannelBreakdown } from '@/lib/attendeeChannels';
 import { DashboardClient } from './DashboardClient';
 import { HistoricalSummary } from './HistoricalSummary';
 
@@ -48,6 +49,8 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
   const attended = contacts.filter((c) => c.attended).length;
   const synced = contacts.filter((c) => c.lsqLeadId).length;
   const attendanceImported = !!campaign.attendanceImportedAt;
+  const zoomLinked = !!campaign.zoomMeetingId;
+  const attendeeChannelBreakdown = attendanceImported ? await getAttendeeChannelBreakdown(id) : [];
 
   // Strictly sequential stages only — each one is a subset of the one above, so a
   // stage-to-stage percentage is meaningful. CRM sync is deliberately excluded: it
@@ -81,7 +84,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
     {
       label: 'Attendance rate',
       value: attendanceImported && approved ? `${Math.round((attended / approved) * 100)}%` : '—',
-      sub: attendanceImported ? `${attended} of ${approved} approved` : 'import a Zoom report',
+      sub: attendanceImported ? `${attended} of ${approved} approved` : zoomLinked ? 'pulls in automatically post-webinar' : 'link a Zoom meeting on Setup',
       tone: 'neutral' as const,
     },
     { label: 'CRM synced', value: total ? `${Math.round((synced / total) * 100)}%` : '—', sub: `${synced} leads written back`, tone: 'good' as const },
@@ -279,6 +282,8 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
         attended={attended}
         approved={approved}
         attendanceImported={attendanceImported}
+        zoomLinked={zoomLinked}
+        attendeeChannelBreakdown={attendeeChannelBreakdown}
         drawers={drawers}
       />
     </main>

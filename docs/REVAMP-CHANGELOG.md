@@ -1896,3 +1896,102 @@ confirmation either way — indistinguishable from "it doesn't work."
   LinkedIn redirect shape now renders too
 - `dev.db` restored and diffed byte-for-byte against a pre-session backup
   after testing: identical, no stray `AppSetting` rows left over
+
+## Attendee channel classification, stale attendance copy, a real Zoom scope bug, and connect-in-new-tab — 2026-09-06
+
+### Attendance automation wasn't reflected in Overview's own copy
+`app/campaigns/[id]/overview/page.tsx` and `DashboardClient.tsx` still said
+"import a Zoom report" and "Import a Zoom attendance report from Control
+Center" — text pointing at a manual import path that was deliberately
+deleted entirely in the previous checkpoint. Nothing was broken
+functionally (attendance already flowed through automatically once
+`zoomAutosync` wrote it), but the copy told the operator to go do something
+that no longer exists in the UI. Replaced with copy that matches
+Post-event's own accurate 3-state wording (imported / linked-and-pending /
+not-linked), threading a new `zoomLinked` prop through
+`DashboardClient` so it can tell those two "not imported yet" cases apart.
+
+### New: attendees classified by invite channel
+Added **`lib/attendeeChannels.ts`** — classifies attendees by which of the
+three built-in invite steps (`invite`=Email, `smsInvite`=SMS,
+`waInvite`=WhatsApp) actually sent them their invite. Not mutually
+exclusive by design: a contact invited on more than one channel counts
+under each, so per-channel counts can add up to more than the total
+attended — documented in the UI copy rather than hidden.
+- `getAttendeeChannelBreakdown(campaignId)` — one campaign.
+- `getAttendeeChannelBreakdownAcrossCampaigns(campaignIds)` — summed across
+  a set, for the cross-campaign dashboard (contact ids never cross
+  campaigns, so this is a plain aggregate).
+- Wired into the per-campaign Overview (`DashboardClient.tsx`, a new card
+  right after Delivery by channel, gated on `attendanceImported`) and the
+  overall dashboard (`app/page.tsx`, a card below the KPI row scoped to
+  whatever view — All/Upcoming/Completed/etc. — is currently selected,
+  matching how the KPI row itself is already scoped).
+
+### A real bug found while answering "how do I connect my Zoom app": the Reports scope doesn't work for a User-managed OAuth app
+Researched this properly rather than guessing, since the user has a real
+Zoom app they're trying to connect right now. Two findings that change the
+actual code, not just documentation:
+1. Zoom moved to **granular OAuth scopes** for any app created since April
+   2024 — the classic `meeting:read`/`meeting:write`/`report:read`/
+   `user:read` names this app requested don't exist as checkboxes on a
+   newly created app at all.
+2. Worse: the granular scope for the Reports API endpoint this app was
+   calling (`/report/meetings/{id}/participants`, needing
+   `report:read:list_meeting_participants:admin` or `:master`) is **only
+   available in admin/master variants** — meaning a real User-managed OAuth
+   app connected by a normal (non-admin) Zoom user could never actually
+   grant it. The attendance pull would have silently never worked for
+   anyone using the exact connection model this app is built around,
+   however correctly everything else was wired.
+- **`lib/zoom/auth.ts`** — `ZOOM_SCOPES` now requests the granular,
+  non-admin-friendly equivalents: `meeting:read:list_upcoming_meetings`,
+  `meeting:write:meeting`, `meeting:read:list_past_participants`,
+  `user:read:user`.
+- **`lib/zoom/meetings.ts`** — `fetchParticipants()` switched from
+  `/report/meetings/{id}/participants` to `/past_meetings/{id}/participants`
+  (Meetings API, not Reports API) — the endpoint a normal connected account
+  can actually authorize via `meeting:read:list_past_participants`. Response
+  shape (`user_email`, `duration`, `next_page_token`) is the same field
+  naming, so `fetchParticipants`'s mapping logic didn't need to change.
+- **`lib/attendance.ts`** — removed the now-inaccurate "needs a paid Zoom
+  plan" / "paid Webinar add-on" claims, which were specific to the old
+  Reports endpoint and no longer apply to the replacement.
+- **`app/integrations/IntegrationPanel.tsx`** — Zoom's explainer now names
+  the exact 4 scopes to add on the Marketplace app and the required
+  Redirect URL, rather than referencing scope names that no longer exist
+  as options.
+
+Confidence note: verified via Zoom's current developer docs and forum
+threads (WebSearch/WebFetch), not via a live call against a real Zoom
+account (none available here) — recommended the user test the actual
+connect+fetch end-to-end with their real app once configured, since Zoom's
+docs are split across several pages that don't always agree.
+
+### Connect links now open in a new tab
+`app/integrations/IntegrationPanel.tsx` — both "Connect with Zoom" and
+"Connect with LinkedIn" now carry `target="_blank" rel="noopener
+noreferrer"`. The whole OAuth round trip (redirect to the provider, consent,
+callback) now happens in the new tab; the original `/integrations` tab is
+untouched until refreshed.
+
+### Verification
+- `GATE PASS` — `next typegen`, 182 tests, `tsc` exit 0, `eslint` clean
+- `VISUAL VERIFIED` live: temporarily marked one real contact `attended` and
+  set its campaign's `attendanceImportedAt` (contact had genuine `sent`
+  `invite`+`smsInvite` rows already) — confirmed both the per-campaign
+  Overview card and the cross-campaign dashboard card render "Email: 1
+  (100%)" and "SMS: 1 (100%)" correctly for a multi-channel attendee, then
+  reverted both fields and diffed `dev.db` back to its pre-test state
+- Confirmed all three Overview attendance-copy branches render correctly:
+  linked-and-pending ("pulls in automatically post-webinar" /
+  "Not imported yet — pulls in automatically from Zoom once the webinar has
+  ended."), not-linked ("link a Zoom meeting on Setup" / "Link a Zoom
+  meeting on Setup to get attendance pulled in automatically after the
+  webinar."), zero remaining "Control Center" or "import a Zoom report"
+  references anywhere in the attendance path
+- Discovered mid-session (not introduced by this work): the running dev
+  server's `AppSetting` table already held a real user-saved Zoom Client
+  ID/Secret from outside this session — left entirely untouched, confirmed
+  by diffing everything else back to the pre-session backup and finding
+  only those rows (plus a `lastTestedAt` bump) as the remaining delta

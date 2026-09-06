@@ -79,6 +79,12 @@ const toneColor: Record<Kpi['tone'], string> = {
   neutral: 'var(--n90)',
 };
 
+interface AttendeeChannelStat {
+  label: string;
+  attended: number;
+  pctOfAttendees: number;
+}
+
 export function DashboardClient({
   pipeline,
   about,
@@ -93,6 +99,8 @@ export function DashboardClient({
   attended,
   approved,
   attendanceImported,
+  zoomLinked,
+  attendeeChannelBreakdown,
   drawers,
 }: {
   pipeline: PipelineStage[];
@@ -108,6 +116,8 @@ export function DashboardClient({
   attended: number;
   approved: number;
   attendanceImported: boolean;
+  zoomLinked: boolean;
+  attendeeChannelBreakdown: AttendeeChannelStat[];
   drawers: Record<string, DrawerContent>;
 }) {
   const [breakdownMode, setBreakdownMode] = useState<BreakdownMode>('persona');
@@ -341,7 +351,9 @@ export function DashboardClient({
         </div>
         {!attendanceImported && (
           <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 10 }}>
-            Attendance is blank until a Zoom participants report is imported from Control Center.
+            {zoomLinked
+              ? 'Attendance is blank until the webinar ends — it pulls in automatically from Zoom, no action needed.'
+              : 'Attendance will pull in automatically once a Zoom meeting is linked on Setup and the webinar has ended.'}
           </div>
         )}
       </div>
@@ -362,6 +374,25 @@ export function DashboardClient({
                   {c.queued > 0 && <span> · {c.queued} queued</span>}
                   {c.failed > 0 && <span style={{ color: 'var(--danger-500)' }}> · {c.failed} failed</span>}
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {attendanceImported && attendeeChannelBreakdown.length > 0 && (
+        <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
+          <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 4 }}>Attendees by invite channel</div>
+          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginBottom: 14 }}>
+            Which channel each attendee&apos;s invite went out on. A contact invited on more than one channel counts under
+            each, so this can add up to more than the total attended.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+            {attendeeChannelBreakdown.map((c) => (
+              <div key={c.label} style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '12px 14px' }}>
+                <div style={{ fontSize: 'var(--fs-label-2)', fontWeight: 600, color: 'var(--n60)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{c.label}</div>
+                <div style={{ fontSize: 'var(--fs-heading-2)', fontWeight: 700, color: 'var(--n90)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{c.attended}</div>
+                <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', marginTop: 4 }}>{c.pctOfAttendees}% of attendees</div>
               </div>
             ))}
           </div>
@@ -394,7 +425,11 @@ export function DashboardClient({
         <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
           <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 14 }}>Attended vs. no-show</div>
           {!attendanceImported ? (
-            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>Import a Zoom attendance report from Control Center to see this.</div>
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)' }}>
+              {zoomLinked
+                ? 'Not imported yet — pulls in automatically from Zoom once the webinar has ended.'
+                : 'Link a Zoom meeting on Setup to get attendance pulled in automatically after the webinar.'}
+            </div>
           ) : (
             <>
               <div style={{ display: 'flex', height: 14, borderRadius: 4, overflow: 'hidden', gap: 2 }}>

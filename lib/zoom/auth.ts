@@ -4,11 +4,25 @@
 // Zoom account grants consent in a browser, not a shared account-level
 // Server-to-Server credential. See https://developers.zoom.us/docs/integrations/oauth/
 //
-// Scopes: meeting:read/meeting:write cover listing and creating meetings
-// (Zoom's classic "Webinars" object needs a paid add-on this app doesn't
-// assume — see lib/zoom/meetings.ts), report:read covers participant/
-// attendance reports, user:read resolves who the connected account is.
-export const ZOOM_SCOPES = ['meeting:read', 'meeting:write', 'report:read', 'user:read'];
+// Granular scopes (Zoom's naming since April 2024 — any app created since
+// then only offers these, not the old classic meeting:read/report:read
+// names):
+//   meeting:read:list_upcoming_meetings  lib/zoom/meetings.ts listUpcomingMeetings
+//   meeting:write:meeting                                    createMeeting
+//   meeting:read:list_past_participants                      fetchParticipants
+//   user:read:user                       lib/zoom/auth.ts fetchConnectedUser
+//
+// Deliberately NOT report:read:list_meeting_participants — that one only
+// comes in :admin/:master variants, which a plain user-managed app can't
+// obtain for a non-admin connected account. list_past_participants is the
+// equivalent that a regular Zoom user actually can grant; see the switch to
+// /past_meetings/{id}/participants in lib/zoom/meetings.ts.
+export const ZOOM_SCOPES = [
+  'meeting:read:list_upcoming_meetings',
+  'meeting:write:meeting',
+  'meeting:read:list_past_participants',
+  'user:read:user',
+];
 
 export const ZOOM_AUTHORIZE_URL = 'https://zoom.us/oauth/authorize';
 export const ZOOM_TOKEN_URL = 'https://zoom.us/oauth/token';

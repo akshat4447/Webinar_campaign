@@ -98,9 +98,13 @@ interface ZoomParticipantsResponse {
 /**
  * Attendance for a finished meeting.
  *
- * Note this needs a paid plan on live accounts — the report endpoints are not
- * available on free Zoom. That is exactly why CSV import is kept: it works on
- * any plan, and is the only route for an account without reporting.
+ * Deliberately the Meetings API's /past_meetings/.../participants (granular
+ * scope meeting:read:list_past_participants), not the Reports API's
+ * /report/meetings/.../participants — that one only grants via
+ * report:read:list_meeting_participants:admin or :master, which a
+ * User-managed OAuth app can't get for a normal (non-admin) connected
+ * account. This endpoint is what an individual Zoom user can actually
+ * authorize for their own past meetings.
  */
 export async function fetchParticipants(meetingId: string): Promise<ZoomParticipant[]> {
   if (zoomMode() === 'sandbox' || !(await zoomIsConfigured())) return [];
@@ -109,7 +113,7 @@ export async function fetchParticipants(meetingId: string): Promise<ZoomParticip
   let pageToken = '';
   do {
     const qs = new URLSearchParams({ page_size: '300', ...(pageToken ? { next_page_token: pageToken } : {}) });
-    const json = await zoomRequest<ZoomParticipantsResponse>(`/report/meetings/${meetingId}/participants?${qs}`);
+    const json = await zoomRequest<ZoomParticipantsResponse>(`/past_meetings/${meetingId}/participants?${qs}`);
     for (const p of json.participants ?? []) {
       out.push({
         name: p.name ?? '',
