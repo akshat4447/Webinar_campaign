@@ -101,22 +101,45 @@ export function evaluateApolloMatch(contact: ContactBaseline, match: ApolloPerso
 const APOLLO_MATCH_URL = 'https://api.apollo.io/api/v1/people/match';
 const CALL_GAP_MS = 300; // stay polite within Apollo's rate limits
 
+/**
+ * Apollo's /people/match only returns a confident match when first/last name
+ * are split — a combined `name` field (or the wrong org param, see below)
+ * silently degrades every call to a `match_confidence: "none"` stub (a `200`
+ * with a person object but no real title/org/email), confirmed empirically
+ * against the live API. Splitting on the first space is enough for the
+ * vast majority of real contact names Apollo also expects this way.
+ */
+export function splitName(name: string): { first_name: string; last_name?: string } {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { first_name: '' };
+  if (parts.length === 1) return { first_name: parts[0] };
+  return { first_name: parts[0], last_name: parts.slice(1).join(' ') };
+}
+
 interface RawApolloResponse {
   person?: {
     title?: string;
+    match_confidence?: string;
     organization?: { name?: string };
     employment_history?: Array<{ title?: string; organization_name?: string }>;
   } | null;
 }
 
+// A `person` object is present even for a "none" match (Apollo's own
+// documented behavior for underspecified queries) — match_confidence is the
+// real found/not-found signal, empirically confirmed against the live API.
+function isRealMatch(p: { match_confidence?: string } | null | undefined): boolean {
+  return !!p && p.match_confidence !== 'none';
+}
+
 function extractPerson(json: unknown): ApolloPerson {
   const p = (json as RawApolloResponse | null)?.person;
-  if (!p) return { found: false };
-  const history = p.employment_history?.[0];
+  if (!isRealMatch(p)) return { found: false };
+  const history = p!.employment_history?.[0];
   return {
     found: true,
-    title: p.title || history?.title,
-    company: p.organization?.name || history?.organization_name,
+    title: p!.title || history?.title,
+    company: p!.organization?.name || history?.organization_name,
   };
 }
 
@@ -157,7 +180,7 @@ export async function verifyContactsForLinkedIn(
       const res = await fetch(APOLLO_MATCH_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-        body: JSON.stringify({ q_organization_name: c.account || undefined, name: c.name, reveal_personal_emails: false }),
+        body: JSON.stringify({ ...splitName(c.name), organization_name: c.account || undefined, reveal_personal_emails: false }),
         cache: 'no-store',
       });
 
@@ -199,6 +222,7 @@ interface RawApolloEnrichResponse {
   person?: {
     email?: string | null;
     title?: string;
+    match_confidence?: string;
     organization?: { name?: string };
     phone_numbers?: Array<{ raw_number?: string; sanitized_number?: string }>;
   } | null;
@@ -229,8 +253,8 @@ export async function enrichContactsViaApollo(
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
         body: JSON.stringify({
-          q_organization_name: c.account || undefined,
-          name: c.name,
+          ...splitName(c.name),
+          organization_name: c.account || undefined,
           reveal_personal_emails: true,
         }),
         cache: 'no-store',
@@ -244,13 +268,13 @@ export async function enrichContactsViaApollo(
 
       const json = (await res.json().catch(() => null)) as RawApolloEnrichResponse | null;
       const p = json?.person;
-      if (p) {
+      if (isRealMatch(p)) {
         results.set(c.id, {
           found: true,
-          email: p.email?.trim() || undefined,
-          phone: p.phone_numbers?.[0]?.sanitized_number || p.phone_numbers?.[0]?.raw_number || undefined,
-          title: p.title,
-          company: p.organization?.name,
+          email: p!.email?.trim() || undefined,
+          phone: p!.phone_numbers?.[0]?.sanitized_number || p!.phone_numbers?.[0]?.raw_number || undefined,
+          title: p!.title,
+          company: p!.organization?.name,
         });
       } else {
         results.set(c.id, { found: false });

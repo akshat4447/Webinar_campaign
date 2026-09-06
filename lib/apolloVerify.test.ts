@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateApolloMatch, companiesMatch } from './apolloVerify';
+import { evaluateApolloMatch, companiesMatch, splitName } from './apolloVerify';
+
+describe('splitName', () => {
+  it('splits a normal two-part name', () => {
+    expect(splitName('Satya Nadella')).toEqual({ first_name: 'Satya', last_name: 'Nadella' });
+  });
+
+  it('joins a multi-word surname into last_name', () => {
+    expect(splitName('Priya Nair Singh')).toEqual({ first_name: 'Priya', last_name: 'Nair Singh' });
+  });
+
+  it('omits last_name for a single-word name rather than sending an empty string', () => {
+    expect(splitName('Madonna')).toEqual({ first_name: 'Madonna' });
+  });
+
+  it('handles empty input without throwing', () => {
+    expect(splitName('   ')).toEqual({ first_name: '' });
+  });
+});
 
 const base = { name: 'Priya Nair', title: 'VP Marketing', account: 'Acme Financial' };
 
