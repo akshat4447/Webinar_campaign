@@ -18,6 +18,14 @@ export function zoomMode(): 'sandbox' | 'live' {
   return process.env.ZOOM_MODE === 'live' ? 'live' : 'sandbox';
 }
 
+/** Resolves active Zoom mode: checks DB setting, env var, or defaults to live when an account is connected. */
+export async function getZoomMode(): Promise<'sandbox' | 'live'> {
+  const configured = await resolveIntegrationField('zoom', 'mode');
+  if (configured === 'live' || configured === 'sandbox') return configured;
+  if (process.env.ZOOM_MODE === 'live') return 'live';
+  return (await zoomIsConfigured()) ? 'live' : 'sandbox';
+}
+
 export class ZoomError extends Error {
   constructor(
     message: string,
@@ -48,17 +56,15 @@ export async function zoomIsConfigured(): Promise<boolean> {
 
 /**
  * Null when Zoom is genuinely connected — an account has completed OAuth
- * *and* `ZOOM_MODE=live` so the connection is actually in effect. Anything
- * else returns a message naming exactly what's missing, for a feature
- * (fetching a real event's details) where a sandbox fixture standing in for
- * a real meeting would be actively misleading rather than merely a fallback.
+ * *and* live mode is active so the connection is actually in effect.
  */
 export async function zoomConnectionError(): Promise<string | null> {
   if (!(await zoomIsConfigured())) {
     return "Zoom isn't connected — click \"Connect with Zoom\" on Integrations → Zoom.";
   }
-  if (zoomMode() !== 'live') {
-    return 'Zoom is connected but the connection is still in sandbox mode — set ZOOM_MODE=live to fetch real events.';
+  const mode = await getZoomMode();
+  if (mode !== 'live') {
+    return 'Zoom is connected but the connection is in sandbox mode — set Mode to live in Integrations → Zoom or set ZOOM_MODE=live.';
   }
   return null;
 }
@@ -130,6 +136,13 @@ export async function zoomRequest<T>(path: string, init: RequestInit = {}): Prom
     }
   }
 
-  if (!res.ok) throw new ZoomError(`Zoom ${init.method ?? 'GET'} ${path} failed: ${res.status} ${await res.text()}`, res.status);
+  if (!res.ok) {
+    const raw = await res.text();
+    let msg = `Zoom ${init.method ?? 'GET'} ${path} failed: ${res.status} ${raw}`;
+    if (raw.includes('does not contain scopes')) {
+      msg += ' — Missing permissions. Please ensure the scopes are added in your Zoom Marketplace app, then click "Connect with Zoom" again in Integrations to grant them.';
+    }
+    throw new ZoomError(msg, res.status);
+  }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }

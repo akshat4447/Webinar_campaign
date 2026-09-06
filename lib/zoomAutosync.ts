@@ -107,8 +107,8 @@ export function startZoomAutosync() {
     if (running) return;
     running = true;
     try {
-      const { zoomMode, zoomIsConfigured } = await import('@/lib/zoom/client');
-      if (zoomMode() !== 'live' || !(await zoomIsConfigured())) return;
+      const { getZoomMode, zoomIsConfigured } = await import('@/lib/zoom/client');
+      if ((await getZoomMode()) !== 'live' || !(await zoomIsConfigured())) return;
 
       await createMissingMeetings();
       await importNewMeetings();

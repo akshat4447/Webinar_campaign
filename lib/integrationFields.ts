@@ -33,6 +33,8 @@ export const INTEGRATION_FIELDS: Record<string, IntegrationField[]> = {
   zoom: [
     { key: 'clientId', label: 'Client ID', secret: false, placeholder: 'Zoom OAuth app Client ID' },
     { key: 'clientSecret', label: 'Client Secret', secret: true, placeholder: 'Zoom OAuth app Client Secret' },
+    { key: 'mode', label: 'Mode (live | sandbox)', secret: false, optional: true, placeholder: 'live (default when connected) or sandbox' },
+    { key: 'redirectUri', label: 'Redirect URI (HTTPS)', secret: false, optional: true, placeholder: 'https://.../api/auth/zoom/callback' },
     { key: 'accessToken', label: 'Access Token', secret: true, optional: true, placeholder: 'Auto-filled by Connect' },
     { key: 'refreshToken', label: 'Refresh Token', secret: true, optional: true, placeholder: 'Auto-filled by Connect' },
     { key: 'connectedEmail', label: 'Connected account', secret: false, optional: true, placeholder: 'Auto-detected on Connect' },

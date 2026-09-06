@@ -1,4 +1,4 @@
-import { zoomMode, zoomRequest, zoomIsConfigured } from './client';
+import { getZoomMode, zoomRequest, zoomIsConfigured } from './client';
 
 export interface ZoomMeeting {
   id: string;
@@ -32,7 +32,7 @@ interface ZoomListResponse {
 
 /** Upcoming meetings on the connected account. */
 export async function listUpcomingMeetings(): Promise<ZoomMeeting[]> {
-  if (zoomMode() === 'sandbox' || !(await zoomIsConfigured())) return fixtureMeetings();
+  if ((await getZoomMode()) === 'sandbox' || !(await zoomIsConfigured())) return fixtureMeetings();
 
   const json = await zoomRequest<ZoomListResponse>('/users/me/meetings?type=upcoming&page_size=50');
   return (json.meetings ?? []).map((m) => ({
@@ -53,7 +53,7 @@ export interface CreateMeetingInput {
 
 /** Create a meeting on the connected account. */
 export async function createMeeting(input: CreateMeetingInput): Promise<ZoomMeeting> {
-  if (zoomMode() === 'sandbox' || !(await zoomIsConfigured())) {
+  if ((await getZoomMode()) === 'sandbox' || !(await zoomIsConfigured())) {
     const id = `sandbox-${Date.now()}`;
     return {
       id,
@@ -107,7 +107,7 @@ interface ZoomParticipantsResponse {
  * authorize for their own past meetings.
  */
 export async function fetchParticipants(meetingId: string): Promise<ZoomParticipant[]> {
-  if (zoomMode() === 'sandbox' || !(await zoomIsConfigured())) return [];
+  if ((await getZoomMode()) === 'sandbox' || !(await zoomIsConfigured())) return [];
 
   const out: ZoomParticipant[] = [];
   let pageToken = '';

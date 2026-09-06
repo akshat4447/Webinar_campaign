@@ -180,8 +180,8 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
       result = { ok: true, detail: `200 · user "${body.data?.username ?? 'unknown'}" · ${Date.now() - started}ms` };
     } else if (id === 'zoom') {
       const f = await resolveTestFields('zoom', typedFields);
-      const { zoomMode } = await import('@/lib/zoom/client');
-      if (zoomMode() !== 'live') {
+      const { getZoomMode } = await import('@/lib/zoom/client');
+      if ((await getZoomMode()) !== 'live') {
         result = { ok: true, detail: `sandbox mode — meetings and participants are simulated until ZOOM_MODE=live${f.clientId ? ' · app credentials saved' : ''}` };
       } else {
         if (!f.accessToken) throw new Error('Live mode needs a connected account — click "Connect with Zoom" first.');

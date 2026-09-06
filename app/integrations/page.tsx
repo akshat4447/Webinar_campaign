@@ -3,7 +3,7 @@ import { LsqActivityMappingCard } from './LsqActivityMappingCard';
 import { ConnectResultBanner } from './ConnectResultBanner';
 import { integrationsData } from '@/lib/demo-data';
 import { getTestResult, resolveIntegrationField } from '@/lib/integrationConfig';
-import { zoomIsConfigured } from '@/lib/zoom/client';
+import { zoomIsConfigured, getZoomMode } from '@/lib/zoom/client';
 
 // Reads live DB credentials/test-results on every request — this page must
 // NEVER be statically prerendered with build-time values frozen into HTML.
@@ -24,7 +24,7 @@ export default async function IntegrationsPage(props: PageProps<'/integrations'>
   ]);
   const sendMode = process.env.SEND_MODE === 'live' ? 'live' : 'sandbox';
   const liMode = process.env.LINKEDIN_MODE === 'live' ? 'live' : 'sandbox';
-  const zoomMode = process.env.ZOOM_MODE === 'live' ? 'live' : 'sandbox';
+  const zoomMode = await getZoomMode();
   const zoomConnected = await zoomIsConfigured();
   const zoomAutosyncOn = process.env.ZOOM_AUTOSYNC === '1' || process.env.ZOOM_AUTOSYNC === 'true';
   const zoomValue =

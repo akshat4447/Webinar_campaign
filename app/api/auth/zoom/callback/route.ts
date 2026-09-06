@@ -4,11 +4,14 @@
 // app/api/auth/linkedin/callback.
 import { resolveIntegrationField, saveIntegrationConfig, saveTestResult } from '@/lib/integrationConfig';
 import { exchangeCodeForToken, fetchConnectedUser } from '@/lib/zoom/auth';
+import { db } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
 function back(request: Request, params: Record<string, string>) {
-  const url = new URL('/integrations', request.url);
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || new URL(request.url).host;
+  const proto = request.headers.get('x-forwarded-proto') || (request.url.startsWith('https') ? 'https' : 'http');
+  const url = new URL('/integrations', `${proto}://${host}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   return Response.redirect(url.toString(), 302);
 }
@@ -23,22 +26,39 @@ export async function GET(request: Request) {
   }
   if (!code || !state) return back(request, { connected: 'error', detail: 'Missing code/state from Zoom.' });
 
-  // CSRF check: the state must match the HttpOnly cookie this browser received
-  // from /connect (single browser-bound token — no shared server row).
+  // CSRF check: check HttpOnly cookie first, or fallback to short-lived DB state record
   const cookieState = (request.headers.get('cookie') ?? '')
     .split(';')
     .map((c) => c.trim())
     .find((c) => c.startsWith('zoom_oauth_state='))
     ?.split('=')[1];
 
-  if (!state || !cookieState || cookieState !== state) {
+  let stateValid = !!(state && cookieState && cookieState === state);
+
+  if (!stateValid && state) {
+    try {
+      const row = await db.appSetting.findUnique({ where: { key: `zoom.oauth_state.${state}` } });
+      if (row && Number(row.value) > Date.now()) {
+        stateValid = true;
+        // One-time use: delete immediately to prevent replay attacks
+        await db.appSetting.delete({ where: { key: `zoom.oauth_state.${state}` } }).catch(() => {});
+      }
+    } catch {
+      // ignore db error
+    }
+  }
+
+  if (!stateValid) {
     return back(request, { connected: 'error', detail: 'OAuth state mismatch or expired — start the connection again.' });
   }
 
   try {
     const clientId = (await resolveIntegrationField('zoom', 'clientId')) || process.env.ZOOM_CLIENT_ID!;
     const clientSecret = (await resolveIntegrationField('zoom', 'clientSecret')) || process.env.ZOOM_CLIENT_SECRET!;
-    const redirectUri = process.env.ZOOM_REDIRECT_URI || `${new URL(request.url).origin}/api/auth/zoom/callback`;
+    const redirectUri =
+      (await resolveIntegrationField('zoom', 'redirectUri')) ||
+      process.env.ZOOM_REDIRECT_URI ||
+      `${new URL(request.url).origin}/api/auth/zoom/callback`;
 
     const token = await exchangeCodeForToken({ clientId, clientSecret, code, redirectUri });
     await saveIntegrationConfig('zoom', {

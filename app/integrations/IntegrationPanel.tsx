@@ -24,6 +24,14 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
   const [saved, setSaved] = useState(false);
   const [finding, setFinding] = useState(false);
   const [senderNote, setSenderNote] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
+  // Whatever host the browser is actually on right now — localhost, a tunnel
+  // (Cloudflare/ngrok), or a real deployment. Never hardcode a specific one:
+  // a quick-tunnel hostname is random per session and dead the moment that
+  // tunnel process ends, so baking one in goes stale immediately. Lazy init
+  // rather than an effect: `window` isn't there during SSR, but by the time
+  // this client component actually mounts in the browser it always is, so
+  // there's no real "external system" to synchronize after the fact.
+  const [origin] = useState(() => (typeof window !== 'undefined' ? window.location.origin : ''));
 
   useEffect(() => {
     if (explanatoryOnly) return;
@@ -173,11 +181,22 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ marginBottom: 10, padding: 10, background: 'var(--n10)', borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-label-2)', color: 'var(--n70)', lineHeight: 1.6 }}>
                     A User-managed OAuth app&apos;s Client ID and Client Secret (Zoom Marketplace → Build App → OAuth), the same
-                    app type a real Zoom Marketplace integration uses. Its Scopes tab needs exactly these 4 added:{' '}
-                    <code>meeting:read:list_upcoming_meetings</code>, <code>meeting:write:meeting</code>,{' '}
-                    <code>meeting:read:list_past_participants</code>, <code>user:read:user</code>. Its Redirect URL for OAuth
-                    must match this app&apos;s origin — <code>&lt;your app URL&gt;/api/auth/zoom/callback</code>. Save the
-                    Client ID/Secret first, then Connect to authorize a specific Zoom account.
+                    app type a real Zoom Marketplace integration uses. Its Scopes tab needs these added:{' '}
+                    <code>meeting:read:list_meetings</code>, <code>meeting:read:meeting</code>,{' '}
+                    <code>meeting:write:meeting</code>, <code>meeting:read:list_past_participants</code>,{' '}
+                    <code>user:read:user</code>.
+                    <div style={{ marginTop: 8, padding: 8, background: '#f1f5f9', borderRadius: 'var(--radius-sm)', border: '1px solid #cbd5e1' }}>
+                      <strong style={{ color: 'var(--n90)' }}>OAuth Redirect URL:</strong>
+                      <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#1d4ed8', wordBreak: 'break-all', marginTop: 2, userSelect: 'all' }}>
+                        {origin ? `${origin}/api/auth/zoom/callback` : 'Loading…'}
+                      </div>
+                      <span style={{ color: 'var(--n60)', fontSize: 11, display: 'block', marginTop: 2 }}>
+                        This is derived from the URL you&apos;re viewing this page on right now — if you connect through a
+                        different host later (a new tunnel session gets a new random address), this value changes too. Paste
+                        the current value into Zoom Marketplace under <strong>OAuth Redirect URL</strong> and{' '}
+                        <strong>OAuth allow list</strong> before connecting.
+                      </span>
+                    </div>
                   </div>
                   <a
                     href="/api/auth/zoom/connect"

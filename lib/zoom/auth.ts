@@ -4,21 +4,15 @@
 // Zoom account grants consent in a browser, not a shared account-level
 // Server-to-Server credential. See https://developers.zoom.us/docs/integrations/oauth/
 //
-// Granular scopes (Zoom's naming since April 2024 — any app created since
-// then only offers these, not the old classic meeting:read/report:read
-// names):
-//   meeting:read:list_upcoming_meetings  lib/zoom/meetings.ts listUpcomingMeetings
-//   meeting:write:meeting                                    createMeeting
-//   meeting:read:list_past_participants                      fetchParticipants
+// Granular scopes (Zoom's naming since April 2024):
+//   meeting:read:list_meetings           lib/zoom/meetings.ts listUpcomingMeetings
+//   meeting:read:meeting                 individual meeting details
+//   meeting:write:meeting                createMeeting
+//   meeting:read:list_past_participants fetchParticipants
 //   user:read:user                       lib/zoom/auth.ts fetchConnectedUser
-//
-// Deliberately NOT report:read:list_meeting_participants — that one only
-// comes in :admin/:master variants, which a plain user-managed app can't
-// obtain for a non-admin connected account. list_past_participants is the
-// equivalent that a regular Zoom user actually can grant; see the switch to
-// /past_meetings/{id}/participants in lib/zoom/meetings.ts.
 export const ZOOM_SCOPES = [
-  'meeting:read:list_upcoming_meetings',
+  'meeting:read:list_meetings',
+  'meeting:read:meeting',
   'meeting:write:meeting',
   'meeting:read:list_past_participants',
   'user:read:user',

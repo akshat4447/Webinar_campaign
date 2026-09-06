@@ -120,10 +120,10 @@ export function WizardClient({
   const [zoomLoading, setZoomLoading] = useState(false);
   const [zoomError, setZoomError] = useState<string | null>(null);
 
-  async function pickExistingZoom() {
+  async function pickExistingZoom(force = false) {
     setZoomChoice('existing');
     setZoomError(null);
-    if (zoomMeetings) return;
+    if (zoomMeetings && !force) return;
     setZoomLoading(true);
     try {
       const res = await listZoomMeetingsAction();
@@ -148,11 +148,12 @@ export function WizardClient({
     // prototype. Still editable afterward, in case the internal Zoom topic
     // isn't what the invite should say.
     const start = meeting.startTime ? new Date(meeting.startTime) : null;
+    const localStr = start ? toDateTimeLocal(start) : '';
     setDetails((d) => ({
       ...d,
       title: meeting.topic,
-      date: start ? start.toISOString().slice(0, 10) : d.date,
-      time: start ? start.toISOString().slice(11, 16) : d.time,
+      date: localStr ? localStr.slice(0, 10) : d.date,
+      time: localStr ? localStr.slice(11, 16) : d.time,
       zoomLink: meeting.joinUrl,
     }));
   }
@@ -419,6 +420,17 @@ export function WizardClient({
 
               {zoomChoice === 'existing' && (
                 <div style={{ marginTop: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>Choose from connected Zoom account:</span>
+                    <button
+                      type="button"
+                      onClick={() => pickExistingZoom(true)}
+                      disabled={zoomLoading}
+                      style={{ background: 'none', border: 'none', color: 'var(--accent-500)', fontSize: 'var(--fs-label-2)', cursor: 'pointer', padding: 0 }}
+                    >
+                      {zoomLoading ? 'Refreshing…' : '↻ Refresh list'}
+                    </button>
+                  </div>
                   {zoomLoading ? (
                     <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>Loading meetings…</div>
                   ) : zoomMeetings && zoomMeetings.length > 0 ? (
