@@ -3,7 +3,7 @@
    for the full raw Variable export (all modes, all 981 vars). */
 :root{
   /* Neutrals (Main/Neutral scale) */
-  --n0:#ffffff;--n10:#f6f7f9;--n20:#eff2f5;--n30:#d9e0e8;--n40:#c6d0dc;--n50:#90a0b4;
+  --n0:#ffffff;--n10:#f6f7f9;--n20:#eff2f5;--n30:#d9e0e8;--n40:#c6d0dc;--n50:#5a6e85;
   --n60:#465972;--n70:#293442;--n80:#1d2530;--n90:#101419;--n-black:#101419;--n-white:#ffffff;
 
   /* Brand accent (used for links, primary buttons, focus) */

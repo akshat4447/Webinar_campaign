@@ -123,7 +123,12 @@ export async function verifyLinkedInQueueAction(
         else errors++;
         return db.contact.update({
           where: { id: c.id },
-          data: { linkedinCheckStatus: r.status, linkedinCheckNote: r.note.slice(0, 280), linkedinCheckedAt: new Date() },
+          data: {
+            linkedinCheckStatus: r.status,
+            linkedinCheckNote: r.note.slice(0, 280),
+            // Transient errors should not lock contacts out of retry for 7 days
+            linkedinCheckedAt: r.status === 'error' ? null : new Date(),
+          },
         });
       })
     );

@@ -125,14 +125,19 @@ export function WizardClient({
     setZoomError(null);
     if (zoomMeetings) return;
     setZoomLoading(true);
-    const res = await listZoomMeetingsAction();
-    setZoomLoading(false);
-    if (!res.ok) {
-      setZoomError(res.error);
-      return;
+    try {
+      const res = await listZoomMeetingsAction();
+      if (!res.ok) {
+        setZoomError(res.error);
+        return;
+      }
+      setZoomMeetings(res.meetings);
+      if (res.meetings.length === 0) setZoomError('No upcoming meetings found on this Zoom account.');
+    } catch (err) {
+      setZoomError(err instanceof Error ? err.message : 'Failed to list Zoom meetings');
+    } finally {
+      setZoomLoading(false);
     }
-    setZoomMeetings(res.meetings);
-    if (res.meetings.length === 0) setZoomError('No upcoming meetings found on this Zoom account.');
   }
 
   function selectZoomMeeting(id: string) {
@@ -203,61 +208,80 @@ export function WizardClient({
     }
     setErrors({});
     setBusy(true);
-    const id = campaign ? campaign.id : await createCampaignFromWizardAction(details);
-    if (campaign) await updateWizardDetailsAction(campaign.id, details);
+    try {
+      const id = campaign ? campaign.id : await createCampaignFromWizardAction(details);
+      if (campaign) await updateWizardDetailsAction(campaign.id, details);
 
-    if (zoomChoice === 'existing' && zoomMeetingId) {
-      const r = await linkZoomMeetingAction(id, zoomMeetingId);
-      if (!r.ok) showToast(r.error);
-    } else if (zoomChoice === 'new') {
-      const r = await createZoomMeetingAction(id);
-      showToast(r.ok ? 'Zoom meeting created.' : `Zoom meeting not created: ${r.error}`);
+      if (zoomChoice === 'existing' && zoomMeetingId) {
+        const r = await linkZoomMeetingAction(id, zoomMeetingId);
+        if (!r.ok) showToast(r.error);
+      } else if (zoomChoice === 'new') {
+        const r = await createZoomMeetingAction(id);
+        showToast(r.ok ? 'Zoom meeting created.' : `Zoom meeting not created: ${r.error}`);
+      }
+
+      if (!campaign) showToast('Draft created — now bring the audience.');
+      go(1, id);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to save webinar details');
+    } finally {
+      setBusy(false);
     }
-
-    setBusy(false);
-    if (!campaign) showToast('Draft created — now bring the audience.');
-    go(1, id);
   }
 
   async function improve() {
     setBusy(true);
-    const r = await improveDraftDescriptionAction(details.title, details.description);
-    setBusy(false);
-    if (r.ok && r.description) {
-      set('description', r.description);
-      showToast('Description rewritten — edit as you like.');
-    } else {
-      showToast(r.ok ? 'Nothing returned.' : r.error);
+    try {
+      const r = await improveDraftDescriptionAction(details.title, details.description);
+      if (r.ok && r.description) {
+        set('description', r.description);
+        showToast('Description rewritten — edit as you like.');
+      } else {
+        showToast(r.ok ? 'Nothing returned.' : r.error);
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to improve description');
+    } finally {
+      setBusy(false);
     }
   }
 
   async function runScoring() {
     if (!campaign) return;
     setBusy(true);
-    await updateScoringConfigAction(campaign.id, {
-      prompt: scoring.prompt,
-      criteria: scoring.criteria,
-      threshold: scoring.threshold,
-    });
-    const res = await runScoringAction(campaign.id);
-    const rows = await getWizardScorePreviewAction(campaign.id);
-    setPreview(rows);
-    setBusy(false);
-    showToast(
-      res.ok
-        ? `Scored ${res.scoredCount} contact${res.scoredCount === 1 ? '' : 's'}${res.preservedManualApprovals ? ` — ${res.preservedManualApprovals} manual approval(s) left untouched` : ''}.`
-        : (res.error ?? 'Scoring failed.')
-    );
-    router.refresh();
+    try {
+      await updateScoringConfigAction(campaign.id, {
+        prompt: scoring.prompt,
+        criteria: scoring.criteria,
+        threshold: scoring.threshold,
+      });
+      const res = await runScoringAction(campaign.id);
+      const rows = await getWizardScorePreviewAction(campaign.id);
+      setPreview(rows);
+      showToast(
+        res.ok
+          ? `Scored ${res.scoredCount} contact${res.scoredCount === 1 ? '' : 's'}${res.preservedManualApprovals ? ` — ${res.preservedManualApprovals} manual approval(s) left untouched` : ''}.`
+          : (res.error ?? 'Scoring failed.')
+      );
+      router.refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Scoring failed');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function launch() {
     if (!campaign) return;
     setBusy(true);
-    await saveWizardMessagingAction(campaign.id, messaging);
-    setBusy(false);
-    showToast('Webinar set up — review the cadence before launching sends.');
-    router.push(`/campaigns/${campaign.id}/overview`);
+    try {
+      await saveWizardMessagingAction(campaign.id, messaging);
+      showToast('Webinar set up — review the cadence before launching sends.');
+      router.push(`/campaigns/${campaign.id}/overview`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to save messaging');
+      setBusy(false);
+    }
   }
 
   return (

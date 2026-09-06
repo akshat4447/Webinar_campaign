@@ -52,16 +52,46 @@ export function formatSendWindow(window: SendWindow): string {
   return `${fmt(window.startMinutes)} – ${fmt(window.endMinutes)}`;
 }
 
+export function getMinutesInTimeZone(date: Date, timeZone: string): number {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(date);
+    let hour = 0;
+    let minute = 0;
+    for (const part of parts) {
+      if (part.type === 'hour') {
+        const val = Number(part.value);
+        hour = val === 24 ? 0 : val;
+      } else if (part.type === 'minute') {
+        minute = Number(part.value);
+      }
+    }
+    return hour * 60 + minute;
+  } catch {
+    return date.getHours() * 60 + date.getMinutes();
+  }
+}
+
 /**
- * True when `at`'s local clock time falls inside the window. Handles a window
+ * True when `at`'s clock time falls inside the window. Handles a window
  * that wraps past midnight (start > end, e.g. "10:00 PM – 2:00 AM").
  * An unparseable window (or one where start === end) is treated as "always
  * open" — we only ever narrow sending, never block it on a config we can't read.
+ *
+ * Defaults to Asia/Kolkata if timeZone is specified or if windowStr mentions IST.
  */
-export function isWithinSendWindow(at: Date, windowStr: string): boolean {
+export function isWithinSendWindow(at: Date, windowStr: string, timeZone?: string): boolean {
   const window = parseSendWindow(windowStr);
   if (!window || window.startMinutes === window.endMinutes) return true;
-  const minutesNow = at.getHours() * 60 + at.getMinutes();
+
+  const tz = timeZone ?? (windowStr.toUpperCase().includes('IST') ? 'Asia/Kolkata' : undefined);
+  const minutesNow = tz ? getMinutesInTimeZone(at, tz) : at.getHours() * 60 + at.getMinutes();
+
   if (window.startMinutes < window.endMinutes) {
     return minutesNow >= window.startMinutes && minutesNow < window.endMinutes;
   }

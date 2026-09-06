@@ -5,10 +5,17 @@ import { launchCadence, processDueSends, restartCadence } from '@/lib/cadence';
 import { sendModeLabel } from '@/lib/sendGuard';
 import { resolveStepDate, offsetLabel, ANCHOR_LABEL, STEP_DEFAULTS } from '@/lib/stepSchedule';
 import { revalidateCampaign } from '@/lib/revalidate';
+import { z } from 'zod';
+
+const campaignIdSchema = z.string().min(1);
+const stepKeySchema = z.string().min(1);
+const stepIdSchema = z.string().min(1);
 
 export async function toggleCadenceStepAction(campaignId: string, stepKey: string, enabled: boolean) {
-  await db.cadenceStep.update({ where: { campaignId_key: { campaignId, key: stepKey } }, data: { enabled } });
-  revalidateCampaign(campaignId);
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const validStepKey = stepKeySchema.parse(stepKey);
+  await db.cadenceStep.update({ where: { campaignId_key: { campaignId: validCampaignId, key: validStepKey } }, data: { enabled: !!enabled } });
+  revalidateCampaign(validCampaignId);
 }
 
 /**
@@ -24,6 +31,8 @@ export async function updateStepScheduleAction(
   stepKey: string,
   patch: { offsetValue?: number; offsetUnit?: string; anchor?: string }
 ) {
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const validStepKey = stepKeySchema.parse(stepKey);
   // resolveStepDate/offsetLabel switch on exact anchor/unit strings — an
   // unrecognized value wouldn't error, it would just silently fall through to
   // their default branch and misdate the step. Reject anything outside the
@@ -38,24 +47,24 @@ export async function updateStepScheduleAction(
     return { ok: false as const, error: 'Offset must be a number.' };
   }
 
-  const step = await db.cadenceStep.update({ where: { campaignId_key: { campaignId, key: stepKey } }, data: patch });
-  const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId } });
+  const step = await db.cadenceStep.update({ where: { campaignId_key: { campaignId: validCampaignId, key: validStepKey } }, data: patch });
+  const campaign = await db.campaign.findUniqueOrThrow({ where: { id: validCampaignId } });
 
   const launchAt = campaign.simulatedNow ?? new Date();
   const dueAt = resolveStepDate(step, { launchAt, webinarAt: campaign.scheduledAt });
   if (dueAt) {
-    await db.cadenceSend.updateMany({ where: { campaignId, stepKey, status: 'queued' }, data: { dueAt } });
+    await db.cadenceSend.updateMany({ where: { campaignId: validCampaignId, stepKey: validStepKey, status: 'queued' }, data: { dueAt } });
   }
 
   await db.activityLogEntry.create({
     data: {
-      campaignId,
+      campaignId: validCampaignId,
       text: `Re-timed "${step.title}" to ${offsetLabel(step)} ${ANCHOR_LABEL[step.anchor] ?? ''}`.trim(),
       dot: 'var(--accent-500)',
     },
   });
 
-  revalidateCampaign(campaignId);
+  revalidateCampaign(validCampaignId);
   return { ok: true as const, resolvedAt: dueAt?.toISOString() ?? null };
 }
 
@@ -69,7 +78,8 @@ export async function updateStepScheduleAction(
  * quietly kept rows that reset is supposed to have undone.
  */
 export async function resetScheduleAction(campaignId: string) {
-  const steps = await db.cadenceStep.findMany({ where: { campaignId } });
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const steps = await db.cadenceStep.findMany({ where: { campaignId: validCampaignId } });
   const builtIns = steps.filter((s) => STEP_DEFAULTS[s.key]);
   const invented = steps.filter((s) => s.createdByUser);
 
@@ -82,12 +92,12 @@ export async function resetScheduleAction(campaignId: string) {
 
   await db.activityLogEntry.create({
     data: {
-      campaignId,
+      campaignId: validCampaignId,
       text: `Cadence reset to defaults — ${builtIns.length} step(s) restored${invented.length ? `, ${invented.length} added step(s) removed` : ''}`,
       dot: 'var(--accent-500)',
     },
   });
-  revalidateCampaign(campaignId);
+  revalidateCampaign(validCampaignId);
 }
 
 const CHANNEL_LABEL: Record<string, string> = {
@@ -105,24 +115,27 @@ const CHANNEL_LABEL: Record<string, string> = {
  * the same name.
  */
 export async function addCadenceStepAction(campaignId: string, group: string, channel: string) {
-  const label = CHANNEL_LABEL[channel] ?? 'Email';
-  const key = `custom-${channel}-${Date.now().toString(36)}`;
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const validGroup = z.string().min(1).parse(group);
+  const validChannel = z.string().min(1).parse(channel);
+  const label = CHANNEL_LABEL[validChannel] ?? 'Email';
+  const key = `custom-${validChannel}-${Date.now().toString(36)}`;
 
   // A registrants-only group means the audience arrives by registration; a
   // post-webinar group is decided by the attendance import. Getting this wrong
   // would queue the step to the whole approved audience at launch.
-  const trigger = group.toLowerCase().includes('registrant')
+  const trigger = validGroup.toLowerCase().includes('registrant')
     ? 'registration'
-    : group.toLowerCase().includes('post-webinar')
+    : validGroup.toLowerCase().includes('post-webinar')
       ? 'attendance'
       : 'launch';
   const anchor = trigger === 'launch' ? 'launch' : 'webinar';
 
   const step = await db.cadenceStep.create({
     data: {
-      campaignId,
+      campaignId: validCampaignId,
       key,
-      group,
+      group: validGroup,
       title: `New ${label} step`,
       timing: '+2 days',
       channel: label,
@@ -136,14 +149,14 @@ export async function addCadenceStepAction(campaignId: string, group: string, ch
       offsetUnit: 'days',
       // Default to the library message for this channel so a new step is
       // sendable immediately rather than failing on missing copy.
-      templateId: (await db.messageTemplate.findFirst({ where: { campaignId: null, channel }, select: { id: true } }))?.id ?? null,
+      templateId: (await db.messageTemplate.findFirst({ where: { campaignId: null, channel: validChannel }, select: { id: true } }))?.id ?? null,
     },
   });
 
   await db.activityLogEntry.create({
-    data: { campaignId, text: `Added a ${label} step to “${group}”`, dot: 'var(--accent-500)' },
+    data: { campaignId: validCampaignId, text: `Added a ${label} step to “${validGroup}”`, dot: 'var(--accent-500)' },
   });
-  revalidateCampaign(campaignId);
+  revalidateCampaign(validCampaignId);
   return step.id;
 }
 
@@ -156,41 +169,47 @@ export async function addCadenceStepAction(campaignId: string, group: string, ch
  * message from a step the operator believes they deleted.
  */
 export async function removeCadenceStepAction(campaignId: string, stepId: string) {
-  const step = await db.cadenceStep.findUniqueOrThrow({ where: { id: stepId } });
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const validStepId = stepIdSchema.parse(stepId);
+  const step = await db.cadenceStep.findUniqueOrThrow({ where: { id: validStepId } });
 
   const cancelled = await db.cadenceSend.updateMany({
-    where: { campaignId, stepKey: step.key, status: 'queued' },
+    where: { campaignId: validCampaignId, stepKey: step.key, status: 'queued' },
     data: { status: 'skipped', error: 'Step removed from the cadence planner' },
   });
 
   if (step.createdByUser) {
-    await db.cadenceStep.delete({ where: { id: stepId } });
+    await db.cadenceStep.delete({ where: { id: validStepId } });
   } else {
-    await db.cadenceStep.update({ where: { id: stepId }, data: { removedAt: new Date(), enabled: false } });
+    await db.cadenceStep.update({ where: { id: validStepId }, data: { removedAt: new Date(), enabled: false } });
   }
 
   await db.activityLogEntry.create({
     data: {
-      campaignId,
+      campaignId: validCampaignId,
       text: `Removed “${step.title}” from the cadence${cancelled.count ? ` — ${cancelled.count} queued send(s) cancelled` : ''}`,
       dot: 'var(--warning-700)',
     },
   });
-  revalidateCampaign(campaignId);
+  revalidateCampaign(validCampaignId);
   return { cancelled: cancelled.count };
 }
 
 /** Point a step at a specific message from the library. */
 export async function setStepTemplateAction(campaignId: string, stepId: string, templateId: string | null) {
-  await db.cadenceStep.update({ where: { id: stepId }, data: { templateId } });
-  revalidateCampaign(campaignId);
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const validStepId = stepIdSchema.parse(stepId);
+  const validTemplateId = templateId ? z.string().min(1).parse(templateId) : null;
+  await db.cadenceStep.update({ where: { id: validStepId }, data: { templateId: validTemplateId } });
+  revalidateCampaign(validCampaignId);
 }
 
 export async function launchCadenceAction(campaignId: string) {
-  const result = await launchCadence(campaignId);
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const result = await launchCadence(validCampaignId);
   // Fire anything already due (e.g. the Day-0 invite) immediately after launch.
-  const processed = await processDueSends(campaignId);
-  revalidateCampaign(campaignId);
+  const processed = await processDueSends(validCampaignId);
+  revalidateCampaign(validCampaignId);
   return { ...result, ...processed, sendMode: sendModeLabel() };
 }
 
@@ -201,7 +220,8 @@ export async function launchCadenceAction(campaignId: string) {
  * un-stop the abandoned run (see restartCadence's comment); it starts a new one.
  */
 export async function restartCadenceAction(campaignId: string) {
-  const result = await restartCadence(campaignId);
-  revalidateCampaign(campaignId);
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const result = await restartCadence(validCampaignId);
+  revalidateCampaign(validCampaignId);
   return result;
 }

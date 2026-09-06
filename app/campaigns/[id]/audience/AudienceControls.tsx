@@ -66,10 +66,15 @@ export function AudienceControls({
               disabled={busy}
               onClick={async () => {
                 setBusy(true);
-                const r = await approveAboveThresholdAction(campaignId);
-                setBusy(false);
-                showToast(`${r.approved.toLocaleString()} contact${r.approved === 1 ? '' : 's'} approved at ${threshold} and above.`);
-                router.refresh();
+                try {
+                  const r = await approveAboveThresholdAction(campaignId);
+                  showToast(`${r.approved.toLocaleString()} contact${r.approved === 1 ? '' : 's'} approved at ${threshold} and above.`);
+                  router.refresh();
+                } catch (err) {
+                  showToast(err instanceof Error ? err.message : 'Failed to approve contacts');
+                } finally {
+                  setBusy(false);
+                }
               }}
             >
               Approve all ≥ {threshold}

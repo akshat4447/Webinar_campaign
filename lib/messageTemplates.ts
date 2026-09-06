@@ -18,6 +18,8 @@ export interface ResolvedTemplate {
   body: string;
   hidden: boolean;
   status: string;
+  dltTemplateId?: string | null;
+  senderId?: string | null;
 }
 
 const SELECT = {
@@ -29,10 +31,23 @@ const SELECT = {
   body: true,
   hidden: true,
   status: true,
+  dltTemplateId: true,
+  senderId: true,
 } as const;
 
 function fromMessageTemplate(
-  m: { id: string; name: string; channel: string; hasSubject: boolean; subject: string | null; body: string; hidden: boolean; status: string },
+  m: {
+    id: string;
+    name: string;
+    channel: string;
+    hasSubject: boolean;
+    subject: string | null;
+    body: string;
+    hidden: boolean;
+    status: string;
+    dltTemplateId?: string | null;
+    senderId?: string | null;
+  },
   source: ResolvedTemplate['source']
 ): ResolvedTemplate {
   return {
@@ -45,6 +60,8 @@ function fromMessageTemplate(
     body: m.body,
     hidden: m.hidden,
     status: m.status,
+    dltTemplateId: m.dltTemplateId ?? null,
+    senderId: m.senderId ?? null,
   };
 }
 

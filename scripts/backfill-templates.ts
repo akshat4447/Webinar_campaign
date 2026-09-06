@@ -13,6 +13,9 @@
  *
  *   npm run backfill:templates
  */
+import { loadEnvConfig } from '@next/env';
+loadEnvConfig(process.cwd());
+
 import { db } from '../lib/db';
 import { provisionCampaignDefaults } from '../lib/campaignDefaults';
 
@@ -27,9 +30,10 @@ async function main() {
   // re-queue those specific failures (not every failure: an LSQ delivery error
   // like MXMailDeliveryException is a different, still-real problem and should
   // stay failed until the operator retries it deliberately from the UI).
+  // Preserve their original dueAt schedule rather than blasting them immediately.
   const requeued = await db.cadenceSend.updateMany({
     where: { status: 'failed', stepKey: { in: ['t3', 't1d', 't1h'] }, error: 'Missing template or contact email' },
-    data: { status: 'queued', error: null, dueAt: new Date() },
+    data: { status: 'queued', error: null },
   });
   console.log(`Re-queued ${requeued.count} previously-failed t3/t1d/t1h send(s) now that their templates exist.`);
 }

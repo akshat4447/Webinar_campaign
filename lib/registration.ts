@@ -82,12 +82,12 @@ export function verifyRegistrationToken(token: string, now = new Date()): Verify
   } catch {
     return { ok: false, reason: 'malformed' };
   }
-  if (!payload?.campaignId || !payload?.contactId || typeof payload.iat !== 'number') {
+  if (!payload?.campaignId || !payload?.contactId || typeof payload.iat !== 'number' || !Number.isFinite(payload.iat)) {
     return { ok: false, reason: 'malformed' };
   }
 
   const ageDays = (now.getTime() / 1000 - payload.iat) / 86400;
-  if (ageDays > TOKEN_TTL_DAYS) return { ok: false, reason: 'expired' };
+  if (ageDays < 0 || ageDays > TOKEN_TTL_DAYS) return { ok: false, reason: 'expired' };
 
   return { ok: true, payload };
 }
@@ -107,5 +107,11 @@ export function registrationUrl(origin: string, campaignId: string, contactId: s
  * stored value itself.
  */
 export function ensureAbsoluteUrl(url: string): string {
-  return /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`;
+  const trimmed = (url ?? '').trim();
+  if (!trimmed) return 'about:blank';
+  // Block dangerous schemes and protocol-relative redirects
+  if (/^(javascript|data|vbscript|file):/i.test(trimmed) || trimmed.startsWith('//')) {
+    return 'about:blank';
+  }
+  return /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }

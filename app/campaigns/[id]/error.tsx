@@ -9,12 +9,26 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 
-export default function CampaignError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
+export default function CampaignError({
+  error,
+  reset,
+  retry,
+}: {
+  error: Error & { digest?: string };
+  reset?: () => void;
+  retry?: () => void;
+}) {
   const router = useRouter();
 
   useEffect(() => {
     console.error('Campaign workspace error:', error);
   }, [error]);
+
+  const handleReset = () => {
+    if (reset) reset();
+    else if (retry) retry();
+    else router.refresh();
+  };
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '48px 36px', display: 'flex', justifyContent: 'center' }}>
@@ -27,7 +41,7 @@ export default function CampaignError({ error, retry }: { error: Error & { diges
           <Button hierarchy="secondary" size="sm" onClick={() => router.push('/')}>
             Back to all webinars
           </Button>
-          <Button hierarchy="primary" size="sm" onClick={() => retry()}>
+          <Button hierarchy="primary" size="sm" onClick={handleReset}>
             Try again
           </Button>
         </div>

@@ -44,14 +44,22 @@ export function ChatWidget() {
 
   async function send() {
     const text = input.trim();
-    if (!text) return;
+    if (!text || typing) return;
     setInput('');
     const history = messages.map((m) => ({ from: m.from, text: m.text }));
     setMessages((m) => [...m, { id: Date.now(), from: 'user', text }]);
     setTyping(true);
-    const reply = await chatReplyAction(campaignId, history, text);
-    setTyping(false);
-    setMessages((m) => [...m, { id: Date.now() + 1, from: 'agent', text: reply }]);
+    try {
+      const reply = await chatReplyAction(campaignId, history, text);
+      setMessages((m) => [...m, { id: Date.now() + 1, from: 'agent', text: reply }]);
+    } catch {
+      setMessages((m) => [
+        ...m,
+        { id: Date.now() + 1, from: 'agent', text: 'Sorry, I encountered an error responding to your request.' },
+      ]);
+    } finally {
+      setTyping(false);
+    }
   }
 
   return (
@@ -148,7 +156,20 @@ export function ChatWidget() {
             <button
               onClick={send}
               aria-label="Send message"
-              style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-500)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, border: 'none', padding: 0 }}
+              disabled={typing || !input.trim()}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                background: typing || !input.trim() ? 'var(--n30)' : 'var(--accent-500)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: typing || !input.trim() ? 'default' : 'pointer',
+                flexShrink: 0,
+                border: 'none',
+                padding: 0,
+              }}
             >
               <Icon name="arrow-right" size={15} style={{ color: '#fff' }} />
             </button>

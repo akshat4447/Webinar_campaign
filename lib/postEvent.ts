@@ -19,18 +19,18 @@ export interface PostEventStats {
 
 export async function getPostEventStats(campaignId: string): Promise<PostEventStats> {
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { demoRequests: true } });
-  const approved = await db.contact.findMany({
-    where: { campaignId, approved: true },
+  const registered = await db.contact.findMany({
+    where: { campaignId, approved: true, registeredAt: { not: null } },
     select: { attended: true, watchMinutes: true },
   });
-  const attendedRows = approved.filter((c) => c.attended);
+  const attendedRows = registered.filter((c) => c.attended);
   const withWatch = attendedRows.filter((c) => c.watchMinutes !== null && c.watchMinutes! > 0);
   const avgWatchMinutes =
     withWatch.length > 0 ? Math.round(withWatch.reduce((sum, c) => sum + (c.watchMinutes ?? 0), 0) / withWatch.length) : null;
 
   return {
     attended: attendedRows.length,
-    noShow: approved.length - attendedRows.length,
+    noShow: Math.max(0, registered.length - attendedRows.length),
     avgWatchMinutes,
     // demoRequests has no live computation path in this app — Zoom and the
     // CRM don't carry a "requested a demo" signal, so this stays the

@@ -24,6 +24,13 @@ export function defaultTriggerFor(stepKey: string): StepTrigger {
   return TRIGGER_DEFAULTS[stepKey] ?? 'launch';
 }
 
+/** Built-in pre-webinar reminder countdown steps that require registeredAt before sending. */
+export const PRE_WEBINAR_REMINDER_KEYS = new Set(['t3', 't1d', 't1h', 'sms']);
+
+export function isPreWebinarReminder(stepKey: string): boolean {
+  return PRE_WEBINAR_REMINDER_KEYS.has(stepKey);
+}
+
 export function isStepTrigger(value: string): value is StepTrigger {
   return (STEP_TRIGGERS as string[]).includes(value);
 }

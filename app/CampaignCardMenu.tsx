@@ -30,10 +30,13 @@ export function CampaignCardMenu({ campaignId, campaignName, archived }: { campa
 
   async function confirmedDelete() {
     setBusy(true);
-    await deleteCampaignAction(campaignId);
-    setBusy(false);
-    setConfirmDelete(false);
-    router.refresh();
+    try {
+      await deleteCampaignAction(campaignId);
+      setConfirmDelete(false);
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (

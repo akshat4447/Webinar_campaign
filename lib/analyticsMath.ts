@@ -85,9 +85,10 @@ export function bucketKey(d: Date, unit: 'day' | 'week' | 'month'): string {
 export function bucketLabel(key: string, unit: 'day' | 'week' | 'month'): string {
   if (unit === 'month') {
     const [y, m] = key.split('-').map(Number);
-    return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-GB', { timeZone: 'UTC', month: 'short', year: '2-digit' });
   }
-  return new Date(key).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' });
 }
 
 /** Buckets a list of dates into a chart-friendly series. Walks every bucket in
@@ -102,6 +103,10 @@ export function bucketDates(dates: Date[], from: Date, to: Date, unit: 'day' | '
 
   const keys: string[] = [];
   const cursor = new Date(from);
+  if (unit === 'month') {
+    // Pin to day 1 so advancing months from e.g. Jan 31 does not overflow past Feb into March
+    cursor.setDate(1);
+  }
   while (cursor <= to) {
     keys.push(bucketKey(cursor, unit));
     if (unit === 'month') cursor.setMonth(cursor.getMonth() + 1);

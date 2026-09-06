@@ -77,16 +77,21 @@ export function LeadImportCard({
     if (!file) return;
     setChecking(true);
     setCheck(null);
-    const text = await file.text();
-    const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
-    const split = (l: string) => l.split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
-    const headers = split(lines[0] ?? '');
-    const rows = lines.slice(1, 51).map((l) => {
-      const cells = split(l);
-      return Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? '']));
-    });
-    setCheck(await analyzeCsvMappingAction(headers, rows));
-    setChecking(false);
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
+      const split = (l: string) => l.split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
+      const headers = split(lines[0] ?? '');
+      const rows = lines.slice(1, 51).map((l) => {
+        const cells = split(l);
+        return Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? '']));
+      });
+      setCheck(await analyzeCsvMappingAction(headers, rows));
+    } catch (err) {
+      console.error('Failed to analyze CSV mapping:', err);
+    } finally {
+      setChecking(false);
+    }
   }
 
   async function loadDestLists() {
@@ -97,8 +102,13 @@ export function LeadImportCard({
   async function chooseDestList(listId: string) {
     setDestListId(listId);
     setDestSaving(true);
-    await setCampaignListAction(campaignId, listId || null);
-    setDestSaving(false);
+    try {
+      await setCampaignListAction(campaignId, listId || null);
+    } catch (err) {
+      console.error('Failed to set campaign list:', err);
+    } finally {
+      setDestSaving(false);
+    }
   }
 
   async function handleFile(file: File) {
@@ -106,12 +116,17 @@ export function LeadImportCard({
     setPendingFile(null);
     setBusy(true);
     setResult(null);
-    const fd = new FormData();
-    fd.set('file', file);
-    const res = await importCsvAction(campaignId, fd);
-    setResult(res);
-    setBusy(false);
-    router.refresh();
+    try {
+      const fd = new FormData();
+      fd.set('file', file);
+      const res = await importCsvAction(campaignId, fd);
+      setResult(res);
+      router.refresh();
+    } catch (err) {
+      setResult({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(false);
+    }
   }
 
   function requestFetchList() {
@@ -128,11 +143,16 @@ export function LeadImportCard({
     setConfirmingLsq(false);
     setBusy(true);
     setResult(null);
-    const list = lists?.find((l) => l.ListId === selectedListId);
-    const res = await importFromLsqListAction(campaignId, selectedListId, list?.ListName ?? selectedListId);
-    setResult(res);
-    setBusy(false);
-    router.refresh();
+    try {
+      const list = lists?.find((l) => l.ListId === selectedListId);
+      const res = await importFromLsqListAction(campaignId, selectedListId, list?.ListName ?? selectedListId);
+      setResult(res);
+      router.refresh();
+    } catch (err) {
+      setResult({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(false);
+    }
   }
 
   const tabBtn = (active: boolean): React.CSSProperties => ({

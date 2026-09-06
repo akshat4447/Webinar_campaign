@@ -63,7 +63,7 @@ function learnDomains(contacts: { account: string; email: string | null }[]): Ma
 }
 
 function hasUsableEmail(email: string | null): boolean {
-  return !!email && /.+@.+\..+/.test(email);
+  return !!email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 export async function runEnrichment(campaignId: string): Promise<EnrichmentResult> {

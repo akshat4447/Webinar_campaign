@@ -72,19 +72,29 @@ export function CadenceGroups({
 
   async function addStep(group: string, channel: string) {
     setBusy(true);
-    await addCadenceStepAction(campaignId, group, channel);
-    setBusy(false);
-    showToast('Step added — pick its message and timing.');
-    router.refresh();
+    try {
+      await addCadenceStepAction(campaignId, group, channel);
+      showToast('Step added — pick its message and timing.');
+      router.refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to add step.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function removeStep(step: CadenceStep) {
     setBusy(true);
-    const r = await removeCadenceStepAction(campaignId, step.id);
-    setBusy(false);
-    setConfirmRemove(null);
-    showToast(r.cancelled ? `Step removed — ${r.cancelled} queued send(s) cancelled.` : 'Step removed.');
-    router.refresh();
+    try {
+      const r = await removeCadenceStepAction(campaignId, step.id);
+      setConfirmRemove(null);
+      showToast(r.cancelled ? `Step removed — ${r.cancelled} queued send(s) cancelled.` : 'Step removed.');
+      router.refresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to remove step.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function setTemplate(step: CadenceStep, templateId: string) {
@@ -116,9 +126,13 @@ export function CadenceGroups({
 
   async function resetAll() {
     setBusy(true);
-    await resetScheduleAction(campaignId);
-    setBusy(false);
-    window.location.reload();
+    try {
+      await resetScheduleAction(campaignId);
+      window.location.reload();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to reset schedule.');
+      setBusy(false);
+    }
   }
 
   const fmt = (d: Date) => d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });

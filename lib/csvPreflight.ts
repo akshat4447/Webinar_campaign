@@ -24,6 +24,25 @@ export interface PreflightReport {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 /**
+ * Normalizes phone numbers to standard E.164 format (+[country code][number]).
+ * Defaults to Indian country code +91 for 10-digit numbers if no code is present.
+ */
+export function normalizeE164(phone: string | null | undefined, defaultCountryCode = '+91'): string | null {
+  if (!phone) return null;
+  let clean = phone.trim().replace(/[^\d+]/g, '');
+  if (!clean) return null;
+  if (clean.startsWith('00')) clean = '+' + clean.slice(2);
+  else if (clean.startsWith('0')) clean = clean.slice(1);
+
+  if (!clean.startsWith('+')) {
+    clean = defaultCountryCode + clean;
+  }
+  const digitsOnly = clean.replace(/\D/g, '');
+  if (digitsOnly.length < 10 || digitsOnly.length > 15) return null;
+  return clean;
+}
+
+/**
  * Digits plus the separators real CSVs actually contain. A leading "(" is
  * allowed because area-code style — "(080) 4718-1000" — is common and valid.
  * Length is judged on digits only, so formatting never affects the verdict.

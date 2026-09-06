@@ -12,6 +12,9 @@
  *    which reads as a broken campaign on the landing page
  *  - failed/queued CadenceSend rows left behind by send debugging
  */
+import { loadEnvConfig } from '@next/env';
+loadEnvConfig(process.cwd());
+
 import { db } from '../lib/db';
 
 const apply = process.argv.includes('--apply');
@@ -33,7 +36,10 @@ async function main() {
     if (approved === 0 && sent === 0) misleading.push(c);
   }
 
-  const debris = await db.cadenceSend.count({ where: { status: { in: ['failed', 'queued'] } } });
+  const targetCampaignIds = [...untitled.map((c) => c.id), ...misleading.map((c) => c.id)];
+  const debris = targetCampaignIds.length > 0
+    ? await db.cadenceSend.count({ where: { campaignId: { in: targetCampaignIds }, status: { in: ['failed', 'queued'] } } })
+    : 0;
 
   console.log(`Untitled campaigns to delete: ${untitled.length}`);
   for (const c of untitled) console.log(`  - ${c.name} (${c.id}, ${c.status})`);
@@ -50,7 +56,9 @@ async function main() {
   // cascade from Campaign, so deleting the campaign is enough.
   const removed = await db.campaign.deleteMany({ where: { id: { in: untitled.map((c) => c.id) } } });
   const demoted = await db.campaign.updateMany({ where: { id: { in: misleading.map((c) => c.id) } }, data: { status: 'draft' } });
-  const cleared = await db.cadenceSend.deleteMany({ where: { status: { in: ['failed', 'queued'] } } });
+  const cleared = targetCampaignIds.length > 0
+    ? await db.cadenceSend.deleteMany({ where: { campaignId: { in: targetCampaignIds }, status: { in: ['failed', 'queued'] } } })
+    : { count: 0 };
 
   console.log(`\nDeleted ${removed.count} campaign(s), demoted ${demoted.count} to draft, cleared ${cleared.count} send row(s).`);
 }

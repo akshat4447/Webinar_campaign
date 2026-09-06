@@ -136,28 +136,33 @@ export function PersonalizeClient({
 
   async function repairStaleLinks() {
     setRepairing(true);
-    const { count, bodies } = await repairLinksAction(campaignId, activeStepKey);
-    setRepairing(false);
-    // Apply the new bodies locally: router.refresh() re-runs the server component
-    // but won't reseed this component's state, so the open preview would keep
-    // showing the superseded link.
-    setRows((rs) =>
-      rs.map((r) =>
-        r.message && bodies[r.contactId] !== undefined
-          ? { ...r, message: { ...r.message, body: bodies[r.contactId], linkStale: false } }
-          : r
-      )
-    );
-    setBaseline((bl) => {
-      const next = { ...bl };
-      for (const r of rows) {
-        const body = r.message ? bodies[r.contactId] : undefined;
-        if (r.message && body !== undefined) next[r.message.id] = { subject: r.message.subject, body };
-      }
-      return next;
-    });
-    setNotice({ tone: 'good', text: `Registration link updated in ${count} message${count === 1 ? '' : 's'}.` });
-    router.refresh();
+    try {
+      const { count, bodies } = await repairLinksAction(campaignId, activeStepKey);
+      // Apply the new bodies locally: router.refresh() re-runs the server component
+      // but won't reseed this component's state, so the open preview would keep
+      // showing the superseded link.
+      setRows((rs) =>
+        rs.map((r) =>
+          r.message && bodies[r.contactId] !== undefined
+            ? { ...r, message: { ...r.message, body: bodies[r.contactId], linkStale: false } }
+            : r
+        )
+      );
+      setBaseline((bl) => {
+        const next = { ...bl };
+        for (const r of rows) {
+          const body = r.message ? bodies[r.contactId] : undefined;
+          if (r.message && body !== undefined) next[r.message.id] = { subject: r.message.subject, body };
+        }
+        return next;
+      });
+      setNotice({ tone: 'good', text: `Registration link updated in ${count} message${count === 1 ? '' : 's'}.` });
+      router.refresh();
+    } catch (err) {
+      setNotice({ tone: 'bad', text: err instanceof Error ? err.message : 'Repair failed.' });
+    } finally {
+      setRepairing(false);
+    }
   }
 
   /** Folds freshly written copy into the editor and marks it as the saved baseline. */
@@ -180,18 +185,23 @@ export function PersonalizeClient({
     setConfirming(false);
     setGenerating(true);
     setNotice(null);
-    const res = await generatePersonalizedAction(campaignId, activeStepKey);
-    setGenerating(false);
-    if (!res.ok) {
-      setNotice({ tone: 'bad', text: res.error ?? 'Generation failed.' });
-      return;
+    try {
+      const res = await generatePersonalizedAction(campaignId, activeStepKey);
+      if (!res.ok) {
+        setNotice({ tone: 'bad', text: res.error ?? 'Generation failed.' });
+        return;
+      }
+      if (res.messages) applyWritten(res.messages);
+      setNotice({
+        tone: 'good',
+        text: `Wrote ${res.generated} message${res.generated === 1 ? '' : 's'}${res.linkRepaired ? ` · re-inserted the registration link into ${res.linkRepaired}` : ''}`,
+      });
+      router.refresh();
+    } catch (err) {
+      setNotice({ tone: 'bad', text: err instanceof Error ? err.message : 'Generation failed.' });
+    } finally {
+      setGenerating(false);
     }
-    if (res.messages) applyWritten(res.messages);
-    setNotice({
-      tone: 'good',
-      text: `Wrote ${res.generated} message${res.generated === 1 ? '' : 's'}${res.linkRepaired ? ` · re-inserted the registration link into ${res.linkRepaired}` : ''}`,
-    });
-    router.refresh();
   }
 
   function onGenerateClick() {
@@ -201,15 +211,20 @@ export function PersonalizeClient({
 
   async function regenerate(contactId: string) {
     setBusyRow(contactId);
-    const res = await regeneratePersonalizedAction(campaignId, contactId, activeStepKey);
-    setBusyRow(null);
-    if (!res.ok) {
-      setNotice({ tone: 'bad', text: res.error ?? 'Could not regenerate.' });
-      return;
+    try {
+      const res = await regeneratePersonalizedAction(campaignId, contactId, activeStepKey);
+      if (!res.ok) {
+        setNotice({ tone: 'bad', text: res.error ?? 'Could not regenerate.' });
+        return;
+      }
+      if (res.messages) applyWritten(res.messages);
+      setNotice({ tone: 'good', text: 'Rewritten.' });
+      router.refresh();
+    } catch (err) {
+      setNotice({ tone: 'bad', text: err instanceof Error ? err.message : 'Could not regenerate.' });
+    } finally {
+      setBusyRow(null);
     }
-    if (res.messages) applyWritten(res.messages);
-    setNotice({ tone: 'good', text: 'Rewritten.' });
-    router.refresh();
   }
 
   function patchSelected(patch: Partial<MessageState>) {
@@ -220,10 +235,15 @@ export function PersonalizeClient({
     if (!selected?.message || !dirty) return;
     const { id, subject, body } = selected.message;
     setSaving(true);
-    await savePersonalizedAction(id, subject, body);
-    setSaving(false);
-    setBaseline((bl) => ({ ...bl, [id]: { subject, body } }));
-    patchSelected({ status: 'edited' });
+    try {
+      await savePersonalizedAction(id, subject, body);
+      setBaseline((bl) => ({ ...bl, [id]: { subject, body } }));
+      patchSelected({ status: 'edited' });
+    } catch (err) {
+      setNotice({ tone: 'bad', text: err instanceof Error ? err.message : 'Save failed.' });
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function review() {

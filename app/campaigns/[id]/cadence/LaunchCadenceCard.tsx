@@ -28,30 +28,36 @@ export function LaunchCadenceCard({
 
   async function restart() {
     setRestarting(true);
-    await restartCadenceAction(campaignId);
-    setRestarting(false);
-    setConfirmingRestart(false);
-    router.refresh();
+    try {
+      await restartCadenceAction(campaignId);
+      setConfirmingRestart(false);
+      router.refresh();
+    } finally {
+      setRestarting(false);
+    }
   }
 
   async function launch() {
     setLaunching(true);
-    const res = await launchCadenceAction(campaignId);
-    setLaunching(false);
-    setConfirming(false);
-    setResult(
-      [
-        `Queued ${res.queued} sends.`,
-        res.skippedNoEmail ? `Skipped ${res.skippedNoEmail} with no email.` : null,
-        res.skippedUnverified ? `Held back ${res.skippedUnverified} unverified inferred email${res.skippedUnverified === 1 ? '' : 's'}.` : null,
-        `Sent ${res.sent} immediately, ${res.failed} failed.`,
-        res.dailyLimitReached ? `Daily send limit reached — ${res.remaining} more will go out once the limit resets.` : null,
-        res.outsideSendWindow ? `Outside the configured send window — ${res.remaining} due send(s) will go out once it opens.` : null,
-      ]
-        .filter(Boolean)
-        .join(' ')
-    );
-    setTimeout(() => router.push(`/campaigns/${campaignId}/agent`), 1400);
+    try {
+      const res = await launchCadenceAction(campaignId);
+      setConfirming(false);
+      setResult(
+        [
+          `Queued ${res.queued} sends.`,
+          res.skippedNoEmail ? `Skipped ${res.skippedNoEmail} with no email.` : null,
+          res.skippedUnverified ? `Held back ${res.skippedUnverified} unverified inferred email${res.skippedUnverified === 1 ? '' : 's'}.` : null,
+          `Sent ${res.sent} immediately, ${res.failed} failed.`,
+          res.dailyLimitReached ? `Daily send limit reached — ${res.remaining} more will go out once the limit resets.` : null,
+          res.outsideSendWindow ? `Outside the configured send window — ${res.remaining} due send(s) will go out once it opens.` : null,
+        ]
+          .filter(Boolean)
+          .join(' ')
+      );
+      setTimeout(() => router.push(`/campaigns/${campaignId}/agent`), 1400);
+    } finally {
+      setLaunching(false);
+    }
   }
 
   // A stopped cadence used to leave this card permanently stuck on "already

@@ -37,18 +37,28 @@ export function LinkedInPublishCard(props: {
   async function publish() {
     setBusy('publish');
     setResult(null);
-    const outcome = await publishToLinkedInAction(props.campaignId);
-    setResult({ ok: outcome.ok, detail: outcome.detail });
-    setBusy(null);
-    router.refresh();
+    try {
+      const outcome = await publishToLinkedInAction(props.campaignId);
+      setResult({ ok: outcome.ok, detail: outcome.detail });
+      router.refresh();
+    } catch (err) {
+      setResult({ ok: false, detail: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function cancel() {
     if (!confirm('Unlink this webinar\'s LinkedIn Event? The event is deleted remotely when possible.')) return;
     setBusy('cancel');
-    await cancelLinkedInEventAction(props.campaignId);
-    setBusy(null);
-    router.refresh();
+    try {
+      await cancelLinkedInEventAction(props.campaignId);
+      router.refresh();
+    } catch (err) {
+      console.error('Failed to cancel LinkedIn event:', err);
+    } finally {
+      setBusy(null);
+    }
   }
 
   const rows: [string, string][] = [

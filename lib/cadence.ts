@@ -13,7 +13,8 @@ import { appOrigin } from '@/lib/appOrigin';
 
 export { isAutomatableChannel } from '@/lib/channels';
 
-export { isLaunchQueued } from '@/lib/stepTrigger';
+export { isLaunchQueued, isPreWebinarReminder } from '@/lib/stepTrigger';
+import { isPreWebinarReminder } from '@/lib/stepTrigger';
 
 export function addDays(d: Date, days: number): Date {
   const next = new Date(d);
@@ -51,13 +52,23 @@ function effectiveLink(
   return campaign.registrationLink || campaign.zoomLink || '';
 }
 
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (m) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[m] || m));
+}
+
 export function renderMergeFields(str: string, opts: { firstName: string; company: string; topic: string; link: string }): string {
   return str
-    .replace(/\{\{\s*firstName\s*\}\}/g, opts.firstName)
-    .replace(/\{\{\s*lastName\s*\}\}/g, '')
-    .replace(/\{\{\s*company\s*\}\}/g, opts.company)
-    .replace(/\{\{\s*topic\s*\}\}/g, opts.topic)
-    .replace(/\{\{\s*link\s*\}\}/g, opts.link);
+    .replace(/\{\{\s*firstName\s*\}\}/g, () => opts.firstName)
+    .replace(/\{\{\s*lastName\s*\}\}/g, () => '')
+    .replace(/\{\{\s*company\s*\}\}/g, () => opts.company)
+    .replace(/\{\{\s*topic\s*\}\}/g, () => opts.topic)
+    .replace(/\{\{\s*link\s*\}\}/g, () => opts.link);
 }
 
 export async function launchCadence(campaignId: string) {
@@ -130,6 +141,16 @@ export async function launchCadence(campaignId: string) {
   // through used to be able to leave sends queued while the campaign still read
   // as not_started.
   const { queued } = await db.$transaction(async (tx) => {
+    // If this campaign was stopped and restarted, purge leftover 'skipped' sends
+    // for these steps so fresh sends can be queued without unique constraint or duplicate exclusion conflicts.
+    await tx.cadenceSend.deleteMany({
+      where: {
+        campaignId,
+        status: 'skipped',
+        stepKey: { in: scheduled.map((s) => s.step.key) },
+      },
+    });
+
     // Scoped to the steps actually being queued now. The previous fixed key
     // list would have missed a user-added step and re-queued it on every
     // launch, relying on the unique constraint to throw.
@@ -218,11 +239,9 @@ export async function processDueSends(campaignId: string): Promise<ProcessResult
 
   const now = campaign.simulatedNow ?? new Date();
 
-  // Quiet-hours guard: `scheduleWindow` used to be a free-text label nothing
-  // read. Now a send whose dueAt has arrived still waits for the next tick
-  // inside the configured window — it stays `queued`, nothing is marked failed.
-  if (!isWithinSendWindow(now, campaign.scheduleWindow)) {
-    const remaining = await db.cadenceSend.count({ where: { campaignId, status: 'queued', dueAt: { lte: now } } });
+  // Quiet-hours guard: evaluated against IST (Asia/Kolkata)
+  if (!isWithinSendWindow(now, campaign.scheduleWindow, 'Asia/Kolkata')) {
+    const remaining = await db.cadenceSend.count({ where: { campaignId, status: { in: ['queued', 'processing'] }, dueAt: { lte: now } } });
     return { processed: 0, sent: 0, failed: 0, remaining, dailyLimitReached: false, outsideSendWindow: remaining > 0 };
   }
 
@@ -240,26 +259,59 @@ export async function processDueSends(campaignId: string): Promise<ProcessResult
   let processed = 0;
   let dailyLimitReached = remainingBudget === 0;
 
+  // Stale claim recovery: reset rows stuck in 'processing' for >5 minutes (e.g. from crashed workers or aborted ticks).
+  // Evaluates claimedAt (not dueAt) to prevent double-sending active backlog items.
+  const staleThreshold = new Date(Date.now() - 5 * 60 * 1000);
+  await db.cadenceSend.updateMany({
+    where: { campaignId, status: 'processing', claimedAt: { not: null, lte: staleThreshold } },
+    data: { status: 'queued', claimedAt: null },
+  });
+
   while (processed < MAX_PER_CALL && remainingBudget > 0) {
-    const due = await db.cadenceSend.findMany({
-      where: { campaignId, status: 'queued', dueAt: { lte: now } },
-      include: { contact: true },
-      take: Math.min(BATCH_SIZE, remainingBudget, MAX_PER_CALL - processed),
+    // Atomically claim a batch of queued sends to prevent race conditions across concurrent ticks
+    const candidateIds = await db.$transaction(async (tx) => {
+      const candidates = await tx.cadenceSend.findMany({
+        where: { campaignId, status: 'queued', dueAt: { lte: now } },
+        select: { id: true },
+        take: Math.min(BATCH_SIZE, remainingBudget, MAX_PER_CALL - processed),
+      });
+      if (candidates.length === 0) return [];
+      const ids = candidates.map((c) => c.id);
+      await tx.cadenceSend.updateMany({
+        where: { id: { in: ids }, status: 'queued' },
+        data: { status: 'processing', claimedAt: now },
+      });
+      return ids;
     });
-    if (due.length === 0) break;
+
+    if (candidateIds.length === 0) break;
+
+    const due = await db.cadenceSend.findMany({
+      where: { id: { in: candidateIds } },
+      include: { contact: true },
+    });
 
     for (const send of due) {
-      const result = await processSingleSend(campaignId, campaign, send);
-      // Sends that fail outright (missing template/email, or a thrown error)
-      // don't count against the daily budget — the budget limits real outbound
-      // mail, not bookkeeping failures.
-      if (result === 'sent') {
-        sent++;
-        remainingBudget--;
-      } else if (result === 'skipped') {
-        // A compliance skip (missing phone, no opt-in…) is neither a failure
-        // nor budget spend — it's bookkeeping, visible via the row's error.
-      } else {
+      try {
+        const result = await processSingleSend(campaignId, campaign, send);
+        // Sends that fail outright (missing template/email, or a thrown error)
+        // don't count against the daily budget — the budget limits real outbound
+        // mail, not bookkeeping failures.
+        if (result === 'sent') {
+          sent++;
+          remainingBudget--;
+        } else if (result === 'skipped') {
+          // A compliance skip (missing phone, no opt-in, unregistered…) is neither a failure
+          // nor budget spend — it's bookkeeping, visible via the row's error.
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await db.cadenceSend.update({
+          where: { id: send.id },
+          data: { status: 'failed', error: msg },
+        }).catch(() => {});
         failed++;
       }
       processed++;
@@ -268,7 +320,7 @@ export async function processDueSends(campaignId: string): Promise<ProcessResult
 
   if (remainingBudget === 0) dailyLimitReached = true;
 
-  const remaining = await db.cadenceSend.count({ where: { campaignId, status: 'queued', dueAt: { lte: now } } });
+  const remaining = await db.cadenceSend.count({ where: { campaignId, status: { in: ['queued', 'processing'] }, dueAt: { lte: now } } });
   return { processed, sent, failed, remaining, dailyLimitReached, outsideSendWindow: false };
 }
 
@@ -285,10 +337,32 @@ async function processSingleSend(
     const template = await resolveStepTemplate(campaignId, send.stepKey);
     const contact = send.contact;
 
+    // Step enablement guard: if the step was disabled or removed in the planner, skip sending
+    const step = await db.cadenceStep.findUnique({
+      where: { campaignId_key: { campaignId, key: send.stepKey } },
+      select: { enabled: true, removedAt: true },
+    });
+    if (step && (!step.enabled || step.removedAt)) {
+      await db.cadenceSend.update({
+        where: { id: send.id },
+        data: { status: 'skipped', claimedAt: null, error: 'Step is disabled or removed' },
+      });
+      return 'skipped';
+    }
+
     // Hidden templates drop out of the flow entirely — before any channel
     // routing — so hiding a message stops every send of it.
     if (template?.hidden) {
-      await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'skipped', error: 'Template is hidden' } });
+      await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'skipped', claimedAt: null, error: 'Template is hidden' } });
+      return 'skipped';
+    }
+
+    // Pre-webinar reminder guard: Unregistered prospects must not receive countdown alerts
+    if (isPreWebinarReminder(send.stepKey) && !contact.registeredAt) {
+      await db.cadenceSend.update({
+        where: { id: send.id },
+        data: { status: 'skipped', claimedAt: null, error: 'Contact has not registered — pre-webinar reminder skipped' },
+      });
       return 'skipped';
     }
 
@@ -303,7 +377,7 @@ async function processSingleSend(
     }
 
     if (!template || !contact.email) {
-      await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', error: 'Missing template or contact email' } });
+      await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', claimedAt: null, error: 'Missing template or contact email' } });
       return 'failed';
     }
 
@@ -357,11 +431,11 @@ async function processSingleSend(
       await sendEmailToLead({
         recipientEmail,
         subject,
-        contentHtml: body.replace(/\n/g, '<br/>'),
+        contentHtml: escapeHtml(body).replace(/\n/g, '<br/>'),
         contentText: body,
       });
 
-      await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'sent', sentAt: new Date() } });
+      await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'sent', sentAt: new Date(), claimedAt: null, error: null } });
       // This send working retracts the card its own failure raises below.
       await resolveAttentionItems(campaignId, [`Send failed for ${contact.name}`]);
 
@@ -389,7 +463,7 @@ async function processSingleSend(
       return 'sent';
     } catch (err) {
       const message = err instanceof LeadSquaredError ? err.message : String(err);
-      await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', error: message } });
+      await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', claimedAt: null, error: message } });
       await upsertAttentionItem(campaignId, {
         icon: 'ErrorProperty1Outline',
         color: 'error',
@@ -412,11 +486,11 @@ async function processChannelSend(
   campaign: Awaited<ReturnType<typeof db.campaign.findUniqueOrThrow>>,
   send: DueSendWithContact,
   contact: DueSendWithContact['contact'],
-  template: { label: string; channel: string; body: string; subject: string | null },
+  template: { label: string; channel: string; body: string; subject: string | null; dltTemplateId?: string | null; senderId?: string | null },
   channel: DeliveryChannel
 ): Promise<'sent' | 'failed' | 'skipped'> {
   const skip = async (reason: string): Promise<'skipped'> => {
-    await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'skipped', error: reason } });
+    await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'skipped', claimedAt: null, error: reason } });
     return 'skipped';
   };
 
@@ -435,7 +509,7 @@ async function processChannelSend(
   const validation = validateRenderedMessageForChannel(null, body, false, link, channel);
   if (!validation.valid) {
     const detail = validation.issues.map((i) => i.message).join('; ').slice(0, 280);
-    await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', error: `Content rejected: ${detail}` } });
+    await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', claimedAt: null, error: `Content rejected: ${detail}` } });
     await upsertAttentionItem(campaignId, {
       icon: 'ErrorProperty1Outline',
       color: 'warning',
@@ -449,22 +523,26 @@ async function processChannelSend(
   try {
     // The recipient: live → the contact's own number; sandbox → the allowlist
     // lead's number, mirroring how email sends are redirected in sandbox mode.
-    const targetPhone = (process.env.SEND_MODE === 'live' ? contact.phone : await sandboxTargetPhone()).replace(/[^\d+]/g, '');
+    const rawPhone = (process.env.SEND_MODE === 'live' ? contact.phone || '' : await sandboxTargetPhone());
+    const targetPhone = rawPhone.replace(/[^\d+]/g, '');
+    if (!targetPhone) return skip('Contact has no valid phone number on file');
 
     // The lead must exist in LeadSquared first (trigger strategy attaches the
     // activity to it; direct strategy keeps CRM state consistent too).
     let lsqLeadId = contact.lsqLeadId;
-    if (!lsqLeadId && contact.email) {
+    if (!lsqLeadId && contact.email && process.env.SEND_MODE === 'live') {
       const result = await createOrUpdateLead([
         { Attribute: 'EmailAddress', Value: contact.email },
         { Attribute: 'FirstName', Value: contact.name.split(' ')[0] || contact.name },
-        { Attribute: 'Phone', Value: contact.phone },
+        { Attribute: 'Phone', Value: contact.phone || '' },
         { Attribute: 'Company', Value: contact.account },
       ]);
       lsqLeadId = result.Message.Id;
       await db.contact.update({ where: { id: contact.id }, data: { lsqLeadId } });
     }
-    if (!lsqLeadId) return skip('No email to key a LeadSquared lead on and none synced yet');
+    if (!lsqLeadId && process.env.SEND_MODE === 'live') {
+      return skip('No email to key a LeadSquared lead on and none synced yet');
+    }
 
     const delivery = await deliverChannelMessage({
       channel,
@@ -472,10 +550,12 @@ async function processChannelSend(
       campaignName: campaign.name,
       message: body,
       phone: targetPhone,
-      lsqLeadId,
+      lsqLeadId: lsqLeadId || '',
+      dltTemplateId: template.dltTemplateId,
+      senderId: template.senderId,
     });
 
-    await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'sent', sentAt: new Date(), error: null } });
+    await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'sent', sentAt: new Date(), claimedAt: null, error: null } });
     // Retract both cards this path can raise — the send failure and the earlier
     // draft-validation warning, since a delivered message proves the draft passed.
     await resolveAttentionItems(campaignId, [
@@ -492,7 +572,7 @@ async function processChannelSend(
     return 'sent';
   } catch (err) {
     const message = String(err instanceof Error ? err.message : err).slice(0, 280);
-    await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', error: message } });
+    await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'failed', claimedAt: null, error: message } });
     await upsertAttentionItem(campaignId, {
       icon: 'ErrorProperty1Outline',
       color: 'error',

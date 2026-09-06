@@ -7,6 +7,8 @@ import {
   templatesData,
   needsAttention,
 } from '../lib/demo-data';
+import { defaultTriggerFor } from '../lib/stepTrigger';
+import { STEP_DEFAULTS } from '../lib/stepSchedule';
 
 /** A per-campaign registration slug, so every webinar links to its own landing page. */
 function registrationSlug(name: string): string {
@@ -36,19 +38,47 @@ async function main() {
         attendance: c.attendance,
         demoRequests: c.demoRequests,
         registrationLink: registrationSlug(c.name),
+        scheduledAt: c.id === 'c1' ? new Date('2026-08-28T09:30:00.000Z') : null,
       },
     });
   }
 
   const primary = demoCampaigns[0].id; // c1 — the "live" campaign, seeded with full detail
 
+  // Seed shared MessageTemplate library so steps can resolve templates
+  for (const t of templatesData) {
+    const ch = t.channel.toLowerCase();
+    const channel = ch.includes('whatsapp') ? 'whatsapp' : ch.includes('sms') ? 'sms' : ch.includes('linkedin') ? 'linkedin' : 'email';
+    const existingLib = await db.messageTemplate.findFirst({ where: { campaignId: null, key: t.id } });
+    if (!existingLib) {
+      await db.messageTemplate.create({
+        data: {
+          campaignId: null,
+          key: t.id,
+          name: t.label,
+          channel,
+          hasSubject: t.hasSubject,
+          subject: t.subject,
+          body: t.body,
+          status: channel === 'linkedin' ? 'assisted' : 'ready',
+        },
+      });
+    }
+  }
+
   const existingContacts = await db.contact.count({ where: { campaignId: primary } });
   if (existingContacts === 0) {
+    let idx = 1;
     for (const c of contactsDemo) {
+      const emailDomain = c.account.toLowerCase().replace(/[^a-z0-9]/g, '') || 'company';
+      const cleanName = c.name.toLowerCase().replace(/\s+/g, '.');
       await db.contact.create({
         data: {
           campaignId: primary,
           name: c.name,
+          email: `${cleanName}@${emailDomain}.com`,
+          phone: `+9198765432${String(idx).padStart(2, '0')}`,
+          whatsappOptIn: true,
           account: c.account,
           vertical: c.vertical,
           title: c.title,
@@ -61,6 +91,7 @@ async function main() {
           approved: c.score >= 70,
         },
       });
+      idx++;
     }
   }
 
@@ -81,9 +112,15 @@ async function main() {
   }
 
   for (const s of cadenceStepsData) {
+    const libraryTpl = await db.messageTemplate.findFirst({
+      where: { key: s.id, campaignId: null },
+      select: { id: true },
+    });
     await db.cadenceStep.upsert({
       where: { campaignId_key: { campaignId: primary, key: s.id } },
-      update: {},
+      update: {
+        templateId: libraryTpl?.id ?? undefined,
+      },
       create: {
         campaignId: primary,
         key: s.id,
@@ -95,6 +132,9 @@ async function main() {
         toggleable: s.toggleable,
         enabled: s.toggleable,
         isRoadmap: !!s.isRoadmap,
+        trigger: defaultTriggerFor(s.id),
+        templateId: libraryTpl?.id ?? null,
+        ...(STEP_DEFAULTS[s.id] ?? {}),
       },
     });
   }

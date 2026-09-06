@@ -41,12 +41,21 @@ export function isGsm7(body: string): boolean {
   return GSM7_REGEX.test(body);
 }
 
+// GSM 03.38 extension characters that consume 2 septets each (escaped with 0x1B)
+const GSM7_EXTENDED_RE = /[\^{}\\\[~\]|€]/g;
+
+export function gsm7SeptetCount(body: string): number {
+  const extensionMatches = body.match(GSM7_EXTENDED_RE);
+  return body.length + (extensionMatches ? extensionMatches.length : 0);
+}
+
 /** Segments after concatenation overhead: 160/153 GSM-7, 70/67 UCS-2. */
 export function smsSegmentCount(body: string): number {
   if (!body) return 0;
   if (isGsm7(body)) {
-    if (body.length <= 160) return 1;
-    return Math.ceil(body.length / 153);
+    const septets = gsm7SeptetCount(body);
+    if (septets <= 160) return 1;
+    return Math.ceil(septets / 153);
   }
   if (body.length <= 70) return 1;
   return Math.ceil(body.length / 67);

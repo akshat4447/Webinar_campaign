@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cadenceStepsData } from './demo-data';
-import { defaultTriggerFor, isLaunchQueued, isStepTrigger } from './stepTrigger';
+import { defaultTriggerFor, isLaunchQueued, isStepTrigger, isPreWebinarReminder, PRE_WEBINAR_REMINDER_KEYS } from './stepTrigger';
 import { isAutomatableChannel } from './channels';
 
 /**
@@ -96,5 +96,23 @@ describe('isStepTrigger', () => {
     expect(isStepTrigger('registration')).toBe(true);
     expect(isStepTrigger('attendance')).toBe(true);
     expect(isStepTrigger('whenever')).toBe(false);
+  });
+});
+
+describe('isPreWebinarReminder', () => {
+  it('identifies pre-webinar reminder countdown steps', () => {
+    for (const key of ['t3', 't1d', 't1h', 'sms']) {
+      expect(isPreWebinarReminder(key)).toBe(true);
+      expect(PRE_WEBINAR_REMINDER_KEYS.has(key)).toBe(true);
+    }
+  });
+
+  it('returns false for non-countdown steps', () => {
+    expect(isPreWebinarReminder('invite')).toBe(false);
+    expect(isPreWebinarReminder('nudge')).toBe(false);
+    expect(isPreWebinarReminder('final')).toBe(false);
+    expect(isPreWebinarReminder('confirm')).toBe(false);
+    expect(isPreWebinarReminder('attend')).toBe(false);
+    expect(isPreWebinarReminder('noshow')).toBe(false);
   });
 });

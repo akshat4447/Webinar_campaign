@@ -424,14 +424,22 @@ export async function getLeadByEmailAddress(email: string): Promise<RawLsqLead |
 }
 
 /** Strategy A transport for SMS — endpoint comes from tenant config. */
-export async function sendSmsToLeadDirect(params: { mobile: string; message: string }): Promise<unknown> {
+export async function sendSmsToLeadDirect(params: {
+  mobile: string;
+  message: string;
+  dltTemplateId?: string | null;
+  senderId?: string | null;
+}): Promise<unknown> {
   const path = await resolveField('lsq', 'smsEndpoint');
   if (!path) {
     throw new UnsupportedChannelError('No lsq.smsEndpoint configured — set it on the Integrations page or use the trigger strategy.');
   }
+  const body: Record<string, unknown> = { PhoneNumber: params.mobile, TextMessage: params.message };
+  if (params.dltTemplateId) body.DltTemplateId = params.dltTemplateId;
+  if (params.senderId) body.SenderId = params.senderId;
   return lsqFetch(path, {
     method: 'POST',
-    body: { PhoneNumber: params.mobile, TextMessage: params.message },
+    body,
   });
 }
 

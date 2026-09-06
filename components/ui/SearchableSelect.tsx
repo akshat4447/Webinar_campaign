@@ -162,9 +162,11 @@ export function SearchableSelect({
               value={query}
               placeholder={placeholder}
               onChange={(e) => {
-                setQuery(e.target.value);
-                // A new filter invalidates the old highlight position.
-                setActive(0);
+                const val = e.target.value;
+                setQuery(val);
+                const q = val.trim().toLowerCase();
+                const hasMatch = q ? options.some((o) => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q)) : false;
+                setActive(hasMatch ? 1 : 0);
               }}
               onKeyDown={onKeyDown}
               style={{ width: '100%', height: 28, fontSize: 'var(--fs-label-1)' }}

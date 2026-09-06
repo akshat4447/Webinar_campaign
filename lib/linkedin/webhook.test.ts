@@ -106,6 +106,22 @@ describe('normalizeRegistrant', () => {
     });
   });
 
+  it('combines first and last name questions from answers[]', () => {
+    const raw = {
+      answers: [
+        { questionIdentifier: 'first_name', answerValue: 'Jane' },
+        { questionIdentifier: 'last_name', answerValue: 'Doe' },
+        { questionLabel: "Work Email", answer: 'jane.doe@example.com' },
+      ],
+    };
+    expect(normalizeRegistrant(raw)).toEqual({
+      name: 'Jane Doe',
+      email: 'jane.doe@example.com',
+      title: '',
+      company: '',
+    });
+  });
+
   it('never throws on junk input', () => {
     expect(normalizeRegistrant(null)).toEqual({ name: '', email: '', title: '', company: '' });
     expect(normalizeRegistrant('nope')).toEqual({ name: '', email: '', title: '', company: '' });

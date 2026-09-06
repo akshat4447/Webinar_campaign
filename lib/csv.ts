@@ -12,6 +12,7 @@ import Papa from 'papaparse';
  * `rows.filter((r) => r.some((c) => c.trim() !== ''))` behaviour.
  */
 export function parseCsvText(text: string): string[][] {
-  const result = Papa.parse<string[]>(text, { skipEmptyLines: true });
+  const cleanText = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const result = Papa.parse<string[]>(cleanText, { skipEmptyLines: true });
   return result.data.filter((row) => row.some((cell) => String(cell ?? '').trim() !== ''));
 }

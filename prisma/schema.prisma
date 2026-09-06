@@ -171,6 +171,9 @@ model Contact {
   personalized PersonalizedMessage[]
 
   @@index([campaignId, approved])
+  @@index([campaignId, attended])
+  @@index([campaignId, registeredAt])
+  @@index([campaignId, email])
 }
 
 model AppSetting {
@@ -206,6 +209,7 @@ model PersonalizedMessage {
 
   @@unique([campaignId, contactId, stepKey])
   @@index([campaignId, stepKey])
+  @@index([contactId])
 }
 
 model Template {
@@ -355,6 +359,7 @@ model CadenceStep {
   anchor      String  @default("launch") // launch | webinar | event
 
   @@unique([campaignId, key])
+  @@index([templateId])
 }
 
 model CadenceSend {
@@ -368,6 +373,7 @@ model CadenceSend {
   dueAt      DateTime
   status     String   @default("queued") // queued | sent | failed | skipped
   sentAt     DateTime?
+  claimedAt  DateTime?
   error      String?
 
   createdAt  DateTime @default(now())
@@ -377,6 +383,9 @@ model CadenceSend {
   // race with no constraint backing it.
   @@unique([campaignId, contactId, stepKey])
   @@index([campaignId, status, dueAt])
+  @@index([campaignId, status, claimedAt])
+  @@index([campaignId, status, sentAt])
+  @@index([contactId])
 }
 
 model ActivityLogEntry {
@@ -387,6 +396,8 @@ model ActivityLogEntry {
   text       String
   dot        String   @default("var(--accent-500)")
   createdAt  DateTime @default(now())
+
+  @@index([campaignId, createdAt(sort: Desc)])
 }
 
 model AttentionItem {
@@ -401,6 +412,8 @@ model AttentionItem {
   actionsCsv String // comma-separated: retry,skip,fix,view
   resolvedAt DateTime?
   createdAt  DateTime @default(now())
+
+  @@index([campaignId, resolvedAt, createdAt])
 }
 
 model ChatMessage {
@@ -411,6 +424,8 @@ model ChatMessage {
   from       String // agent | user
   text       String
   createdAt  DateTime @default(now())
+
+  @@index([campaignId, createdAt])
 }
 
 /// One Lead Sync webhook delivery for a LinkedIn Event registration. The row

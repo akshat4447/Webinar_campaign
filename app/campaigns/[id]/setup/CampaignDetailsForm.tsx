@@ -111,8 +111,16 @@ export function CampaignDetailsForm({ campaign, serverNow, onDone }: { campaign:
   function save(fn: () => Promise<unknown>) {
     setAutosave('saving');
     startTransition(async () => {
-      await fn();
-      setAutosave('saved');
+      try {
+        const res = await fn();
+        if (res && typeof res === 'object' && 'ok' in res && !(res as { ok: boolean }).ok) {
+          setAutosave('idle');
+          return;
+        }
+        setAutosave('saved');
+      } catch {
+        setAutosave('idle');
+      }
     });
   }
 
@@ -120,18 +128,35 @@ export function CampaignDetailsForm({ campaign, serverNow, onDone }: { campaign:
     setWhen(value);
     setAutosave('saving');
     startTransition(async () => {
-      const res = await updateCampaignSchedule(campaign.id, value);
-      if (res.ok) setDisplay(res.display);
-      setAutosave('saved');
+      try {
+        const res = await updateCampaignSchedule(campaign.id, value);
+        if (res.ok) {
+          setDisplay(res.display);
+          setAutosave('saved');
+        } else {
+          setAutosave('idle');
+        }
+      } catch {
+        setAutosave('idle');
+      }
     });
   }
 
   function saveLink() {
     setAutosave('saving');
     startTransition(async () => {
-      const res = await updateCampaignZoomLink(campaign.id, zoomLink);
-      setLinkState(res.ok ? { kind: res.kind, host: 'host' in res ? res.host : undefined } : { error: res.error });
-      setAutosave('saved');
+      try {
+        const res = await updateCampaignZoomLink(campaign.id, zoomLink);
+        if (res.ok) {
+          setLinkState({ kind: res.kind, host: 'host' in res ? res.host : undefined });
+          setAutosave('saved');
+        } else {
+          setLinkState({ error: res.error });
+          setAutosave('idle');
+        }
+      } catch {
+        setAutosave('idle');
+      }
     });
   }
 
@@ -143,9 +168,17 @@ export function CampaignDetailsForm({ campaign, serverNow, onDone }: { campaign:
     setRegLinkError(null);
     setAutosave('saving');
     startTransition(async () => {
-      const res = await updateCampaignRegistrationLink(campaign.id, registrationLink);
-      if (!res.ok) setRegLinkError(res.error);
-      setAutosave('saved');
+      try {
+        const res = await updateCampaignRegistrationLink(campaign.id, registrationLink);
+        if (res.ok) {
+          setAutosave('saved');
+        } else {
+          setRegLinkError(res.error);
+          setAutosave('idle');
+        }
+      } catch {
+        setAutosave('idle');
+      }
     });
   }
 

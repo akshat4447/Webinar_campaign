@@ -52,7 +52,7 @@ export interface ImportedContact {
 }
 
 export function classifyContact(fields: Omit<ImportedContact, 'missingInfo' | 'function' | 'seniority' | 'source'>): ImportedContact {
-  const missingInfo = !/.+@.+\..+/.test(fields.email);
+  const missingInfo = !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email);
   const fn = functionFor(fields.title);
   const seniority = seniorityFor(fields.title);
   const source: ImportedContact['source'] = fields.linkedinId ? (fields.email ? 'LinkedIn+Apollo' : 'LinkedIn') : 'Apollo';

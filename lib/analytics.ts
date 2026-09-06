@@ -51,7 +51,7 @@ export async function getDashboardKpis(range: DashboardRange, now = new Date()):
       registrations,
       delivered,
       approvalRate: pct(approvedContacts, scoredContacts),
-      attendanceRate: pct(attendedContacts, approvedContacts),
+      attendanceRate: pct(attendedContacts, registrations),
       webinars,
     };
   }

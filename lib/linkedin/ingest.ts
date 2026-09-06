@@ -89,6 +89,7 @@ export async function processPendingLinkedinRegistrations(limit = 25, campaignId
   let failed = 0;
   let skipped = 0;
   const maps = new Map<string, Map<string, string>>();
+  const modifiedCampaignIds = new Set<string>();
 
   for (const row of rows) {
     if (row.campaignId && !maps.has(row.campaignId)) {
@@ -98,10 +99,31 @@ export async function processPendingLinkedinRegistrations(limit = 25, campaignId
       maps.set(row.campaignId, map);
     }
     const outcome = await processOne(row, row.campaignId ? maps.get(row.campaignId)! : new Map());
-    if (outcome === 'ok') processed++;
-    else if (outcome === 'failed') failed++;
-    else skipped++;
+    if (outcome === 'ok') {
+      processed++;
+      if (row.campaignId) modifiedCampaignIds.add(row.campaignId);
+    } else if (outcome === 'failed') {
+      failed++;
+    } else {
+      skipped++;
+    }
   }
+
+  // Batch CRM sync once per modified campaign to prevent N+1 sync storms and 429 rate limits
+  for (const campaignId of modifiedCampaignIds) {
+    try {
+      await syncContactsToLeadSquared(campaignId);
+    } catch (err) {
+      await upsertAttentionItem(campaignId, {
+        icon: 'ErrorProperty1Outline',
+        color: 'error',
+        title: 'LeadSquared sync failed after LinkedIn registration batch',
+        detail: String(err instanceof Error ? err.message : err).slice(0, 300),
+        actionsCsv: 'retry',
+      });
+    }
+  }
+
   return { processed, failed, skipped };
 }
 
@@ -188,6 +210,9 @@ async function processOne(
 
     const fields = buildContactFields(registrant, campaign.vertical, linkedinMode() !== 'live');
     const contact = await db.contact.create({ data: { campaignId: campaign.id, ...fields } });
+    if (fields.email) {
+      emailMap.set(fields.email.toLowerCase(), contact.id);
+    }
 
     // Scoring is best-effort: a Claude outage must not lose the lead — it just
     // stays unscored until someone runs the normal Scoring action again.
@@ -220,19 +245,6 @@ async function processOne(
       });
     }
 
-    // CRM sync reuses the battle-tested path wholesale (stale-lead self-heal included).
-    try {
-      await syncContactsToLeadSquared(campaign.id);
-    } catch (err) {
-      await upsertAttentionItem(campaign.id, {
-        icon: 'ErrorProperty1Outline',
-        color: 'error',
-        title: `LeadSquared sync failed after LinkedIn registration — ${fields.name}`,
-        detail: String(err instanceof Error ? err.message : err).slice(0, 300),
-        actionsCsv: 'retry',
-      });
-    }
-
     // Registration is a first-class contact state (lib/registerContact.ts),
     // shared with the one-click sign-up path: it sets registeredAt/source and
     // queues every enabled registration-triggered step (not just confirm and
@@ -241,13 +253,10 @@ async function processOne(
     // per-campaign table this used to read.
     await registerContact(campaign.id, contact.id, 'linkedin', row.occurredAt ?? undefined);
 
-    await db.$transaction([
-      db.$executeRaw`UPDATE "Campaign" SET "registrations" = COALESCE("registrations", 0) + 1 WHERE "id" = ${campaign.id}`,
-      db.linkedinRegistration.update({
-        where: { id: row.id },
-        data: { contactId: contact.id, registrantName: fields.name, registrantEmail: fields.email, processedAt: new Date(), error: null },
-      }),
-    ]);
+    await db.linkedinRegistration.update({
+      where: { id: row.id },
+      data: { contactId: contact.id, registrantName: fields.name, registrantEmail: fields.email, processedAt: new Date(), error: null },
+    });
     await db.activityLogEntry.create({
       data: {
         campaignId: campaign.id,

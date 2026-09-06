@@ -63,34 +63,46 @@ export async function zoomConnectionError(): Promise<string | null> {
   return null;
 }
 
-/** One best-effort refresh; returns the new token or gives up quietly. */
+let activeRefreshPromise: Promise<string | undefined> | null = null;
+
+/** One best-effort refresh; returns the new token or gives up quietly.
+ * Uses an in-flight promise lock to prevent concurrent 401s from racing and revoking Zoom's single-use rotating refresh tokens.
+ */
 async function tryRefreshAccessToken(): Promise<string | undefined> {
-  const { clientId, clientSecret, refreshToken } = await storedRefreshCredentials();
-  if (!clientId || !clientSecret || !refreshToken) return undefined;
-  try {
-    const res = await fetch(ZOOM_TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }),
-      cache: 'no-store',
-    });
-    const body = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number };
-    if (!res.ok || !body.access_token) return undefined;
-    await saveIntegrationConfig('zoom', {
-      accessToken: body.access_token,
-      // Zoom rotates the refresh token on every use — the old one stops
-      // working, so failing to save the new one would strand the connection
-      // after exactly one silent refresh.
-      ...(body.refresh_token ? { refreshToken: body.refresh_token } : {}),
-      ...(body.expires_in ? { tokenExpiresAt: new Date(Date.now() + body.expires_in * 1000).toISOString() } : {}),
-    });
-    return body.access_token;
-  } catch {
-    return undefined;
-  }
+  if (activeRefreshPromise) return activeRefreshPromise;
+
+  activeRefreshPromise = (async () => {
+    const { clientId, clientSecret, refreshToken } = await storedRefreshCredentials();
+    if (!clientId || !clientSecret || !refreshToken) return undefined;
+    try {
+      const res = await fetch(ZOOM_TOKEN_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }),
+        cache: 'no-store',
+      });
+      const body = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number };
+      if (!res.ok || !body.access_token) return undefined;
+      await saveIntegrationConfig('zoom', {
+        accessToken: body.access_token,
+        // Zoom rotates the refresh token on every use — the old one stops
+        // working, so failing to save the new one would strand the connection
+        // after exactly one silent refresh.
+        ...(body.refresh_token ? { refreshToken: body.refresh_token } : {}),
+        ...(body.expires_in ? { tokenExpiresAt: new Date(Date.now() + body.expires_in * 1000).toISOString() } : {}),
+      });
+      return body.access_token;
+    } catch {
+      return undefined;
+    } finally {
+      activeRefreshPromise = null;
+    }
+  })();
+
+  return activeRefreshPromise;
 }
 
 /**

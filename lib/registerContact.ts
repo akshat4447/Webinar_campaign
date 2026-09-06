@@ -42,11 +42,6 @@ export async function registerContact(
 
   const now = campaign.simulatedNow ?? new Date();
 
-  await db.contact.update({
-    where: { id: contactId },
-    data: { registeredAt: registeredAt ?? now, registrationSource: source },
-  });
-
   // Registration-triggered steps — confirmation, WhatsApp confirmation — are
   // queued for this one contact now, because until this moment there was no
   // audience for them.
@@ -54,27 +49,60 @@ export async function registerContact(
     where: { campaignId, trigger: 'registration', enabled: true, removedAt: null },
   });
 
-  let queued = 0;
-  for (const step of steps) {
-    // An event-anchored step has no clock of its own; it goes out now.
-    const dueAt = step.anchor === 'event' ? now : (resolveStepDate(step, { launchAt: now, webinarAt: campaign.scheduledAt }) ?? now);
-    try {
-      await db.cadenceSend.create({ data: { campaignId, contactId, stepKey: step.key, dueAt, status: 'queued' } });
-      queued++;
-    } catch {
-      // The @@unique([campaignId, contactId, stepKey]) constraint is the
-      // backstop for two clicks racing each other. Losing that race is a
-      // success, not an error.
+  const queued = await db.$transaction(async (tx) => {
+    const updated = await tx.contact.updateMany({
+      where: { id: contactId, registeredAt: null },
+      data: { registeredAt: registeredAt ?? now, registrationSource: source },
+    });
+    if (updated.count === 0) {
+      return null;
     }
-  }
 
-  await db.activityLogEntry.create({
-    data: {
-      campaignId,
-      text: `${contact.name} registered (${source.replace('_', '-')})${queued ? ` — ${queued} follow-up(s) queued` : ''}`,
-      dot: 'var(--success-500)',
-    },
+    // Increment campaign.registrations counter atomically
+    await tx.$executeRaw`UPDATE "Campaign" SET "registrations" = COALESCE("registrations", 0) + 1 WHERE "id" = ${campaignId}`;
+
+    // Cancel pending pre-registration invite nudges for this newly registered contact
+    await tx.cadenceSend.updateMany({
+      where: {
+        campaignId,
+        contactId,
+        stepKey: { in: ['invite', 'smsInvite', 'waInvite', 'linkedin', 'nudge', 'final'] },
+        status: 'queued',
+      },
+      data: {
+        status: 'skipped',
+        error: 'Contact registered — invite/nudge cancelled',
+      },
+    });
+
+    let count = 0;
+    for (const step of steps) {
+      // An event-anchored step has no clock of its own; it goes out now.
+      const dueAt = step.anchor === 'event' ? now : (resolveStepDate(step, { launchAt: now, webinarAt: campaign.scheduledAt }) ?? now);
+      try {
+        await tx.cadenceSend.create({ data: { campaignId, contactId, stepKey: step.key, dueAt, status: 'queued' } });
+        count++;
+      } catch {
+        // The @@unique([campaignId, contactId, stepKey]) constraint is the
+        // backstop for two clicks racing each other. Losing that race is a
+        // success, not an error.
+      }
+    }
+
+    await tx.activityLogEntry.create({
+      data: {
+        campaignId,
+        text: `${contact.name} registered (${source.replace('_', '-')})${count ? ` — ${count} follow-up(s) queued` : ''}`,
+        dot: 'var(--success-500)',
+      },
+    });
+
+    return count;
   });
+
+  if (queued === null) {
+    return { ok: true, alreadyRegistered: true, joinUrl, campaignName: campaign.name, queued: 0 };
+  }
 
   return { ok: true, alreadyRegistered: false, joinUrl, campaignName: campaign.name, queued };
 }

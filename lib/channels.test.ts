@@ -29,6 +29,10 @@ describe('SMS encoding', () => {
     expect(smsSegmentCount('x'.repeat(161))).toBe(2); // 153-char continuation chunks
     expect(smsSegmentCount('é'.repeat(71))).toBe(1); // é IS in GSM-7 — still 160/153 budgets
     expect(smsSegmentCount('あ'.repeat(71))).toBe(2); // true UCS-2: 70 first segment
+    // Extension characters like € take 2 septets: 81 chars of € = 162 septets -> 2 segments
+    expect(smsSegmentCount('€'.repeat(81))).toBe(2);
+    // 80 chars of € = 160 septets -> exactly 1 segment
+    expect(smsSegmentCount('€'.repeat(80))).toBe(1);
   });
 
   describe('checkSmsBody', () => {

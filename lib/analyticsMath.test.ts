@@ -94,4 +94,13 @@ describe('bucketDates', () => {
     const to = new Date('2026-09-01');
     expect(bucketDates([], from, to, 'day')).toEqual([{ label: expect.any(String), count: 0 }]);
   });
+
+  it('handles month progression without skipping February when starting from Jan 31', () => {
+    const from = new Date('2026-01-31T12:00:00Z');
+    const to = new Date('2026-03-15T12:00:00Z');
+    const buckets = bucketDates([], from, to, 'month');
+    // Must include Jan, Feb, and Mar — Feb must NOT be skipped due to 31-day overflow
+    expect(buckets).toHaveLength(3);
+    expect(buckets.map((b) => b.label)).toEqual(['Jan 26', 'Feb 26', 'Mar 26']);
+  });
 });

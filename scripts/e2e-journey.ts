@@ -67,7 +67,7 @@ async function main() {
     },
   });
   await provisionCampaignDefaults(CID);
-  const mk = async (name: string, opts: { email?: string; phone?: string; wa?: boolean }) =>
+  const mk = async (name: string, opts: { email?: string; phone?: string; wa?: boolean; registered?: boolean }) =>
     db.contact.create({
       data: {
         campaignId: CID,
@@ -75,6 +75,7 @@ async function main() {
         email: opts.email ?? null,
         phone: opts.phone ?? null,
         whatsappOptIn: !!opts.wa,
+        registeredAt: opts.registered ? new Date() : null,
         account: 'Audit Bank',
         title: 'VP Operations',
         vertical: 'Lending',
@@ -86,7 +87,7 @@ async function main() {
         source: 'Apollo',
       },
     });
-  await mk('Alice Audit', { email: 'alice.audit@example.com', phone: '+911234567890', wa: true });
+  await mk('Alice Audit', { email: 'alice.audit@example.com', phone: '+911234567890', wa: true, registered: true });
   await mk('Bob Audit', { email: 'bob.audit@example.com' });
   await mk('Cara Nophone', { phone: '+919876543210', wa: true }); // C — no email
 

@@ -16,10 +16,15 @@ export function EnrichmentCard({ campaignId, stats }: { campaignId: string; stat
   async function run() {
     setBusy(true);
     setResult(null);
-    const res = await runEnrichmentAction(campaignId);
-    setResult(res);
-    setBusy(false);
-    if (res.ok) router.refresh();
+    try {
+      const res = await runEnrichmentAction(campaignId);
+      setResult(res);
+      if (res.ok) router.refresh();
+    } catch (err) {
+      setResult({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(false);
+    }
   }
 
   const gaps = stats.missingEmail + stats.missingTitle;

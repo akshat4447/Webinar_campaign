@@ -113,6 +113,9 @@ async function strategyFor(channel: DeliveryChannel): Promise<ChannelStrategy> {
 
 /** One shared custom-activity type backs both channels' trigger strategy. */
 export async function ensureTriggerActivityTypeId(): Promise<number> {
+  const cached = await db.appSetting.findUnique({ where: { key: TRIGGER_TYPE_SETTING } });
+  if (cached?.value) return Number(cached.value);
+
   // If a previous attempt left an orphan behind ("already exists"), retry under
   // a numbered name — the next create carries the CORRECT mx_Custom_N fields,
   // unlike whatever half-created row triggered the collision.
@@ -151,7 +154,7 @@ export async function ensureTriggerActivityTypeId(): Promise<number> {
 // re-reading, so the fix appeared not to work until the server was restarted.
 // A config problem the operator is actively fixing has to be re-checked.
 let cachedSandboxPhone: string | null = null;
-async function sandboxTargetPhone(): Promise<string> {
+export async function sandboxTargetPhone(): Promise<string> {
   if (cachedSandboxPhone) return cachedSandboxPhone;
 
   const email = process.env.SEND_ALLOWLIST_LEAD_EMAIL;
@@ -169,6 +172,24 @@ async function sandboxTargetPhone(): Promise<string> {
   return phone;
 }
 
+let cachedSandboxLeadId: string | null = null;
+export async function sandboxTargetLeadId(): Promise<string> {
+  if (cachedSandboxLeadId) return cachedSandboxLeadId;
+
+  const email = process.env.SEND_ALLOWLIST_LEAD_EMAIL;
+  if (!email) throw new Error('SEND_ALLOWLIST_LEAD_EMAIL is not set — required while SEND_MODE=sandbox.');
+
+  const lead = await getLeadByEmailAddress(email);
+  const leadId = (lead?.ProspectID || lead?.ProspectId || lead?.LeadId) as string | undefined;
+  if (!leadId) {
+    throw new Error(
+      `The allowlist lead (${email}) was not found in LeadSquared — create it so sandboxed sends have a target lead.`
+    );
+  }
+  cachedSandboxLeadId = leadId;
+  return leadId;
+}
+
 export interface ChannelDeliveryInput {
   channel: DeliveryChannel;
   stepKey: string;
@@ -177,6 +198,8 @@ export interface ChannelDeliveryInput {
   /** Already transport-resolved: caller applies sandbox redirection. */
   phone: string;
   lsqLeadId: string;
+  dltTemplateId?: string | null;
+  senderId?: string | null;
 }
 
 export interface ChannelDeliveryResult {
@@ -185,26 +208,39 @@ export interface ChannelDeliveryResult {
 }
 
 async function deliverDirect(input: ChannelDeliveryInput): Promise<string> {
-  const payload = { mobile: input.phone, message: input.message };
+  const payload = {
+    mobile: input.phone,
+    message: input.message,
+    dltTemplateId: input.dltTemplateId,
+    senderId: input.senderId,
+  };
   const res = input.channel === 'sms' ? await sendSmsToLeadDirect(payload) : await sendWhatsappDirect(payload);
   return `direct send accepted (${typeof res === 'object' && res !== null ? 'receipt returned' : 'ok'})`;
 }
 
 async function deliverViaTrigger(input: ChannelDeliveryInput): Promise<string> {
+  // In sandbox mode, never attach activities to the real prospect's lead —
+  // that would trigger LeadSquared automation to message the real prospect.
+  let targetLeadId = input.lsqLeadId;
+  if (process.env.SEND_MODE !== 'live') {
+    targetLeadId = await sandboxTargetLeadId();
+  }
+
   // Per-channel mapped type wins; otherwise the shared auto-provisioned type.
   const map = await getActivityMap();
   const override = map[input.channel]?.typeId;
   const fieldNames = await getTriggerFieldMap();
   const typeId = override ?? (await ensureTriggerActivityTypeId());
 
+  const safeMessage = Array.from(input.message).slice(0, 500).join('');
   const activity: CustomActivity = {
-    RelatedProspectId: input.lsqLeadId,
+    RelatedProspectId: targetLeadId,
     ActivityEvent: typeId,
     ActivityNote: `${input.channel.toUpperCase()} step "${input.stepKey}" due — ${input.campaignName}`,
     Fields: [
       { SchemaName: fieldNames.channel, Value: input.channel },
       { SchemaName: fieldNames.stepKey, Value: input.stepKey },
-      { SchemaName: fieldNames.message, Value: input.message.slice(0, 500) },
+      { SchemaName: fieldNames.message, Value: safeMessage },
     ],
   };
   try {
@@ -246,8 +282,6 @@ export async function deliverChannelMessage(input: ChannelDeliveryInput): Promis
     return { strategyUsed: 'trigger', detail: `${detail} (direct unavailable: ${reason})` };
   }
 }
-
-export { sandboxTargetPhone };
 
 /**
  * Posts a "message sent" activity IF the operator mapped an activity type for

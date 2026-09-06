@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { Icon } from './Icon';
 
 export interface DrawerContent {
@@ -11,17 +12,35 @@ export interface DrawerContent {
 }
 
 export function Drawer({ content, onClose }: { content: DrawerContent | null; onClose: () => void }) {
+  useEffect(() => {
+    if (!content) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [content, onClose]);
+
   if (!content) return null;
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(16,20,25,0.45)', zIndex: 1200 }} />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawer-title"
+        aria-describedby="drawer-subtitle"
         style={{
           position: 'fixed',
           top: 12,
           right: 12,
           bottom: 12,
           width: 480,
+          maxWidth: 'calc(100vw - 24px)',
+          boxSizing: 'border-box',
           background: '#fff',
           borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-panel)',
@@ -33,8 +52,8 @@ export function Drawer({ content, onClose }: { content: DrawerContent | null; on
       >
         <div style={{ flexShrink: 0, padding: '18px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'start', gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)', overflowWrap: 'anywhere' }}>{content.title}</div>
-            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 3, overflowWrap: 'anywhere' }}>{content.subtitle}</div>
+            <div id="drawer-title" style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--n90)', overflowWrap: 'anywhere' }}>{content.title}</div>
+            <div id="drawer-subtitle" style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginTop: 3, overflowWrap: 'anywhere' }}>{content.subtitle}</div>
           </div>
           <button
             onClick={onClose}

@@ -4,14 +4,20 @@ import { db } from '@/lib/db';
 import { getLists, getLeadsInList, type RawLsqLead } from '@/lib/leadsquared';
 import { classifyContact, pickCol } from '@/lib/importHeuristics';
 import { syncContactsToLeadSquared } from '@/lib/leadSync';
-import { upsertAttentionItem } from '@/lib/attentionItems';
+import { upsertAttentionItem, resolveAttentionItems } from '@/lib/attentionItems';
 import { formatWebinarDate } from '@/lib/campaignDate';
 import { revalidateCampaign } from '@/lib/revalidate';
 import { parseCsvText } from '@/lib/csv';
+import { applyOffset } from '@/lib/stepSchedule';
+import { normalizeE164 } from '@/lib/csvPreflight';
+import { z } from 'zod';
+
+const campaignIdSchema = z.string().min(1);
 
 export async function updateCampaignName(campaignId: string, name: string) {
-  await db.campaign.update({ where: { id: campaignId }, data: { name } });
-  revalidateCampaign(campaignId);
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  await db.campaign.update({ where: { id: validCampaignId }, data: { name } });
+  revalidateCampaign(validCampaignId);
 }
 
 /** What editing the webinar's core details would clear — computed so the
@@ -24,11 +30,12 @@ export interface SetupEditImpact {
 }
 
 export async function getSetupEditImpactAction(campaignId: string): Promise<SetupEditImpact> {
+  const validCampaignId = campaignIdSchema.parse(campaignId);
   const [scoredCount, approvedCount, personalizedCount, cadenceSendCount] = await Promise.all([
-    db.contact.count({ where: { campaignId, score: { not: null } } }),
-    db.contact.count({ where: { campaignId, approved: true } }),
-    db.personalizedMessage.count({ where: { campaignId } }),
-    db.cadenceSend.count({ where: { campaignId } }),
+    db.contact.count({ where: { campaignId: validCampaignId, score: { not: null } } }),
+    db.contact.count({ where: { campaignId: validCampaignId, approved: true } }),
+    db.personalizedMessage.count({ where: { campaignId: validCampaignId } }),
+    db.cadenceSend.count({ where: { campaignId: validCampaignId } }),
   ]);
   return { scoredCount, approvedCount, personalizedCount, cadenceSendCount };
 }
@@ -43,19 +50,21 @@ export async function getSetupEditImpactAction(campaignId: string): Promise<Setu
  * a CSV is the expensive step to avoid repeating.
  */
 export async function resetCampaignForEditAction(campaignId: string) {
+  const validCampaignId = campaignIdSchema.parse(campaignId);
   await db.$transaction([
-    db.contact.updateMany({ where: { campaignId }, data: { score: null, explanation: null, approved: false, approvedManually: false } }),
-    db.personalizedMessage.deleteMany({ where: { campaignId } }),
-    db.cadenceSend.deleteMany({ where: { campaignId } }),
-    db.campaign.update({ where: { id: campaignId }, data: { cadenceStatus: 'not_started', simulatedNow: null } }),
+    db.contact.updateMany({ where: { campaignId: validCampaignId }, data: { score: null, explanation: null, approved: false, approvedManually: false } }),
+    db.personalizedMessage.deleteMany({ where: { campaignId: validCampaignId } }),
+    db.cadenceSend.deleteMany({ where: { campaignId: validCampaignId } }),
+    db.campaign.update({ where: { id: validCampaignId }, data: { cadenceStatus: 'not_started', simulatedNow: null } }),
   ]);
-  revalidateCampaign(campaignId);
+  revalidateCampaign(validCampaignId);
   return { ok: true as const };
 }
 
 export async function updateCampaignDescription(campaignId: string, description: string) {
-  await db.campaign.update({ where: { id: campaignId }, data: { description } });
-  revalidateCampaign(campaignId);
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  await db.campaign.update({ where: { id: validCampaignId }, data: { description } });
+  revalidateCampaign(validCampaignId);
 }
 
 const ZOOM_HOSTS = /(^|\.)(zoom\.us|zoomgov\.com)$/i;
@@ -66,10 +75,11 @@ const ZOOM_HOSTS = /(^|\.)(zoom\.us|zoomgov\.com)$/i;
  * check reports what it recognised instead of blocking.
  */
 export async function updateCampaignZoomLink(campaignId: string, zoomLink: string) {
+  const validCampaignId = campaignIdSchema.parse(campaignId);
   const trimmed = zoomLink.trim();
   if (!trimmed) {
-    await db.campaign.update({ where: { id: campaignId }, data: { zoomLink: null } });
-    revalidateCampaign(campaignId);
+    await db.campaign.update({ where: { id: validCampaignId }, data: { zoomLink: null } });
+    revalidateCampaign(validCampaignId);
     return { ok: true as const, kind: 'empty' as const };
   }
 
@@ -83,8 +93,8 @@ export async function updateCampaignZoomLink(campaignId: string, zoomLink: strin
     return { ok: false as const, error: 'Only http(s) links are supported.' };
   }
 
-  await db.campaign.update({ where: { id: campaignId }, data: { zoomLink: trimmed } });
-  revalidateCampaign(campaignId);
+  await db.campaign.update({ where: { id: validCampaignId }, data: { zoomLink: trimmed } });
+  revalidateCampaign(validCampaignId);
   return { ok: true as const, kind: ZOOM_HOSTS.test(parsed.hostname) ? ('zoom' as const) : ('other' as const), host: parsed.hostname };
 }
 
@@ -97,14 +107,15 @@ export async function updateCampaignZoomLink(campaignId: string, zoomLink: strin
  * only rejects empty/whitespace input, not anything that isn't a strict URL.
  */
 export async function updateCampaignRegistrationLink(campaignId: string, link: string) {
+  const validCampaignId = campaignIdSchema.parse(campaignId);
   const trimmed = link.trim();
   if (!trimmed) return { ok: false as const, error: 'The registration link cannot be empty — contacts need somewhere to sign up.' };
 
-  await db.campaign.update({ where: { id: campaignId }, data: { registrationLink: trimmed } });
+  await db.campaign.update({ where: { id: validCampaignId }, data: { registrationLink: trimmed } });
   await db.activityLogEntry.create({
-    data: { campaignId, text: `Registration link updated to ${trimmed}`, dot: 'var(--accent-500)' },
+    data: { campaignId: validCampaignId, text: `Registration link updated to ${trimmed}`, dot: 'var(--accent-500)' },
   });
-  revalidateCampaign(campaignId);
+  revalidateCampaign(validCampaignId);
   return { ok: true as const };
 }
 
@@ -119,9 +130,10 @@ export async function updateCampaignRegistrationLink(campaignId: string, link: s
  * not drift.
  */
 export async function updateCampaignSchedule(campaignId: string, dateTimeLocal: string) {
+  const validCampaignId = campaignIdSchema.parse(campaignId);
   if (!dateTimeLocal) {
-    await db.campaign.update({ where: { id: campaignId }, data: { scheduledAt: null, date: 'Not scheduled yet' } });
-    revalidateCampaign(campaignId);
+    await db.campaign.update({ where: { id: validCampaignId }, data: { scheduledAt: null, date: 'Not scheduled yet' } });
+    revalidateCampaign(validCampaignId);
     return { ok: true as const, display: 'Not scheduled yet' };
   }
 
@@ -129,35 +141,120 @@ export async function updateCampaignSchedule(campaignId: string, dateTimeLocal: 
   if (Number.isNaN(parsed.getTime())) return { ok: false as const, error: 'That date could not be read.' };
 
   const display = formatWebinarDate(parsed);
-  await db.campaign.update({ where: { id: campaignId }, data: { scheduledAt: parsed, date: display } });
-  revalidateCampaign(campaignId);
+  await db.campaign.update({ where: { id: validCampaignId }, data: { scheduledAt: parsed, date: display } });
+
+  // Rescheduling anchor synchronization: update dueAt for all queued sends anchored to the webinar
+  const webinarSteps = await db.cadenceStep.findMany({
+    where: { campaignId: validCampaignId, anchor: 'webinar' },
+    select: { key: true, offsetValue: true, offsetUnit: true },
+  });
+  for (const s of webinarSteps) {
+    const newDue = applyOffset(parsed, s.offsetValue, s.offsetUnit);
+    await db.cadenceSend.updateMany({
+      where: { campaignId: validCampaignId, stepKey: s.key, status: 'queued' },
+      data: { dueAt: newDue },
+    });
+  }
+
+  revalidateCampaign(validCampaignId);
   return { ok: true as const, display };
 }
 
-async function replaceContacts(campaignId: string, rows: (ReturnType<typeof classifyContact> & { lsqLeadId?: string })[]) {
-  await db.contact.deleteMany({ where: { campaignId } });
+async function upsertContacts(campaignId: string, rows: (ReturnType<typeof classifyContact> & { lsqLeadId?: string })[]) {
   if (rows.length === 0) return;
-  await db.contact.createMany({
-    data: rows.map((r) => ({
-      campaignId,
-      name: r.name,
-      email: r.email || null,
-      account: r.account,
-      vertical: r.vertical,
-      title: r.title,
-      function: r.function,
-      seniority: r.seniority,
-      linkedinId: r.linkedinId || null,
-      phone: r.phone || null,
-      whatsappOptIn: r.whatsappOptIn ?? false,
-      extraFieldsJson: r.extras && Object.keys(r.extras).length > 0 ? JSON.stringify(r.extras) : null,
-      missingInfo: r.missingInfo,
-      source: r.source,
-      score: null,
-      approved: false,
-      lsqLeadId: r.lsqLeadId ?? null,
-    })),
+
+  const existingContacts = await db.contact.findMany({
+    where: { campaignId },
   });
+
+  const existingByEmail = new Map<string, typeof existingContacts[number]>();
+  const existingByNameAccount = new Map<string, typeof existingContacts[number]>();
+
+  for (const c of existingContacts) {
+    if (c.email) existingByEmail.set(c.email.trim().toLowerCase(), c);
+    existingByNameAccount.set(`${c.name.trim()}|${c.account.trim()}`.toLowerCase(), c);
+  }
+
+  const toCreate: Array<{
+    campaignId: string;
+    name: string;
+    email: string | null;
+    account: string;
+    vertical: string;
+    title: string;
+    function: string;
+    seniority: string;
+    linkedinId: string | null;
+    phone: string | null;
+    whatsappOptIn: boolean;
+    extraFieldsJson: string | null;
+    missingInfo: boolean;
+    source: string;
+    score: number | null;
+    approved: boolean;
+    lsqLeadId: string | null;
+  }> = [];
+
+  const toUpdate: Array<{ id: string; data: Record<string, unknown> }> = [];
+
+  for (const r of rows) {
+    const emailKey = r.email?.trim().toLowerCase();
+    const nameAccountKey = `${r.name.trim()}|${r.account.trim()}`.toLowerCase();
+    const existing = (emailKey ? existingByEmail.get(emailKey) : null) ?? existingByNameAccount.get(nameAccountKey);
+
+    const normalizedPhone = normalizeE164(r.phone);
+    const extrasJson = r.extras && Object.keys(r.extras).length > 0 ? JSON.stringify(r.extras) : null;
+
+    if (existing) {
+      toUpdate.push({
+        id: existing.id,
+        data: {
+          name: r.name,
+          account: r.account,
+          vertical: r.vertical !== 'Unassigned' ? r.vertical : existing.vertical,
+          title: r.title !== '—' ? r.title : existing.title,
+          phone: normalizedPhone ?? existing.phone,
+          whatsappOptIn: r.whatsappOptIn || existing.whatsappOptIn,
+          extraFieldsJson: extrasJson ?? existing.extraFieldsJson,
+          lsqLeadId: r.lsqLeadId ?? existing.lsqLeadId,
+        },
+      });
+    } else {
+      toCreate.push({
+        campaignId,
+        name: r.name,
+        email: r.email ? r.email.trim().toLowerCase() : null,
+        account: r.account,
+        vertical: r.vertical,
+        title: r.title,
+        function: r.function,
+        seniority: r.seniority,
+        linkedinId: r.linkedinId || null,
+        phone: normalizedPhone,
+        whatsappOptIn: r.whatsappOptIn ?? false,
+        extraFieldsJson: extrasJson,
+        missingInfo: r.missingInfo,
+        source: r.source,
+        score: null,
+        approved: false,
+        lsqLeadId: r.lsqLeadId ?? null,
+      });
+    }
+  }
+
+  // Execute updates in batches of 100
+  for (let i = 0; i < toUpdate.length; i += 100) {
+    const batch = toUpdate.slice(i, i + 100);
+    await db.$transaction(
+      batch.map((u) => db.contact.update({ where: { id: u.id }, data: u.data }))
+    );
+  }
+
+  // Execute creates in batches of 100
+  for (let i = 0; i < toCreate.length; i += 100) {
+    const batch = toCreate.slice(i, i + 100);
+    await db.contact.createMany({ data: batch });
+  }
 }
 
 
@@ -236,7 +333,7 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
     );
   }
 
-  await replaceContacts(campaignId, classified);
+  await upsertContacts(campaignId, classified);
 
   const withEmail = classified.filter((c) => !c.missingInfo).length;
   const columnMap = Object.entries(ci)
@@ -263,6 +360,7 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
     });
   } else {
     logLines.push(`Synced to LeadSquared: ${sync.leadsCreated} leads created, ${sync.leadsUpdated} updated, added to list ${sync.listId}`);
+    await resolveAttentionItems(campaignId, ['LeadSquared lead sync failed']);
   }
 
   await db.activityLogEntry.createMany({
@@ -298,7 +396,7 @@ export async function importFromLsqListAction(campaignId: string, listId: string
   try {
     const rawLeads = await getLeadsInList(listId);
     const classified = rawLeads.map(rawLeadToContact);
-    await replaceContacts(campaignId, classified);
+    await upsertContacts(campaignId, classified);
 
     const withEmail = classified.filter((c) => !c.missingInfo).length;
     const logLines = [`Fetched ${classified.length} contacts from LeadSquared list "${listName}"`, `${classified.length - withEmail} contacts have no usable email on file`];
@@ -315,6 +413,7 @@ export async function importFromLsqListAction(campaignId: string, listId: string
       });
     } else {
       logLines.push(`Added ${withEmail} contacts to LeadSquared campaign list ${sync.listId}`);
+      await resolveAttentionItems(campaignId, ['LeadSquared lead sync failed']);
     }
 
     await db.activityLogEntry.createMany({ data: logLines.map((text) => ({ campaignId, text, dot: sync.error ? 'var(--warning-700)' : 'var(--accent-500)' })) });

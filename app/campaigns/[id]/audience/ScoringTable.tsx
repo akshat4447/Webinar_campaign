@@ -124,7 +124,6 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
               <th style={thStyle}>Source</th>
               <th style={thStyle}>Mobile (SMS/WA)</th>
               <th style={thStyle}>Relevance</th>
-              <th style={{ ...thStyle, textAlign: 'center' }}>Approve</th>
             </tr>
           </thead>
           <tbody>
@@ -132,7 +131,9 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
               const score = c.score ?? 0;
               return (
                 <tr key={c.id} style={{ borderTop: '1px solid var(--border-subtle)', opacity: c.approved ? 1 : 0.5 }}>
-                  <td style={{ padding: '12px 20px' }} />
+                  <td style={{ padding: '12px 20px' }}>
+                    <Checkbox checked={c.approved} onChange={() => toggle(c)} />
+                  </td>
                   <td style={{ padding: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <Avatar name={c.name} />
@@ -180,9 +181,6 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
                       {score >= threshold && <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 700, color: 'var(--success-700)', flexShrink: 0 }}>AUTO</span>}
                     </div>
                   </td>
-                  <td style={{ padding: '12px 20px', textAlign: 'center' }}>
-                    <Checkbox checked={c.approved} onChange={() => toggle(c)} />
-                  </td>
                 </tr>
               );
             })}
@@ -195,7 +193,7 @@ export function ScoringTable({ campaignId, contacts: initialContacts, threshold 
         <Button hierarchy="secondary" onClick={exportCsv}>
           Export list (.csv)
         </Button>
-        <NavButton href={`/campaigns/${campaignId}/templates`}>Approve &amp; continue to templates</NavButton>
+        <NavButton href={`/campaigns/${campaignId}/messaging`}>Approve &amp; continue to messaging</NavButton>
       </div>
     </div>
   );

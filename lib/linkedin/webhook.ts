@@ -112,6 +112,9 @@ export function normalizeRegistrant(raw: unknown): NormalizedRegistrant {
   out.title = pickString(obj, ['title', 'jobTitle', 'JobTitle', 'headline']);
   out.company = pickString(obj, ['company', 'companyName', 'organization', 'account']);
 
+  let answerFirst = '';
+  let answerLast = '';
+
   const answers = obj.answers;
   if (Array.isArray(answers)) {
     for (const entry of answers) {
@@ -124,8 +127,15 @@ export function normalizeRegistrant(raw: unknown): NormalizedRegistrant {
       if (!out.email && /mail/.test(label)) out.email = answer.toLowerCase();
       else if (!out.title && /(title|role|position)/.test(label)) out.title = answer;
       else if (!out.company && /(company|organization|employer|account)/.test(label)) out.company = answer;
-      else if (!out.name && /(full|^fn$|^ln$|first|last)/.test(label)) out.name = [out.name, answer].filter(Boolean).join(' ');
+      else if (/(first|^fn$)/.test(label)) answerFirst = answer;
+      else if (/(last|^ln$)/.test(label)) answerLast = answer;
+      else if (!out.name && /(full|^name$)/.test(label)) out.name = answer;
     }
+  }
+
+  const combinedFromAnswers = [answerFirst, answerLast].filter(Boolean).join(' ');
+  if (combinedFromAnswers) {
+    out.name = combinedFromAnswers;
   }
 
   return out;

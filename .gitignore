@@ -46,8 +46,11 @@ next-env.d.ts
 
 /lib/generated/prisma
 
-# sqlite dev database
+# sqlite dev database — WAL mode (lib/db.ts) adds -wal/-shm sidecar files
+# alongside the classic rollback-journal's -journal one
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 
 .vscode/

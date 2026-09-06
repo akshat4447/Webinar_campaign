@@ -23,21 +23,26 @@ export function ScoringHeader({ campaign }: { campaign: Campaign }) {
   async function rescore() {
     setRescoring(true);
     setRescoreNotice(null);
-    const res = await runScoringAction(campaign.id);
-    setRescoring(false);
-    if (res.ok) {
-      // Re-scoring never overwrites a contact whose approval a human already
-      // set by hand (Scoring tab checkbox / bulk action) — surface that so it
-      // doesn't look like the re-score silently did nothing to those rows.
-      setRescoreNotice(
-        res.preservedManualApprovals
-          ? `Re-scored ${res.scoredCount} contacts — kept ${res.preservedManualApprovals} manually-set approval${res.preservedManualApprovals === 1 ? '' : 's'} as-is.`
-          : `Re-scored ${res.scoredCount} contacts.`
-      );
-    } else {
-      setRescoreNotice(res.error ?? 'Re-scoring failed.');
+    try {
+      const res = await runScoringAction(campaign.id);
+      if (res.ok) {
+        // Re-scoring never overwrites a contact whose approval a human already
+        // set by hand (Scoring tab checkbox / bulk action) — surface that so it
+        // doesn't look like the re-score silently did nothing to those rows.
+        setRescoreNotice(
+          res.preservedManualApprovals
+            ? `Re-scored ${res.scoredCount} contacts — kept ${res.preservedManualApprovals} manually-set approval${res.preservedManualApprovals === 1 ? '' : 's'} as-is.`
+            : `Re-scored ${res.scoredCount} contacts.`
+        );
+      } else {
+        setRescoreNotice(res.error ?? 'Re-scoring failed.');
+      }
+      router.refresh();
+    } catch (err) {
+      setRescoreNotice(err instanceof Error ? err.message : 'Re-scoring failed.');
+    } finally {
+      setRescoring(false);
     }
-    router.refresh();
   }
 
   return (

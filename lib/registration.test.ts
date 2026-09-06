@@ -89,4 +89,14 @@ describe('ensureAbsoluteUrl', () => {
   it('leaves any other real URL scheme untouched, not just http(s)', () => {
     expect(ensureAbsoluteUrl('zoommtg://zoom.us/join?id=123')).toBe('zoommtg://zoom.us/join?id=123');
   });
+
+  it('rejects dangerous schemes and protocol-relative URLs', () => {
+    expect(ensureAbsoluteUrl('javascript:alert(1)')).toBe('about:blank');
+    expect(ensureAbsoluteUrl('data:text/html,<script>alert(1)</script>')).toBe('about:blank');
+    expect(ensureAbsoluteUrl('vbscript:msgbox(1)')).toBe('about:blank');
+    expect(ensureAbsoluteUrl('file:///etc/passwd')).toBe('about:blank');
+    expect(ensureAbsoluteUrl('//evil.com/phish')).toBe('about:blank');
+    expect(ensureAbsoluteUrl('')).toBe('about:blank');
+  });
 });
+

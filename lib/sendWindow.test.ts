@@ -63,4 +63,28 @@ describe('isWithinSendWindow', () => {
     const at = new Date('2026-01-01T03:00:00');
     expect(isWithinSendWindow(at, '09:00–09:00')).toBe(true);
   });
+
+  it('correctly evaluates against Asia/Kolkata timezone regardless of host clock', () => {
+    // 04:00 UTC = 09:30 AM IST (inside 09:00–18:00 IST)
+    const morningUtc = new Date('2026-01-01T04:00:00.000Z');
+    expect(isWithinSendWindow(morningUtc, '09:00–18:00', 'Asia/Kolkata')).toBe(true);
+
+    // 17:00 UTC = 22:30 PM IST (outside 09:00–18:00 IST)
+    const nightUtc = new Date('2026-01-01T17:00:00.000Z');
+    expect(isWithinSendWindow(nightUtc, '09:00–18:00', 'Asia/Kolkata')).toBe(false);
+
+    // 03:00 UTC = 08:30 AM IST (before 09:00 AM IST)
+    const earlyUtc = new Date('2026-01-01T03:00:00.000Z');
+    expect(isWithinSendWindow(earlyUtc, '09:00–18:00', 'Asia/Kolkata')).toBe(false);
+  });
+
+  it('automatically detects IST in legacy window strings and applies Asia/Kolkata', () => {
+    // 04:00 UTC = 09:30 AM IST
+    const morningUtc = new Date('2026-01-01T04:00:00.000Z');
+    expect(isWithinSendWindow(morningUtc, '9:00 AM – 6:00 PM IST')).toBe(true);
+
+    // 17:00 UTC = 22:30 PM IST
+    const nightUtc = new Date('2026-01-01T17:00:00.000Z');
+    expect(isWithinSendWindow(nightUtc, '9:00 AM – 6:00 PM IST')).toBe(false);
+  });
 });

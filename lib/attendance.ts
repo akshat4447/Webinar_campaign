@@ -31,7 +31,8 @@ async function applyAttendance(campaignId: string, emailToDuration: Map<string, 
     if (duration !== undefined) {
       await db.contact.update({ where: { id: contact.id }, data: { attended: true, watchMinutes: duration } });
       attendedIds.push(contact.id);
-    } else {
+    } else if (contact.registeredAt) {
+      // Only contacts who actually registered for the webinar are considered No-shows
       noShowIds.push(contact.id);
     }
   }
@@ -41,6 +42,14 @@ async function applyAttendance(campaignId: string, emailToDuration: Map<string, 
   const now = (await db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { simulatedNow: true } })).simulatedNow ?? new Date();
   const enabledSteps = await db.cadenceStep.findMany({ where: { campaignId, key: { in: ['attend', 'noshow'] }, enabled: true, removedAt: null } });
   const enabledKeys = new Set(enabledSteps.map((s) => s.key));
+
+  // If a contact attended, cancel any conflicting pending no-show send from previous imports
+  if (attendedIds.length > 0) {
+    await db.cadenceSend.updateMany({
+      where: { campaignId, contactId: { in: attendedIds }, stepKey: 'noshow', status: 'queued' },
+      data: { status: 'skipped', error: 'Contact attended the event' },
+    });
+  }
 
   const existing = await db.cadenceSend.findMany({ where: { campaignId, stepKey: { in: ['attend', 'noshow'] } }, select: { contactId: true, stepKey: true } });
   const existingKey = new Set(existing.map((e) => `${e.contactId}:${e.stepKey}`));
