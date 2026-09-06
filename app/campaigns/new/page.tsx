@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { getEnrichmentStats } from '@/lib/actions/enrichment';
-import { normalizeChannel } from '@/lib/channels';
+import { normalizeChannel, DEFAULT_ENABLED_CHANNELS } from '@/lib/channels';
 import { WizardClient } from './WizardClient';
 
 // The wizard is server-rendered per step and carries its draft in the URL
@@ -28,7 +28,12 @@ export default async function NewCampaignPage(props: PageProps<'/campaigns/new'>
       ])
     : [0, 0, null, []];
 
-  const initialChannels: Record<string, boolean> = { email: true, linkedin: true, whatsapp: false, sms: false };
+  const initialChannels: Record<string, boolean> = {
+    email: DEFAULT_ENABLED_CHANNELS.has('email'),
+    linkedin: DEFAULT_ENABLED_CHANNELS.has('linkedin'),
+    whatsapp: DEFAULT_ENABLED_CHANNELS.has('whatsapp'),
+    sms: DEFAULT_ENABLED_CHANNELS.has('sms'),
+  };
   if (cadenceSteps.length > 0) {
     initialChannels.email = false;
     initialChannels.linkedin = false;

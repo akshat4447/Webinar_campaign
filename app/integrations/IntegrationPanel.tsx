@@ -24,6 +24,7 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
   const [saved, setSaved] = useState(false);
   const [finding, setFinding] = useState(false);
   const [senderNote, setSenderNote] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // Whatever host the browser is actually on right now — localhost, a tunnel
   // (Cloudflare/ngrok), or a real deployment. Never hardcode a specific one:
   // a quick-tunnel hostname is random per session and dead the moment that
@@ -76,13 +77,19 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
   async function save() {
     if (!dirty) return;
     setSaving(true);
-    await saveIntegrationConfigAction(id, values);
-    setSaving(false);
-    setSaved(true);
-    setValues({});
-    const next = await getIntegrationConfigMaskedAction(id);
-    setMasked(next);
-    onChanged();
+    setSaveError(null);
+    try {
+      await saveIntegrationConfigAction(id, values);
+      setSaved(true);
+      setValues({});
+      const next = await getIntegrationConfigMaskedAction(id);
+      setMasked(next);
+      onChanged();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -162,19 +169,8 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
               )}
               {id === 'lsq' && (
                 <div style={{ marginBottom: 12, padding: 10, background: 'var(--n10)', borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-label-2)', color: 'var(--n70)', lineHeight: 1.6 }}>
-                  <strong style={{ display: 'block', marginBottom: 4 }}>SMS / WhatsApp delivery</strong>
-                  <strong>Trigger (default):</strong> the app posts a <em>WebinarAgent Channel Trigger</em> activity per send. One-time in your
-                  tenant: Settings → Automation → Add Program → trigger “On activity: WebinarAgent Channel Trigger” → action Send SMS /
-                  Send WhatsApp using field <code>mxp_Message</code>, to the lead&apos;s phone.
-                  <br />
-                  <strong>Direct:</strong> paste your account&apos;s endpoint path from{' '}
-                  <a href="https://apidocs.leadsquared.com/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-500)' }}>
-                    apidocs.leadsquared.com
-                  </a>{' '}
-                  into SMS/WhatsApp Endpoint. Guides &amp; add-ons (Kaleyra/Twilio SMS, Whatsapp Connector):{' '}
-                  <a href="https://help.leadsquared.com/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-500)' }}>
-                    help.leadsquared.com
-                  </a>
+                  <strong style={{ display: 'block', marginBottom: 4 }}>Outbound Messaging Note</strong>
+                  SMS &amp; WhatsApp delivery dispatch modes (LeadSquared Automation vs. Direct Gateway REST API) and testing are configured under the dedicated <strong>SMS &amp; WhatsApp Business</strong> integration card.
                 </div>
               )}
               {id === 'zoom' && (
@@ -265,15 +261,20 @@ export function IntegrationPanel({ id, name, onClose, onChanged }: { id: string;
           )}
         </div>
 
-        <div style={{ flexShrink: 0, padding: '14px 20px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Button hierarchy="secondary" size="sm" onClick={onClose}>
-            {explanatoryOnly ? 'Close' : 'Cancel'}
-          </Button>
-          {!explanatoryOnly && (
-            <Button hierarchy={dirty ? 'primary' : 'secondary'} size="sm" onClick={save} disabled={!dirty || saving}>
-              {saving ? 'Saving…' : dirty ? 'Save' : saved ? 'Saved' : 'Save'}
-            </Button>
+        <div style={{ flexShrink: 0, padding: '14px 20px', borderTop: '1px solid var(--border-subtle)' }}>
+          {saveError && (
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)', marginBottom: 8, overflowWrap: 'anywhere' }}>{saveError}</div>
           )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button hierarchy="secondary" size="sm" onClick={onClose}>
+              {explanatoryOnly ? 'Close' : 'Cancel'}
+            </Button>
+            {!explanatoryOnly && (
+              <Button hierarchy={dirty ? 'primary' : 'secondary'} size="sm" onClick={save} disabled={!dirty || saving}>
+                {saving ? 'Saving…' : dirty ? 'Save' : saved ? 'Saved' : 'Save'}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </>

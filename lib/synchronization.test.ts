@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderMergeFields, KNOWN_MERGE_VARS } from './mergeFields';
 import { validateTemplateContent } from './messageValidation';
-import { normalizeChannel } from './channels';
+import { normalizeChannel, DEFAULT_ENABLED_CHANNELS } from './channels';
 import { cadenceStepsData } from './demo-data';
 
 describe('Webinar Data & Template Synchronization', () => {
@@ -39,6 +39,13 @@ describe('Webinar Data & Template Synchronization', () => {
     expect(rendered).not.toContain('{{');
   });
 
+  it('renderMergeFields resolves lastName when supplied, and blanks it when not', () => {
+    const template = 'Hi {{firstName}} {{lastName}},';
+    const opts = { firstName: 'John', company: 'Acme', topic: 'x', link: 'https://x' };
+    expect(renderMergeFields(template, { ...opts, lastName: 'Doe' })).toBe('Hi John Doe,');
+    expect(renderMergeFields(template, opts)).toBe('Hi John ,');
+  });
+
   it('KNOWN_MERGE_VARS includes speaker and date for template validation', () => {
     expect(KNOWN_MERGE_VARS).toContain('speaker');
     expect(KNOWN_MERGE_VARS).toContain('date');
@@ -50,8 +57,6 @@ describe('Webinar Data & Template Synchronization', () => {
   });
 
   it('Default channel enablement enables email and linkedin, while disabling optional channels by default', () => {
-    const DEFAULT_ENABLED_CHANNELS = new Set<string>(['email', 'linkedin']);
-
     const emailSteps = cadenceStepsData.filter((s) => normalizeChannel(s.channel) === 'email');
     const linkedinSteps = cadenceStepsData.filter((s) => normalizeChannel(s.channel) === 'linkedin');
     const smsSteps = cadenceStepsData.filter((s) => normalizeChannel(s.channel) === 'sms');

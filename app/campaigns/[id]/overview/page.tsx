@@ -85,7 +85,16 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
     { label: 'Messages delivered', value: String(totalDelivered), sub: 'every channel and step', tone: 'neutral' as const },
     {
       label: 'Attendance rate',
-      value: attendanceImported && (registered || approved) ? `${Math.round((attended / (registered || approved)) * 100)}%` : '—',
+      // Same "don't show a conversion that didn't happen" rule as the funnel
+      // table above — attended isn't strictly derived from registered (e.g. a
+      // Zoom email match for someone who never completed registration), so it
+      // can exceed the denominator.
+      value: (() => {
+        const denom = registered || approved;
+        if (!attendanceImported || !denom) return '—';
+        const pct = Math.round((attended / denom) * 100);
+        return pct > 100 ? '—' : `${pct}%`;
+      })(),
       sub: attendanceImported ? `${attended} of ${registered || approved} ${registered ? 'registered' : 'approved'}` : zoomLinked ? 'pulls in automatically post-webinar' : 'link a Zoom meeting on Setup',
       tone: 'neutral' as const,
     },
@@ -186,6 +195,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
     Scored: contacts.filter((c) => c.score !== null),
     Approved: contacts.filter((c) => c.approved),
     Invited: contacts.filter((c) => invitedIds.has(c.id)),
+    Registered: contacts.filter((c) => c.registeredAt),
     Attended: contacts.filter((c) => c.attended),
     'CRM synced': contacts.filter((c) => c.lsqLeadId),
   };
@@ -203,6 +213,11 @@ export default async function DashboardPage({ params }: { params: Promise<{ id: 
       notes: list.length > 50 ? [`Showing the top 50 of ${list.length} by score — export the full list from the Scoring tab.`] : undefined,
     };
   }
+  // The funnel table below labels this stage "Invited (invite step)" (to
+  // distinguish it from the "Invites delivered" KPI), but stageContacts keys
+  // it plainly as "Invited" since the pipeline widget also reads that key —
+  // alias so clicking either tile opens the same drawer instead of nothing.
+  drawers['Invited (invite step)'] = drawers['Invited'];
 
   // Six pipeline stages, always the same six regardless of what's been
   // imported yet — a tile reading 0 is still informative ("nothing invited

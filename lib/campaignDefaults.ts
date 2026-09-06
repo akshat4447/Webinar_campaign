@@ -2,7 +2,7 @@ import { db } from '@/lib/db';
 import { cadenceStepsData } from '@/lib/demo-data';
 import { STEP_DEFAULTS } from '@/lib/stepSchedule';
 import { defaultTriggerFor } from '@/lib/stepTrigger';
-import { normalizeChannel } from '@/lib/channels';
+import { normalizeChannel, DEFAULT_ENABLED_CHANNELS } from '@/lib/channels';
 
 /**
  * Give a new campaign its baseline cadence.
@@ -26,8 +26,6 @@ export async function provisionCampaignDefaults(campaignId: string) {
   const byKey = new Map(library.filter((t) => t.key).map((t) => [t.key as string, t.id]));
   const byChannel = new Map<string, string>();
   for (const t of library) if (!byChannel.has(t.channel)) byChannel.set(t.channel, t.id);
-
-  const DEFAULT_ENABLED_CHANNELS = new Set<string>(['email', 'linkedin']);
 
   await Promise.all(
     cadenceStepsData.map((s) => {

@@ -29,18 +29,20 @@ export async function regeneratePersonalizedAction(campaignId: string, contactId
   return result;
 }
 
-export async function savePersonalizedAction(messageId: string, subject: string | null, body: string) {
+export async function savePersonalizedAction(campaignId: string, messageId: string, subject: string | null, body: string) {
   const now = new Date();
   await db.personalizedMessage.update({
     where: { id: messageId },
     data: { subject, body, status: 'edited', editedAt: now },
   });
+  revalidateCampaign(campaignId);
   return { savedAt: now.toISOString() };
 }
 
-export async function markReviewedAction(messageId: string) {
+export async function markReviewedAction(campaignId: string, messageId: string) {
   const now = new Date();
   await db.personalizedMessage.update({ where: { id: messageId }, data: { status: 'reviewed', reviewedAt: now } });
+  revalidateCampaign(campaignId);
   return { reviewedAt: now.toISOString() };
 }
 
@@ -114,4 +116,25 @@ export async function updateCampaignMessagingInstructionsAction(
  */
 export async function getDefaultPersonalizationPromptAction(): Promise<string> {
   return DEFAULT_PERSONALIZATION_PROMPT;
+}
+
+/** Generates 3 psychological copy angles (Pillar 1: A/B copy generation) */
+export async function generateCopyAnglesAction(params: {
+  campaignId: string;
+  stepKey: string;
+  channel: 'email' | 'linkedin' | 'sms' | 'whatsapp';
+  stepLabel: string;
+  baseBody?: string;
+}) {
+  const { generateMessageAngles } = await import('@/lib/claude');
+  const campaign = await db.campaign.findUniqueOrThrow({ where: { id: params.campaignId } });
+  return generateMessageAngles({
+    topic: campaign.name,
+    speakerName: campaign.speakerName,
+    speakerTitle: campaign.speakerTitle,
+    brief: campaign.brief,
+    channel: params.channel,
+    stepLabel: params.stepLabel,
+    baseBody: params.baseBody,
+  });
 }

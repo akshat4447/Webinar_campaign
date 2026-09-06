@@ -5,6 +5,13 @@
 
 export type Channel = 'email' | 'sms' | 'whatsapp' | 'linkedin';
 
+// Which channels a brand-new campaign ships with, enabled by default — sms
+// and whatsapp need compliance setup (DLT/WABA) most tenants don't have on
+// day one, so they start off. The one real source of truth: the wizard's
+// initial toggle state and provisionCampaignDefaults both read this instead
+// of each hand-copying the same literal, which is how they drifted before.
+export const DEFAULT_ENABLED_CHANNELS = new Set<Channel>(['email', 'linkedin']);
+
 /**
  * Maps a CadenceStep/Template display channel string onto a routable channel.
  * Multi-channel labels like "Email + LinkedIn" route by their primary (email)

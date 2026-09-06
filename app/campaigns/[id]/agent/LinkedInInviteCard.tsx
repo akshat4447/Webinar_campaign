@@ -18,19 +18,32 @@ export function LinkedInInviteCard(props: {
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<'invite' | 'process' | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function invite() {
     setBusy('invite');
-    await markLinkedinInvitedAction(props.campaignId, true);
-    setBusy(null);
-    router.refresh();
+    setError(null);
+    try {
+      await markLinkedinInvitedAction(props.campaignId, true);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save — try again.');
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function process() {
     setBusy('process');
-    await processLinkedInQueueAction(props.campaignId);
-    setBusy(null);
-    router.refresh();
+    setError(null);
+    try {
+      await processLinkedInQueueAction(props.campaignId);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not process the queue — try again.');
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (
@@ -71,6 +84,10 @@ export function LinkedInInviteCard(props: {
             {busy === 'process' ? 'Processing…' : 'Process now'}
           </Button>
         </div>
+      )}
+
+      {error && (
+        <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)', marginTop: 10, overflowWrap: 'anywhere' }}>{error}</div>
       )}
     </div>
   );

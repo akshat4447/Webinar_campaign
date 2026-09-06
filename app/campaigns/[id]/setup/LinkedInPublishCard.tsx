@@ -51,11 +51,12 @@ export function LinkedInPublishCard(props: {
   async function cancel() {
     if (!confirm('Unlink this webinar\'s LinkedIn Event? The event is deleted remotely when possible.')) return;
     setBusy('cancel');
+    setResult(null);
     try {
       await cancelLinkedInEventAction(props.campaignId);
       router.refresh();
     } catch (err) {
-      console.error('Failed to cancel LinkedIn event:', err);
+      setResult({ ok: false, detail: err instanceof Error ? err.message : String(err) });
     } finally {
       setBusy(null);
     }

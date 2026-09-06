@@ -18,12 +18,22 @@ import {
 import { createZoomMeetingAction, linkZoomMeetingAction, listZoomMeetingsAction, type ZoomMeeting } from '@/lib/actions/zoom';
 import { runScoringAction, updateScoringConfigAction } from '@/lib/actions/scoring';
 import { validateWizardDetails } from '@/lib/wizardValidation';
+import { DEFAULT_ENABLED_CHANNELS } from '@/lib/channels';
 import { toDateTimeLocal } from '@/lib/campaignDate';
 
 const STEPS = ['Webinar details', 'Audience', 'Enrich & score', 'Message & channels'];
 
 const TONES = ['Warm & concise', 'Direct & professional', 'Consultative', 'Friendly & casual', 'Formal & executive'];
 const LENGTHS = ['Short (~60 words)', 'Medium (~100 words)', 'Long (~150 words)'];
+
+// Same textarea, different job: in AI mode this is a brief Claude reads (never
+// sent as-is), in Templatized mode it becomes the literal invite email body —
+// so each mode needs its own default, and templatized's MUST carry {{link}}
+// or an operator who never edits it ships an invite with no registration link.
+const DEFAULT_BRIEF_BY_MODE = {
+  ai: 'Invite the reader to a live session on the webinar topic, tied to the operational problem their role owns. Lead with the problem, not a pitch. Keep it short and specific.',
+  templatized: "Hi {{firstName}}, join us for a live session on {{topic}} — we'll dig into how teams at companies like {{company}} are tackling this. Save your spot here: {{link}}",
+} as const;
 
 const CHANNEL_CADENCE: Record<string, string> = {
   email: 'Invite · +4d nudge · +7d final · T-1d and T-1h reminders · follow-ups',
@@ -190,11 +200,16 @@ export function WizardClient({
     aiInstructions:
       campaign?.aiInstructions ??
       "Lead with the operational problem the reader's role owns — not a pitch or flattery. Vary the angle by seniority and function. Keep the offer and registration link exactly as given.",
-    brief:
-      campaign?.brief ??
-      'Invite the reader to a live session on the webinar topic, tied to the operational problem their role owns. Lead with the problem, not a pitch. Keep it short and specific.',
+    brief: campaign?.brief ?? DEFAULT_BRIEF_BY_MODE.ai,
     oneClickSignup: campaign?.oneClickSignup ?? true,
-    channels: initialChannels ?? ({ email: true, linkedin: true, whatsapp: false, sms: false } as Record<string, boolean>),
+    channels:
+      initialChannels ??
+      ({
+        email: DEFAULT_ENABLED_CHANNELS.has('email'),
+        linkedin: DEFAULT_ENABLED_CHANNELS.has('linkedin'),
+        whatsapp: DEFAULT_ENABLED_CHANNELS.has('whatsapp'),
+        sms: DEFAULT_ENABLED_CHANNELS.has('sms'),
+      } as Record<string, boolean>),
   });
 
   const set = (k: keyof WizardDetails, v: string) => setDetails((d) => ({ ...d, [k]: v }));
@@ -275,18 +290,23 @@ export function WizardClient({
   }
 
   async function continueFromScore() {
-    if (campaign) {
-      try {
-        await updateScoringConfigAction(campaign.id, {
-          prompt: scoring.prompt,
-          criteria: scoring.criteria,
-          threshold: scoring.threshold,
-        });
-      } catch (err) {
-        console.error('Failed to auto-save scoring config on continue:', err);
-      }
+    if (!campaign) {
+      go(3);
+      return;
     }
-    go(3);
+    setBusy(true);
+    try {
+      await updateScoringConfigAction(campaign.id, {
+        prompt: scoring.prompt,
+        criteria: scoring.criteria,
+        threshold: scoring.threshold,
+      });
+      go(3);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to save scoring config');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function launch() {
@@ -298,6 +318,7 @@ export function WizardClient({
       router.push(`/campaigns/${campaign.id}/overview`);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to save messaging');
+    } finally {
       setBusy(false);
     }
   }
@@ -594,7 +615,15 @@ export function WizardClient({
                   <button
                     key={opt.id}
                     type="button"
-                    onClick={() => setMessaging((m) => ({ ...m, msgMode: opt.id }))}
+                    onClick={() =>
+                      setMessaging((m) => {
+                        // Only swap the default text for the mode being left —
+                        // never touch a brief the operator actually wrote.
+                        const leavingDefault = DEFAULT_BRIEF_BY_MODE[m.msgMode];
+                        const brief = m.brief === leavingDefault ? DEFAULT_BRIEF_BY_MODE[opt.id] : m.brief;
+                        return { ...m, msgMode: opt.id, brief };
+                      })
+                    }
                     style={{
                       flex: 1,
                       textAlign: 'left',

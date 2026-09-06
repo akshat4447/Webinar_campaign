@@ -110,6 +110,8 @@ export default async function PersonalizePage({ params, searchParams }: { params
         key={activeStep.key}
         campaignId={id}
         campaignName={campaign.name}
+        campaignDate={campaign.date}
+        speakerName={campaign.speakerName}
         hasDescription={!!campaign.description}
         steps={available.map((t) => ({ key: t.key, label: t.label, channel: t.channel, count: countByStep[t.key] ?? 0 }))}
         activeStepKey={activeStep.key}

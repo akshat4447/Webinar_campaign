@@ -59,9 +59,15 @@ export function LsqActivityMappingCard() {
 
   async function save() {
     setSaving(true);
-    await saveLsqActivityMappingAction(map, triggerFields);
-    setSaving(false);
-    setSavedAt(new Date().toISOString());
+    setError(null);
+    try {
+      await saveLsqActivityMappingAction(map, triggerFields);
+      setSavedAt(new Date().toISOString());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function setType(ch: ChannelKey, value: string) {

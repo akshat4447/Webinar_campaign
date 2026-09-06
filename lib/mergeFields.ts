@@ -2,6 +2,7 @@ export const KNOWN_MERGE_VARS = ['firstName', 'lastName', 'company', 'topic', 'l
 
 export interface MergeFieldOptions {
   firstName: string;
+  lastName?: string;
   company: string;
   topic: string;
   link: string;
@@ -13,7 +14,7 @@ export function renderMergeFields(str: string, opts: MergeFieldOptions): string 
   if (!str) return '';
   return str
     .replace(/\{\{\s*firstName\s*\}\}/g, () => opts.firstName)
-    .replace(/\{\{\s*lastName\s*\}\}/g, () => '')
+    .replace(/\{\{\s*lastName\s*\}\}/g, () => opts.lastName ?? '')
     .replace(/\{\{\s*company\s*\}\}/g, () => opts.company)
     .replace(/\{\{\s*account\s*\}\}/g, () => opts.company)
     .replace(/\{\{\s*topic\s*\}\}/g, () => opts.topic)

@@ -135,20 +135,35 @@ export async function saveWizardMessagingAction(campaignId: string, messaging: W
   }
 
   // Channel choice is expressed by enabling/disabling that channel's steps —
-  // the same switch the planner uses, so the two can never disagree.
+  // the same switch the planner uses, so the two can never disagree. But this
+  // action re-fires on every "Finish setup" click, including a revisit where
+  // the operator changed nothing about channels — only touch a channel's
+  // steps when its on/off state actually flipped, so a per-step customization
+  // already made in the Cadence Planner (e.g. disabling one email step while
+  // keeping the rest on) survives an unrelated wizard re-save.
   const steps = await db.cadenceStep.findMany({
     where: { campaignId, removedAt: null },
-    select: { id: true, channel: true },
+    select: { id: true, channel: true, enabled: true },
   });
   const { normalizeChannel } = await import('@/lib/channels');
-  await db.$transaction(
-    steps.map((s) =>
+  const wasChannelOn = new Map<string, boolean>();
+  for (const s of steps) {
+    const ch = normalizeChannel(s.channel);
+    wasChannelOn.set(ch, (wasChannelOn.get(ch) ?? false) || s.enabled);
+  }
+  const flippedStepUpdates = steps
+    .filter((s) => {
+      const ch = normalizeChannel(s.channel);
+      const nowOn = messaging.channels[ch] ?? false;
+      return (wasChannelOn.get(ch) ?? false) !== nowOn;
+    })
+    .map((s) =>
       db.cadenceStep.update({
         where: { id: s.id },
         data: { enabled: messaging.channels[normalizeChannel(s.channel)] ?? false },
       })
-    )
-  );
+    );
+  if (flippedStepUpdates.length > 0) await db.$transaction(flippedStepUpdates);
 
   // When AI mode is chosen, auto-generate reviewed drafts for approved contacts for the active initial step
   if (messaging.msgMode === 'ai') {

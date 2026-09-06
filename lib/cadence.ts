@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { createOrUpdateLead, sendEmailToLead, LeadSquaredError } from '@/lib/leadsquared';
-import { resolveRecipient, sendModeLabel } from '@/lib/sendGuard';
+import { resolveRecipient, sendModeLabel, getSendMode } from '@/lib/sendGuard';
 import { upsertAttentionItem, resolveAttentionItems } from '@/lib/attentionItems';
 import { resolveStepDate } from '@/lib/stepSchedule';
 import { isWithinSendWindow } from '@/lib/sendWindow';
@@ -415,7 +415,8 @@ async function processSingleSend(
     try {
       // Resolve the recipient first: this throws for an inferred-but-unverified
       // address, and we must not write a guessed email into the CRM either.
-      const { email: recipientEmail, sandboxed } = resolveRecipient(contact);
+      const activeSendMode = await getSendMode();
+      const { email: recipientEmail, sandboxed } = resolveRecipient(contact, activeSendMode);
 
       // Ensure the contact exists as a LeadSquared lead before emailing it.
       let lsqLeadId = contact.lsqLeadId;
@@ -506,6 +507,7 @@ async function processChannelSend(
   });
   const mergeOpts = {
     firstName: contact.name.split(' ')[0] || contact.name,
+    lastName: contact.name.split(' ').slice(1).join(' '),
     company: contact.account,
     topic: campaign.name,
     link,
@@ -531,14 +533,15 @@ async function processChannelSend(
   try {
     // The recipient: live → the contact's own number; sandbox → the allowlist
     // lead's number, mirroring how email sends are redirected in sandbox mode.
-    const rawPhone = (process.env.SEND_MODE === 'live' ? contact.phone || '' : await sandboxTargetPhone());
+    const activeSendMode = await getSendMode();
+    const rawPhone = (activeSendMode === 'live' ? contact.phone || '' : await sandboxTargetPhone());
     const targetPhone = rawPhone.replace(/[^\d+]/g, '');
     if (!targetPhone) return skip('Contact has no valid phone number on file');
 
     // The lead must exist in LeadSquared first (trigger strategy attaches the
     // activity to it; direct strategy keeps CRM state consistent too).
     let lsqLeadId = contact.lsqLeadId;
-    if (!lsqLeadId && contact.email && process.env.SEND_MODE === 'live') {
+    if (!lsqLeadId && contact.email && activeSendMode === 'live') {
       const result = await createOrUpdateLead([
         { Attribute: 'EmailAddress', Value: contact.email },
         { Attribute: 'FirstName', Value: contact.name.split(' ')[0] || contact.name },
@@ -548,7 +551,7 @@ async function processChannelSend(
       lsqLeadId = result.Message.Id;
       await db.contact.update({ where: { id: contact.id }, data: { lsqLeadId } });
     }
-    if (!lsqLeadId && process.env.SEND_MODE === 'live') {
+    if (!lsqLeadId && activeSendMode === 'live') {
       return skip('No email to key a LeadSquared lead on and none synced yet');
     }
 
@@ -573,7 +576,7 @@ async function processChannelSend(
     await db.activityLogEntry.create({
       data: {
         campaignId,
-        text: `Sent ${channel.toUpperCase()} "${template.label}" to ${contact.name} (${delivery.strategyUsed}: ${delivery.detail})${process.env.SEND_MODE !== 'live' ? ' — sandboxed → allowlisted phone' : ''}`,
+        text: `Sent ${channel.toUpperCase()} "${template.label}" to ${contact.name} (${delivery.strategyUsed}: ${delivery.detail})${activeSendMode !== 'live' ? ' — sandboxed → allowlisted phone' : ''}`,
         dot: 'var(--success-500)',
       },
     });

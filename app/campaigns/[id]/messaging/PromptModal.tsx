@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
 import { updateCampaignMessagingInstructionsAction, getDefaultPersonalizationPromptAction } from '@/lib/actions/personalize';
@@ -34,37 +34,65 @@ export function PromptModal({
   const [instructionsText, setInstructionsText] = useState(aiInstructions);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const dirty = text !== prompt || briefText !== brief || instructionsText !== aiInstructions;
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !saving && !resetting) {
+        e.preventDefault();
+        onClose();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, saving, resetting]);
 
   async function save() {
     if (!dirty) return;
     setSaving(true);
-    await updateCampaignMessagingInstructionsAction(campaignId, {
-      prompt: text,
-      brief: briefText,
-      aiInstructions: instructionsText,
-    });
-    setSaving(false);
-    onSaved(text, briefText, instructionsText);
+    setError(null);
+    try {
+      await updateCampaignMessagingInstructionsAction(campaignId, {
+        prompt: text,
+        brief: briefText,
+        aiInstructions: instructionsText,
+      });
+      onSaved(text, briefText, instructionsText);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function reset() {
     setResetting(true);
-    const defaultText = await getDefaultPersonalizationPromptAction();
-    setResetting(false);
-    setText(defaultText);
+    setError(null);
+    try {
+      const defaultText = await getDefaultPersonalizationPromptAction();
+      setText(defaultText);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reset failed.');
+    } finally {
+      setResetting(false);
+    }
   }
 
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(16,20,25,0.45)', zIndex: 1200 }} />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="prompt-modal-title"
         style={{
           position: 'fixed',
           top: '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
           width: 620,
+          maxWidth: 'calc(100vw - 32px)',
           maxHeight: 'calc(100vh - 48px)',
           background: '#fff',
           borderRadius: 'var(--radius-lg)',
@@ -150,17 +178,22 @@ export function PromptModal({
           </div>
         </div>
 
-        <div style={{ flexShrink: 0, padding: '14px 20px', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <Button hierarchy="tertiary" size="sm" onClick={reset} disabled={resetting || saving}>
-            {resetting ? 'Resetting…' : 'Reset to default'}
-          </Button>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button hierarchy="secondary" size="sm" onClick={onClose}>
-              Cancel
+        <div style={{ flexShrink: 0, padding: '14px 20px', borderTop: '1px solid var(--border-subtle)' }}>
+          {error && (
+            <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)', marginBottom: 8, overflowWrap: 'anywhere' }}>{error}</div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <Button hierarchy="tertiary" size="sm" onClick={reset} disabled={resetting || saving}>
+              {resetting ? 'Resetting…' : 'Reset to default'}
             </Button>
-            <Button hierarchy="primary" size="sm" onClick={save} disabled={!dirty || saving}>
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button hierarchy="secondary" size="sm" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button hierarchy="primary" size="sm" onClick={save} disabled={!dirty || saving}>
+                {saving ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

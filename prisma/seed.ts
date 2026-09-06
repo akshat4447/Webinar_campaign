@@ -9,6 +9,7 @@ import {
 } from '../lib/demo-data';
 import { defaultTriggerFor } from '../lib/stepTrigger';
 import { STEP_DEFAULTS } from '../lib/stepSchedule';
+import { normalizeChannel, DEFAULT_ENABLED_CHANNELS } from '../lib/channels';
 
 /** A per-campaign registration slug, so every webinar links to its own landing page. */
 function registrationSlug(name: string): string {
@@ -130,7 +131,7 @@ async function main() {
         channel: s.channel,
         desc: s.desc,
         toggleable: s.toggleable,
-        enabled: s.toggleable,
+        enabled: s.toggleable && DEFAULT_ENABLED_CHANNELS.has(normalizeChannel(s.channel)),
         isRoadmap: !!s.isRoadmap,
         trigger: defaultTriggerFor(s.id),
         templateId: libraryTpl?.id ?? null,

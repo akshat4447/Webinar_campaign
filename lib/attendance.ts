@@ -22,7 +22,11 @@ export interface AttendanceImportResult {
  * engagement activities to LeadSquared. Neither import path duplicates this.
  */
 async function applyAttendance(campaignId: string, emailToDuration: Map<string, number>): Promise<AttendanceImportResult> {
-  const candidateContacts = await db.contact.findMany({ where: { campaignId } });
+  // approved-only: an email match alone isn't consent to treat someone as a
+  // real campaign engagement — a contact scored below threshold and rejected
+  // must not get marked attended, pushed to LeadSquared as "Attended", or have
+  // a brand-new lead created for them there (see pushEngagementActivities).
+  const candidateContacts = await db.contact.findMany({ where: { campaignId, approved: true } });
   const attendedIds: string[] = [];
   const noShowIds: string[] = [];
 

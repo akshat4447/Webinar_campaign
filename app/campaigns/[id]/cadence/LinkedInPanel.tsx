@@ -42,6 +42,7 @@ export function LinkedInPanel({
   const [savingProfile, setSavingProfile] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [verifySummary, setVerifySummary] = useState<string | null>(null);
+  const [markError, setMarkError] = useState<string | null>(null);
   const router = useRouter();
   const [index, setIndex] = useState(0);
   const [progress, setProgress] = useState<Record<string, string>>(initialProgress);
@@ -116,9 +117,23 @@ export function LinkedInPanel({
     router.refresh();
   }
 
-  async function mark(contactId: string, status: 'sent' | 'skipped') {
+  async function mark(contactId: string, status: 'sent' | 'skipped'): Promise<boolean> {
+    const previous = progress[contactId];
     setProgress((p) => ({ ...p, [contactId]: status }));
-    await markLinkedInSendAction(campaignId, contactId, status);
+    setMarkError(null);
+    try {
+      const res = await markLinkedInSendAction(campaignId, contactId, status);
+      if (!res.ok) {
+        setProgress((p) => ({ ...p, [contactId]: previous }));
+        setMarkError(res.error ?? 'Could not record this — try again.');
+        return false;
+      }
+      return true;
+    } catch (err) {
+      setProgress((p) => ({ ...p, [contactId]: previous }));
+      setMarkError(err instanceof Error ? err.message : 'Could not record this — try again.');
+      return false;
+    }
   }
 
   function next() {
@@ -283,13 +298,15 @@ export function LinkedInPanel({
                       <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginBottom: 8, lineHeight: 1.5 }}>
                         LinkedIn doesn&apos;t tell us when a message actually goes out — confirm here and the queue moves on.
                       </div>
+                      {markError && (
+                        <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--danger-500)', marginBottom: 8, overflowWrap: 'anywhere' }}>{markError}</div>
+                      )}
                       <div style={{ display: 'flex', gap: 8 }}>
                         <Button
                           hierarchy={curSteps.opened ? 'primary' : 'secondary'}
                           size="sm"
                           onClick={async () => {
-                            await mark(current.id, 'sent');
-                            next();
+                            if (await mark(current.id, 'sent')) next();
                           }}
                         >
                           I sent it
@@ -298,8 +315,7 @@ export function LinkedInPanel({
                           hierarchy="tertiary"
                           size="sm"
                           onClick={async () => {
-                            await mark(current.id, 'skipped');
-                            next();
+                            if (await mark(current.id, 'skipped')) next();
                           }}
                         >
                           Skip

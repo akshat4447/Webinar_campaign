@@ -21,6 +21,8 @@ import { validateRenderedMessageForChannel, type ValidationResult } from '@/lib/
 import type { Channel } from '@/lib/channels';
 import { renderMergeFields } from '@/lib/mergeFields';
 import { PromptModal } from './PromptModal';
+import { SendTestModal } from './SendTestModal';
+import { CopyAnglesModal } from './CopyAnglesModal';
 
 interface MessageState {
   id: string;
@@ -57,18 +59,23 @@ const statusMeta: Record<string, { color: string; label: string }> = {
   reviewed: { color: 'success', label: 'Reviewed' },
 };
 
-function renderLocalMerge(text: string, contact: Row, topic: string, link: string) {
+function renderLocalMerge(text: string, contact: Row, topic: string, link: string, date?: string, speaker?: string) {
   return renderMergeFields(text, {
     firstName: contact.name.split(' ')[0] || contact.name,
+    lastName: contact.name.split(' ').slice(1).join(' '),
     company: contact.account,
     topic,
     link,
+    date,
+    speaker,
   });
 }
 
 export function PersonalizeClient({
   campaignId,
   campaignName,
+  campaignDate,
+  speakerName,
   hasDescription,
   steps,
   activeStepKey,
@@ -86,6 +93,8 @@ export function PersonalizeClient({
 }: {
   campaignId: string;
   campaignName: string;
+  campaignDate?: string;
+  speakerName?: string | null;
   hasDescription: boolean;
   steps: StepOption[];
   activeStepKey: string;
@@ -114,6 +123,8 @@ export function PersonalizeClient({
   const [showTemplate, setShowTemplate] = useState(false);
   const [repairing, setRepairing] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
+  const [testModalOpen, setTestModalOpen] = useState(false);
+  const [anglesModalOpen, setAnglesModalOpen] = useState(false);
   const [savedPrompt, setSavedPrompt] = useState(personalizationPrompt);
   const [savedBrief, setSavedBrief] = useState(brief);
   const [savedAiInstructions, setSavedAiInstructions] = useState(aiInstructions);
@@ -252,9 +263,10 @@ export function PersonalizeClient({
     const { id, subject, body } = selected.message;
     setSaving(true);
     try {
-      await savePersonalizedAction(id, subject, body);
+      await savePersonalizedAction(campaignId, id, subject, body);
       setBaseline((bl) => ({ ...bl, [id]: { subject, body } }));
       patchSelected({ status: 'edited' });
+      router.refresh();
     } catch (err) {
       setNotice({ tone: 'bad', text: err instanceof Error ? err.message : 'Save failed.' });
     } finally {
@@ -264,14 +276,20 @@ export function PersonalizeClient({
 
   async function review() {
     if (!selected?.message) return;
-    await markReviewedAction(selected.message.id);
-    patchSelected({ status: 'reviewed' });
+    try {
+      await markReviewedAction(campaignId, selected.message.id);
+      patchSelected({ status: 'reviewed' });
+      router.refresh();
+    } catch (err) {
+      setNotice({ tone: 'bad', text: err instanceof Error ? err.message : 'Could not mark reviewed.' });
+    }
   }
 
   async function reviewAll() {
     const n = await markAllReviewedAction(campaignId, activeStepKey);
     setRows((rs) => rs.map((r) => (r.message ? { ...r, message: { ...r.message, status: 'reviewed' } } : r)));
     setNotice({ tone: 'good', text: `${n} message${n === 1 ? '' : 's'} marked reviewed.` });
+    router.refresh();
   }
 
   async function discard() {
@@ -394,6 +412,12 @@ export function PersonalizeClient({
               )}
               <Button hierarchy="tertiary" size="md" onClick={() => setShowTemplate((v) => !v)}>
                 {showTemplate ? 'Hide base template' : 'View base template'}
+              </Button>
+              <Button hierarchy="secondary" size="md" onClick={() => setTestModalOpen(true)}>
+                Send test
+              </Button>
+              <Button hierarchy="secondary" size="md" onClick={() => setAnglesModalOpen(true)}>
+                ⚡ Copy angles
               </Button>
               <Button hierarchy="secondary-color" size="md" onClick={() => setPromptOpen(true)}>
                 ✦ AI instructions
@@ -592,8 +616,8 @@ export function PersonalizeClient({
                       hierarchy="secondary"
                       size="sm"
                       onClick={() => {
-                        const mergedSub = templateSubject ? renderLocalMerge(templateSubject, selected, campaignName, currentLink) : null;
-                        const mergedBody = renderLocalMerge(templateBody, selected, campaignName, currentLink);
+                        const mergedSub = templateSubject ? renderLocalMerge(templateSubject, selected, campaignName, currentLink, campaignDate, speakerName ?? undefined) : null;
+                        const mergedBody = renderLocalMerge(templateBody, selected, campaignName, currentLink, campaignDate, speakerName ?? undefined);
                         setRows((rs) =>
                           rs.map((r) =>
                             r.contactId === selected.contactId
@@ -619,11 +643,11 @@ export function PersonalizeClient({
                   <div style={{ background: 'var(--n10)', borderRadius: 'var(--radius-md)', padding: 14, marginBottom: 12 }}>
                     {templateSubject && (
                       <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>
-                        Subject: {renderLocalMerge(templateSubject, selected, campaignName, currentLink)}
+                        Subject: {renderLocalMerge(templateSubject, selected, campaignName, currentLink, campaignDate, speakerName ?? undefined)}
                       </div>
                     )}
                     <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                      {renderLocalMerge(templateBody, selected, campaignName, currentLink)}
+                      {renderLocalMerge(templateBody, selected, campaignName, currentLink, campaignDate, speakerName ?? undefined)}
                     </div>
                   </div>
                   <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)' }}>
@@ -680,9 +704,15 @@ export function PersonalizeClient({
                         size="sm"
                         onClick={async () => {
                           setBusyRow(selected.contactId);
-                          await discardOnePersonalizedAction(campaignId, selected.contactId, activeStepKey);
-                          setRows((rs) => rs.map((r) => (r.contactId === selected.contactId ? { ...r, message: null } : r)));
-                          setBusyRow(null);
+                          try {
+                            await discardOnePersonalizedAction(campaignId, selected.contactId, activeStepKey);
+                            setRows((rs) => rs.map((r) => (r.contactId === selected.contactId ? { ...r, message: null } : r)));
+                            router.refresh();
+                          } catch (err) {
+                            setNotice({ tone: 'bad', text: err instanceof Error ? err.message : 'Could not discard.' });
+                          } finally {
+                            setBusyRow(null);
+                          }
                         }}
                         disabled={busyRow === selected.contactId}
                       >
@@ -802,6 +832,49 @@ export function PersonalizeClient({
             setPromptOpen(false);
             setNotice({ tone: 'good', text: 'Saved. Regenerate to apply the new instructions to existing drafts.' });
           }}
+        />
+      )}
+
+      {testModalOpen && (
+        <SendTestModal
+          campaignId={campaignId}
+          channel={activeChannel}
+          stepLabel={activeStepLabel}
+          subject={
+            selected?.message
+              ? selected.message.subject
+              : templateSubject && selected
+                ? renderLocalMerge(templateSubject, selected, campaignName, currentLink, campaignDate, speakerName ?? undefined)
+                : templateSubject
+          }
+          body={
+            selected?.message
+              ? selected.message.body
+              : selected
+                ? renderLocalMerge(templateBody, selected, campaignName, currentLink, campaignDate, speakerName ?? undefined)
+                : templateBody
+          }
+          onClose={() => setTestModalOpen(false)}
+        />
+      )}
+
+      {anglesModalOpen && (
+        <CopyAnglesModal
+          campaignId={campaignId}
+          stepKey={activeStepKey}
+          stepLabel={activeStepLabel}
+          channel={activeChannel.toLowerCase() as 'email' | 'linkedin' | 'sms' | 'whatsapp'}
+          currentBody={selected?.message ? selected.message.body : templateBody}
+          onApplyAngle={(angle) => {
+            if (selected?.message) {
+              patchSelected({
+                subject: angle.subject ?? selected.message.subject,
+                body: angle.body,
+                status: 'edited',
+              });
+            }
+          }}
+          onClose={() => setAnglesModalOpen(false)}
         />
       )}
     </div>
