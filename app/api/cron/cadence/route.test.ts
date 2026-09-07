@@ -46,15 +46,17 @@ describe('/api/cron/cadence', () => {
       processed: 5,
       sent: 4,
       failed: 1,
-      skippedDailyLimit: 0,
-      skippedWindow: 0,
+      remaining: 0,
+      dailyLimitReached: false,
+      outsideSendWindow: false,
     });
     vi.mocked(processDueSends).mockResolvedValueOnce({
       processed: 2,
       sent: 2,
       failed: 0,
-      skippedDailyLimit: 0,
-      skippedWindow: 0,
+      remaining: 0,
+      dailyLimitReached: false,
+      outsideSendWindow: false,
     });
 
     const req = new Request('http://localhost/api/cron/cadence', {

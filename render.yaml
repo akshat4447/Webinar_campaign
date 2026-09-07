@@ -65,25 +65,34 @@ services:
       # registration, .ics downloads, OAuth redirects) build correctly.
       - key: APP_ORIGIN
         sync: false
+      # Shared with the cadence-cron job below — set the SAME value on both
+      # services after the first deploy. Protects /api/cron/cadence from
+      # being triggered by anyone who finds the URL.
+      - key: CRON_SECRET
+        sync: false
 
-  # Drives scheduled cadence sends without relying on the web service's own
-  # in-process timer, which stops when that process restarts and would
-  # double-process if this service ever scales past one instance. This is
-  # the "for anything real, drive npm run cadence:tick from cron" case the
-  # code's own instrumentation.ts comment calls out — do not also set
-  # CADENCE_AUTOTICK on the web service above while this is enabled.
+  # Drives scheduled cadence sends by calling the app's own /api/cron/cadence
+  # endpoint (app/api/cron/cadence/route.ts) rather than running a second copy
+  # of the app as a background worker — no separate build, no second
+  # DATABASE_URL connection pool, and the same endpoint Vercel Cron uses
+  # (see vercel.json) if you ever deploy there too. This replaces relying on
+  # the web service's own in-process CADENCE_AUTOTICK timer, which stops when
+  # that process restarts and would double-process sends if the service ever
+  # scaled past one instance — leave CADENCE_AUTOTICK unset above while this
+  # is enabled.
   - type: cron
-    name: webinar-studio-cadence-tick
+    name: webinar-studio-cadence-cron
     runtime: node
     plan: free
     schedule: "*/5 * * * *"
-    buildCommand: npm install && npx prisma generate
-    startCommand: npm run cadence:tick
+    buildCommand: "true"
+    startCommand: 'curl -sf -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/cadence"'
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: webinar-studio-db
-          property: connectionString
+      - key: CRON_SECRET
+        sync: false
+      # Update if you rename the web service above or attach a custom domain.
+      - key: APP_URL
+        value: https://webinar-studio.onrender.com
 
 databases:
   - name: webinar-studio-db

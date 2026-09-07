@@ -4,8 +4,11 @@
 # real caveat this app has on Netlify specifically: DATABASE_URL must point
 # at a real hosted Postgres (never a local file), and CADENCE_AUTOTICK /
 # ZOOM_AUTOSYNC (in-process timers) do not run here at all — there is no
-# long-lived process on a serverless platform. Drive `npm run cadence:tick`
-# from a Netlify Scheduled Function or an external cron service instead.
+# long-lived process on a serverless platform. Instead, call
+# GET /api/cron/cadence (protected by CRON_SECRET — set it in Netlify's
+# environment variables) on a schedule from a Netlify Scheduled Function or
+# an external cron service (cron-job.org, a GitHub Actions scheduled
+# workflow, etc.) — the same endpoint Vercel Cron uses, see vercel.json.
 
 [build]
   # Applies pending schema migrations to the connected Postgres database
