@@ -12,8 +12,7 @@
  *    which reads as a broken campaign on the landing page
  *  - failed/queued CadenceSend rows left behind by send debugging
  */
-import { loadEnvConfig } from '@next/env';
-loadEnvConfig(process.cwd());
+import '../lib/loadEnv';
 
 import { db } from '../lib/db';
 

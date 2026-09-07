@@ -10,8 +10,7 @@
  *
  *   npm run backfill:channels
  */
-import { loadEnvConfig } from '@next/env';
-loadEnvConfig(process.cwd());
+import '../lib/loadEnv';
 import { db } from '../lib/db';
 import { provisionCampaignDefaults } from '../lib/campaignDefaults';
 import { cadenceStepsData } from '../lib/demo-data';

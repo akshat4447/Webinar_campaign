@@ -48,10 +48,18 @@ export default async function AudiencePage(props: PageProps<'/campaigns/[id]/aud
   const where: Prisma.ContactWhereInput = {
     campaignId: id,
     ...(selectedBand ? { score: { gte: selectedBand.min, lt: selectedBand.max } } : {}),
-    // SQLite has no case-insensitive `mode`, so this matches as stored. Good
-    // enough for the names and accounts these lists actually contain.
+    // Postgres `contains` is case-sensitive by default (unlike SQLite's,
+    // which always matched case-insensitively) — `mode: 'insensitive'`
+    // keeps this search behaving the same regardless of how a name/account
+    // was capitalized on import.
     ...(q
-      ? { OR: [{ name: { contains: q } }, { title: { contains: q } }, { account: { contains: q } }] }
+      ? {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { title: { contains: q, mode: 'insensitive' } },
+            { account: { contains: q, mode: 'insensitive' } },
+          ],
+        }
       : {}),
   };
 

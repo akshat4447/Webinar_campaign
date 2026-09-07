@@ -1,3 +1,8 @@
+// Plain `dotenv/config` only reads `.env`, never `.env.local` — real secrets
+// (including DATABASE_URL when overridden locally) live in `.env.local`, so
+// this needs Next's own loader, same as every other standalone script here.
+import '../lib/loadEnv';
+
 import { db } from '../lib/db';
 import {
   campaigns as demoCampaigns,

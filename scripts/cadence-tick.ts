@@ -22,8 +22,7 @@
 // plain dotenv keeps the backslash (producing a key LeadSquared rejects as
 // "Invalid User Details") while Next's loader strips it correctly. Use the same
 // loader Next itself uses so this script sees exactly what the running app sees.
-import { loadEnvConfig } from '@next/env';
-loadEnvConfig(process.cwd());
+import '../lib/loadEnv';
 import { db } from '../lib/db';
 import { processDueSends } from '../lib/cadence';
 

@@ -1,3 +1,5 @@
+import '../lib/loadEnv';
+
 import { db } from '../lib/db';
 import {
   getChannelDeliverySettingsAction,

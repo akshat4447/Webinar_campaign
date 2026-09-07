@@ -1,0 +1,92 @@
+services:
+  - type: web
+    name: webinar-studio
+    runtime: node
+    plan: free
+    buildCommand: npm install && npx prisma migrate deploy && npm run build
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: webinar-studio-db
+          property: connectionString
+      - key: NODE_VERSION
+        value: 20.18.0
+      # Single instance only — see the README's "Background automation" note.
+      # Safe to leave on for a one-instance web service; do NOT also run the
+      # cadence-tick cron job below with this set, or sends get double-processed.
+      - key: ZOOM_AUTOSYNC
+        value: "1"
+      - key: ZOOM_AUTOSYNC_SECONDS
+        value: "300"
+      # Secrets and per-integration credentials — fill in from the Render
+      # dashboard after the first deploy (sync: false means Render prompts for
+      # a value instead of reading one from this file). Everything below can
+      # also be set later from the app's own Integrations page instead, which
+      # always wins over these env vars.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: LSQ_ACCESS_KEY
+        sync: false
+      - key: LSQ_SECRET_KEY
+        sync: false
+      - key: LSQ_HOST
+        sync: false
+      - key: LSQ_SENDER_EMAIL
+        sync: false
+      - key: APOLLO_API_KEY
+        sync: false
+      - key: SEND_ALLOWLIST_LEAD_EMAIL
+        sync: false
+      # Flip to "live" only once templates/sender identity are verified —
+      # see the README before changing this.
+      - key: SEND_MODE
+        value: sandbox
+      - key: ZOOM_CLIENT_ID
+        sync: false
+      - key: ZOOM_CLIENT_SECRET
+        sync: false
+      - key: ZOOM_MODE
+        value: sandbox
+      - key: LINKEDIN_CLIENT_ID
+        sync: false
+      - key: LINKEDIN_CLIENT_SECRET
+        sync: false
+      - key: LINKEDIN_MODE
+        value: sandbox
+      - key: LINKEDIN_ORGANIZATION_URN
+        sync: false
+      - key: LINKEDIN_VERSION
+        value: "202608"
+      - key: REGISTRATION_SECRET
+        sync: false
+      # Render sets its own https://<service>.onrender.com — replace with a
+      # custom domain here if you attach one, so absolute links (one-click
+      # registration, .ics downloads, OAuth redirects) build correctly.
+      - key: APP_ORIGIN
+        sync: false
+
+  # Drives scheduled cadence sends without relying on the web service's own
+  # in-process timer, which stops when that process restarts and would
+  # double-process if this service ever scales past one instance. This is
+  # the "for anything real, drive npm run cadence:tick from cron" case the
+  # code's own instrumentation.ts comment calls out — do not also set
+  # CADENCE_AUTOTICK on the web service above while this is enabled.
+  - type: cron
+    name: webinar-studio-cadence-tick
+    runtime: node
+    plan: free
+    schedule: "*/5 * * * *"
+    buildCommand: npm install && npx prisma generate
+    startCommand: npm run cadence:tick
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: webinar-studio-db
+          property: connectionString
+
+databases:
+  - name: webinar-studio-db
+    plan: free
+    databaseName: webinar_studio
+    user: webinar_studio

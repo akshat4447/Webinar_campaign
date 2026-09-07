@@ -4,8 +4,7 @@
  * launch, email delivery (real LSQ), channel compliance gates, LinkedIn Event
  * registration ingestion, event-anchored confirmations, and WhatsApp opt-in.
  */
-import { loadEnvConfig } from '@next/env';
-loadEnvConfig(process.cwd());
+import '../lib/loadEnv';
 import { db } from '../lib/db';
 import { provisionCampaignDefaults } from '../lib/campaignDefaults';
 import { publishWebinarToLinkedIn } from '../lib/linkedin/publishWebinar';
@@ -105,7 +104,7 @@ async function main() {
   // all" would be checking for email-only-channel behaviour this app no
   // longer has.
   const emailStepKeys = (
-    await db.cadenceStep.findMany({ where: { campaignId: CID, channel: { contains: 'Email' } }, select: { key: true } })
+    await db.cadenceStep.findMany({ where: { campaignId: CID, channel: { contains: 'Email', mode: 'insensitive' } }, select: { key: true } })
   ).map((s) => s.key);
   const caraEmailQueued = await db.cadenceSend.count({
     where: { campaignId: CID, contactId: { in: noEmailIds }, stepKey: { in: emailStepKeys }, status: 'queued' },

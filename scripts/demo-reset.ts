@@ -9,6 +9,8 @@
  * everything downstream: enrichment, scores, approvals, personalized copy,
  * sends, logs, attention.
  */
+import '../lib/loadEnv';
+
 import { readFile } from 'fs/promises';
 import path from 'path';
 import { db } from '../lib/db';

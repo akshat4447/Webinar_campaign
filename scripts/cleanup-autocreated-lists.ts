@@ -1,3 +1,5 @@
+import '../lib/loadEnv';
+
 import { getLists, emptyStaticList } from '../lib/leadsquared';
 import { db } from '../lib/db';
 
@@ -41,7 +43,7 @@ async function main() {
     }
   }
 
-  console.log('\n--- Step 3: Unlinking campaigns in local SQLite database ---');
+  console.log('\n--- Step 3: Unlinking campaigns in the database ---');
   const targetIds = targetLists.map((l) => l.ListId);
   const linkedCampaigns = await db.campaign.findMany({
     where: {

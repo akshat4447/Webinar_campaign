@@ -13,8 +13,7 @@
  *
  *   npm run backfill:templates
  */
-import { loadEnvConfig } from '@next/env';
-loadEnvConfig(process.cwd());
+import '../lib/loadEnv';
 
 import { db } from '../lib/db';
 import { provisionCampaignDefaults } from '../lib/campaignDefaults';

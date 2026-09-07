@@ -24,7 +24,7 @@ const LOG_KEYWORDS: Record<string, string[]> = {
 export async function getIntegrationLogAction(integrationId: string) {
   const keywords = LOG_KEYWORDS[integrationId] ?? [integrationId];
   const entries = await db.activityLogEntry.findMany({
-    where: { OR: keywords.map((k) => ({ text: { contains: k } })) },
+    where: { OR: keywords.map((k) => ({ text: { contains: k, mode: 'insensitive' as const } })) },
     orderBy: { createdAt: 'desc' },
     take: 20,
     include: { campaign: { select: { name: true } } },

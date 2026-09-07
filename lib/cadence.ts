@@ -127,13 +127,14 @@ export async function launchCadence(campaignId: string) {
     unschedulable ? `${unschedulable} step(s) with no resolvable date — set the webinar date on Setup` : null,
   ].filter(Boolean);
 
-  // SQLite's createMany doesn't support skipDuplicates, so the app-level filter
-  // below (not the DB) is what avoids re-queuing a duplicate row on a repeat,
-  // non-racing launch — the @@unique([campaignId, contactId, stepKey]) constraint
-  // on CadenceSend is the backstop for the genuine race (two launches at once),
-  // not the primary mechanism. All writes are one transaction: a crash partway
-  // through used to be able to leave sends queued while the campaign still read
-  // as not_started.
+  // The app-level filter below (not skipDuplicates on createMany) is what
+  // avoids re-queuing a duplicate row on a repeat, non-racing launch — it
+  // knows exactly how many rows it's about to insert, which the returned
+  // `queued` count below depends on. The @@unique([campaignId, contactId,
+  // stepKey]) constraint on CadenceSend is the backstop for the genuine race
+  // (two launches at once), not the primary mechanism. All writes are one
+  // transaction: a crash partway through used to be able to leave sends
+  // queued while the campaign still read as not_started.
   // Resolved once, before the transaction, and reused in the log line below —
   // sendModeLabel() only reads the env var, so it can report "sandbox" here
   // even when the DB-backed send mode (what actually governs the sends this

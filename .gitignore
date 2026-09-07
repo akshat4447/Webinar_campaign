@@ -46,11 +46,17 @@ next-env.d.ts
 
 /lib/generated/prisma
 
-# sqlite dev database — WAL mode (lib/db.ts) adds -wal/-shm sidecar files
-# alongside the classic rollback-journal's -journal one
+# Stale local SQLite files from before the Postgres migration — never tracked,
+# kept out even though the app no longer reads them, so they can't get
+# committed by accident.
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
 
 .vscode/
+
+# Claude Code's own local tooling — skill reference docs and lock file it
+# manages for itself, not part of the application.
+/.claude/
+skills-lock.json

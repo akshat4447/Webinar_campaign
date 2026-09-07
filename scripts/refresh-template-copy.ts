@@ -9,8 +9,7 @@
  *
  *   npm run refresh:templates
  */
-import { loadEnvConfig } from '@next/env';
-loadEnvConfig(process.cwd());
+import '../lib/loadEnv';
 import { db } from '../lib/db';
 import { templatesData } from '../lib/demo-data';
 

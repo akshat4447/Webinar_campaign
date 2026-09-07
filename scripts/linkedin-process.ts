@@ -8,8 +8,7 @@
  */
 // Same env loader the other scripts use — plain dotenv/config misses
 // .env.local entirely and mangles escaped secrets (see scripts/cadence-tick.ts).
-import { loadEnvConfig } from '@next/env';
-loadEnvConfig(process.cwd());
+import '../lib/loadEnv';
 import { db } from '../lib/db';
 import { processPendingLinkedinRegistrations } from '../lib/linkedin/ingest';
 

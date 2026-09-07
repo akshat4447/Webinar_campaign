@@ -1,6 +1,5 @@
 // Deep-audit DB snapshot: journey completeness across every campaign.
-import { loadEnvConfig } from '@next/env';
-loadEnvConfig(process.cwd());
+import '../lib/loadEnv';
 import { db } from '../lib/db';
 
 async function main() {
