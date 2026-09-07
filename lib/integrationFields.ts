@@ -19,10 +19,6 @@ export const INTEGRATION_FIELDS: Record<string, IntegrationField[]> = {
     { key: 'secretKey', label: 'Secret Key', secret: true, placeholder: 'Paste your LeadSquared Secret Key' },
     { key: 'host', label: 'API Host', secret: false, placeholder: 'e.g. api-in21.leadsquared.com' },
     { key: 'senderEmail', label: 'Sender email', secret: false, optional: true, placeholder: 'Exact email of an ACTIVE LSQ user — becomes the verified From address' },
-    { key: 'smsStrategy', label: 'SMS strategy', secret: false, optional: true, placeholder: "trigger (default) | direct | auto" },
-    { key: 'smsEndpoint', label: 'SMS endpoint', secret: false, optional: true, placeholder: 'Direct path e.g. /LeadManagement.svc/Sms.Sendsms (only for direct)' },
-    { key: 'whatsappStrategy', label: 'WhatsApp strategy', secret: false, optional: true, placeholder: "trigger (default) | direct | auto" },
-    { key: 'waEndpoint', label: 'WhatsApp endpoint', secret: false, optional: true, placeholder: 'Connector path for direct WhatsApp sends' },
   ],
   claude: [{ key: 'apiKey', label: 'API Key', secret: true, placeholder: 'Paste your Anthropic API key' }],
   apollo: [{ key: 'apiKey', label: 'API Key', secret: true, placeholder: 'Paste your Apollo API key' }],
@@ -59,11 +55,6 @@ export const INTEGRATION_FIELDS: Record<string, IntegrationField[]> = {
     { key: 'tokenExpiresAt', label: 'Token expiry', secret: false, optional: true, placeholder: 'Managed automatically' },
     { key: 'organizationName', label: 'Page name', secret: false, optional: true, placeholder: 'Auto-detected on Connect' },
   ],
-  // Reference metadata, not credentials — SMS/WhatsApp delivery itself already
-  // goes through LeadSquared (see the `lsq` card's strategy/endpoint fields).
-  // These record the compliance identifiers an Indian SMS/WhatsApp send needs
-  // so an operator has them on hand, with nothing here to test against a live
-  // API — see REFERENCE_ONLY below.
   messaging: [
     { key: 'dltEntityId', label: 'DLT Entity ID', secret: false, optional: true, placeholder: 'Your registered TRAI DLT Entity ID' },
     { key: 'dltSenderIds', label: 'DLT Sender IDs', secret: false, optional: true, placeholder: 'Approved 6-character sender IDs, comma-separated' },
@@ -77,4 +68,5 @@ export const INTEGRATION_FIELDS: Record<string, IntegrationField[]> = {
 /** Ids with a credential form but no live API of their own to test against —
  *  the Integrations page hides "Test connection" for these and shows a note
  *  instead, rather than a button whose result would always be meaningless. */
-export const REFERENCE_ONLY: string[] = ['messaging'];
+export const REFERENCE_ONLY: string[] = [];
+

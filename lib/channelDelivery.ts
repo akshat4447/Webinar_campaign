@@ -14,17 +14,15 @@
 // contact, SMS respects the opt-out flag, and SEND_MODE=sandbox redirects every
 // send to the allowlist lead's phone — exactly how email sandboxing works.
 
-import { db } from '@/lib/db';
-import { resolveIntegrationField } from '@/lib/integrationConfig';
+import { db } from './db';
+import { resolveIntegrationField } from './integrationConfig';
+import { getSendMode } from './sendGuard';
 import {
   createActivityType,
   getLeadByEmailAddress,
   pushCustomActivities,
-  sendSmsToLeadDirect,
-  sendWhatsappDirect,
-  UnsupportedChannelError,
   type CustomActivity,
-} from '@/lib/leadsquared';
+} from './leadsquared';
 
 export type ChannelStrategy = 'direct' | 'trigger' | 'auto';
 export type DeliveryChannel = 'sms' | 'whatsapp';
@@ -106,9 +104,56 @@ export async function saveTriggerFieldMap(map: TriggerFieldMap): Promise<void> {
   });
 }
 
-async function strategyFor(channel: DeliveryChannel): Promise<ChannelStrategy> {
-  const raw = ((await resolveIntegrationField('lsq', channel === 'sms' ? 'smsStrategy' : 'whatsappStrategy')) || 'trigger').toLowerCase();
-  return raw === 'direct' || raw === 'auto' ? raw : 'trigger';
+export const DIRECT_GATEWAY_KEYS = {
+  sms: {
+    endpoint: 'direct_sms_endpoint',
+    authToken: 'direct_sms_auth_token',
+    senderId: 'direct_sms_sender_id',
+    templateId: 'direct_sms_template_id',
+  },
+  whatsapp: {
+    endpoint: 'direct_wa_endpoint',
+    authToken: 'direct_wa_auth_token',
+    senderId: 'direct_wa_phone_number_id',
+    templateId: 'direct_wa_template_name',
+  },
+} as const;
+
+const MODE_SETTING_PREFIX = 'channel_delivery_mode_';
+
+/** Returns strictly 'trigger' (LeadSquared Automation) or 'direct' (Direct Gateway API). */
+export async function getChannelDeliveryMode(channel: DeliveryChannel): Promise<'trigger' | 'direct'> {
+  try {
+    const custom = await db.appSetting.findUnique({ where: { key: `${MODE_SETTING_PREFIX}${channel}` } });
+    if (custom?.value === 'direct') return 'direct';
+    if (custom?.value === 'trigger') return 'trigger';
+  } catch {
+    /* fallback to legacy */
+  }
+
+  // Backwards compatibility with legacy lsq settings
+  try {
+    const legacy = ((await resolveIntegrationField('lsq', channel === 'sms' ? 'smsStrategy' : 'whatsappStrategy')) || '').toLowerCase();
+    if (legacy === 'direct') return 'direct';
+  } catch {
+    /* default below */
+  }
+  return 'trigger';
+}
+
+export async function setChannelDeliveryMode(channel: DeliveryChannel, mode: 'trigger' | 'direct'): Promise<void> {
+  await db.appSetting.upsert({
+    where: { key: `${MODE_SETTING_PREFIX}${channel}` },
+    create: { key: `${MODE_SETTING_PREFIX}${channel}`, value: mode },
+    update: { value: mode },
+  });
+  // Also keep legacy setting in sync so existing code paths stay consistent
+  const legacyKey = channel === 'sms' ? 'smsStrategy' : 'whatsappStrategy';
+  await db.appSetting.upsert({
+    where: { key: `integration.lsq.${legacyKey}` },
+    create: { key: `integration.lsq.${legacyKey}`, value: mode },
+    update: { value: mode },
+  });
 }
 
 /** One shared custom-activity type backs both channels' trigger strategy. */
@@ -208,22 +253,183 @@ export interface ChannelDeliveryResult {
   detail: string;
 }
 
-async function deliverDirect(input: ChannelDeliveryInput): Promise<string> {
-  const payload = {
-    mobile: input.phone,
-    message: input.message,
-    dltTemplateId: input.dltTemplateId,
-    senderId: input.senderId,
+export interface DirectSendParams {
+  channel: DeliveryChannel;
+  endpoint: string;
+  authToken?: string | null;
+  senderId?: string | null;
+  templateId?: string | null;
+  phone: string;
+  message: string;
+}
+
+export interface DirectSendResult {
+  ok: boolean;
+  status: number;
+  latencyMs: number;
+  body: unknown;
+  rawText: string;
+}
+
+/**
+ * Sanitizes SMS copy to standard GSM-7 characters to prevent unintentional
+ * escalation to UCS-2 Unicode (which reduces segment capacity from 160 to 70 characters).
+ */
+export function sanitizeGsm7(text: string): string {
+  return text
+    .replace(/[\u2018\u2019]/g, "'") // curly single quotes
+    .replace(/[\u201C\u201D]/g, '"') // curly double quotes
+    .replace(/[\u2013\u2014]/g, '-') // en/em dashes
+    .replace(/\u2026/g, '...') // ellipsis
+    .replace(/[\u00A0]/g, ' ') // non-breaking space
+    .trim();
+}
+
+/**
+ * Universal Direct Gateway HTTP Dispatcher.
+ * Dispatches a POST request to the direct gateway endpoint with 10s timeout,
+ * standard auth headers, and normalized JSON payload.
+ */
+export async function executeDirectSend(params: DirectSendParams): Promise<DirectSendResult> {
+  const { channel, endpoint, authToken, senderId, templateId, phone, message } = params;
+  if (!endpoint || !endpoint.startsWith('http')) {
+    throw new Error(`Direct ${channel.toUpperCase()} endpoint must be a valid HTTP/HTTPS URL (got: "${endpoint || 'empty'}").`);
+  }
+
+  const started = Date.now();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'User-Agent': 'WebinarCampaignAgent/1.0',
   };
-  const res = input.channel === 'sms' ? await sendSmsToLeadDirect(payload) : await sendWhatsappDirect(payload);
-  return `direct send accepted (${typeof res === 'object' && res !== null ? 'receipt returned' : 'ok'})`;
+
+  if (authToken?.trim()) {
+    const token = authToken.trim();
+    if (token.toLowerCase().startsWith('bearer ') || token.toLowerCase().startsWith('basic ')) {
+      headers['Authorization'] = token;
+    } else {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
+  // Build normalized payload
+  let payload: Record<string, unknown>;
+  if (channel === 'sms') {
+    const cleanSms = sanitizeGsm7(message);
+    payload = {
+      to: phone,
+      destination: phone,
+      message: cleanSms,
+      text: cleanSms,
+      ...(senderId ? { senderId, from: senderId } : {}),
+      ...(templateId ? { dltTemplateId: templateId, templateId } : {}),
+    };
+  } else {
+    payload = {
+      to: phone,
+      destination: phone,
+      message,
+      text: message,
+      ...(senderId ? { from: senderId, phoneNumberId: senderId } : {}),
+      ...(templateId ? { templateName: templateId, templateId } : {}),
+    };
+  }
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(10000),
+  });
+
+  const latencyMs = Date.now() - started;
+  const rawText = await res.text();
+  let parsedBody: unknown = rawText;
+  try {
+    parsedBody = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    /* not json */
+  }
+
+  return {
+    ok: res.ok,
+    status: res.status,
+    latencyMs,
+    body: parsedBody,
+    rawText,
+  };
+}
+
+async function deliverDirect(input: ChannelDeliveryInput): Promise<string> {
+  const keys = DIRECT_GATEWAY_KEYS[input.channel];
+  const [endpointRaw, authTokenRaw, senderIdRaw, templateIdRaw] = await Promise.all([
+    db.appSetting.findUnique({ where: { key: keys.endpoint } }),
+    db.appSetting.findUnique({ where: { key: keys.authToken } }),
+    db.appSetting.findUnique({ where: { key: keys.senderId } }),
+    db.appSetting.findUnique({ where: { key: keys.templateId } }),
+  ]);
+
+  // Fallback to legacy fields if new direct settings are not set
+  const endpoint = endpointRaw?.value || (await resolveIntegrationField('lsq', input.channel === 'sms' ? 'smsEndpoint' : 'waEndpoint')) || '';
+  const authToken = authTokenRaw?.value || '';
+  const senderId = input.senderId || senderIdRaw?.value || '';
+  const templateId = input.dltTemplateId || templateIdRaw?.value || '';
+
+  if (!endpoint) {
+    throw new Error(
+      `Direct ${input.channel.toUpperCase()} endpoint is not configured. Configure it on the Integrations page or switch to LeadSquared Automation mode.`
+    );
+  }
+
+  const result = await executeDirectSend({
+    channel: input.channel,
+    endpoint,
+    authToken,
+    senderId,
+    templateId,
+    phone: input.phone,
+    message: input.message,
+  });
+
+  if (!result.ok) {
+    throw new Error(`Direct ${input.channel.toUpperCase()} gateway returned HTTP ${result.status} (${result.latencyMs}ms): ${result.rawText.slice(0, 200)}`);
+  }
+
+  // On successful direct dispatch, post standard activity to LeadSquared CRM for audit history
+  if (input.lsqLeadId) {
+    try {
+      if (input.channel === 'sms') {
+        // Event 200: SMS Sent
+        await pushCustomActivities([
+          {
+            RelatedProspectId: input.lsqLeadId,
+            ActivityEvent: 200,
+            ActivityNote: `Direct SMS sent to ${input.phone}: ${input.message.slice(0, 150)}`,
+          },
+        ]);
+      } else {
+        // Event 174: WhatsApp Message
+        await pushCustomActivities([
+          {
+            RelatedProspectId: input.lsqLeadId,
+            ActivityEvent: 174,
+            ActivityNote: `Direct WhatsApp message sent to ${input.phone}: ${input.message.slice(0, 150)}`,
+          },
+        ]);
+      }
+    } catch {
+      // CRM activity logging failure must not fail the delivered send
+    }
+  }
+
+  return `direct gateway accepted (HTTP ${result.status}, ${result.latencyMs}ms)`;
 }
 
 async function deliverViaTrigger(input: ChannelDeliveryInput): Promise<string> {
   // In sandbox mode, never attach activities to the real prospect's lead —
   // that would trigger LeadSquared automation to message the real prospect.
   let targetLeadId = input.lsqLeadId;
-  if (process.env.SEND_MODE !== 'live') {
+  const sendMode = await getSendMode();
+  if (sendMode !== 'live') {
     targetLeadId = await sandboxTargetLeadId();
   }
 
@@ -260,28 +466,18 @@ async function deliverViaTrigger(input: ChannelDeliveryInput): Promise<string> {
 }
 
 /**
- * Sends one channel message using the configured strategy, with automatic
- * fallback to the trigger path when direct isn't supported/configured or fails.
+ * Sends one channel message using the configured strategy (LeadSquared Automation vs Direct Gateway).
  */
 export async function deliverChannelMessage(input: ChannelDeliveryInput): Promise<ChannelDeliveryResult> {
-  const strategy = await strategyFor(input.channel);
+  const mode = await getChannelDeliveryMode(input.channel);
 
-  if (strategy === 'trigger') {
+  if (mode === 'trigger') {
     const detail = await deliverViaTrigger(input);
     return { strategyUsed: 'trigger', detail };
   }
 
-  try {
-    const detail = await deliverDirect(input);
-    return { strategyUsed: 'direct', detail };
-  } catch (err) {
-    // Explicit 'direct' surfaces real gateway errors; 'auto' falls back quietly.
-    // A missing endpoint config always falls back — it's a setup gap, not an outage.
-    if (strategy === 'direct' && !(err instanceof UnsupportedChannelError)) throw err;
-    const detail = await deliverViaTrigger(input);
-    const reason = String(err instanceof Error ? err.message : err).slice(0, 90);
-    return { strategyUsed: 'trigger', detail: `${detail} (direct unavailable: ${reason})` };
-  }
+  const detail = await deliverDirect(input);
+  return { strategyUsed: 'direct', detail };
 }
 
 /**

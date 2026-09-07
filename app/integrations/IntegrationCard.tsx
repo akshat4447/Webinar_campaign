@@ -6,13 +6,22 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Drawer, type DrawerContent } from '@/components/ui/Drawer';
 import { IntegrationPanel } from './IntegrationPanel';
+import { MessagingConfigModal } from './MessagingConfigModal';
 import { integrationsData } from '@/lib/demo-data';
 import { getIntegrationLogAction } from '@/lib/actions/integrations';
 import type { TestResult } from '@/lib/integrationConfig';
 
 type Integration = (typeof integrationsData)[number];
 
-export function IntegrationCard({ ig, testResult }: { ig: Integration; testResult: TestResult | null }) {
+export function IntegrationCard({
+  ig,
+  testResult,
+  messagingBadge,
+}: {
+  ig: Integration;
+  testResult: TestResult | null;
+  messagingBadge?: { color: string; text: string } | null;
+}) {
   const [drawer, setDrawer] = useState<DrawerContent | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const router = useRouter();
@@ -31,11 +40,13 @@ export function IntegrationCard({ ig, testResult }: { ig: Integration; testResul
   // For connectors with real credential testing, the badge reflects the last
   // genuine test result rather than static demo data — "not tested yet" is
   // more honest than defaulting to a green badge nothing has actually proven.
-  const badge = testResult
-    ? testResult.ok
-      ? { color: 'success', text: 'Connected' }
-      : { color: 'error', text: 'Error' }
-    : { color: 'gray', text: 'Not tested yet' };
+  const badge = ig.id === 'messaging'
+    ? (messagingBadge ?? { color: 'gray', text: 'Not tested yet' })
+    : testResult
+      ? testResult.ok
+        ? { color: 'success', text: 'Connected' }
+        : { color: 'error', text: 'Error' }
+      : { color: 'gray', text: 'Not tested yet' };
 
   return (
     <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '18px 20px' }}>
@@ -61,7 +72,7 @@ export function IntegrationCard({ ig, testResult }: { ig: Integration; testResul
           <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)' }}>{ig.name}</div>
           <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)' }}>{ig.role}</div>
         </div>
-        <Badge color={testResult ? badge.color : ig.statusColor} text={testResult ? badge.text : ig.statusLabel} dot />
+        <Badge color={badge.color} text={badge.text} dot />
       </div>
       <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n60)', marginBottom: 2, overflowWrap: 'anywhere' }}>Last operation: {ig.lastOp}</div>
       <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', fontFamily: 'monospace', marginBottom: 6, overflowWrap: 'anywhere' }}>{ig.endpoint}</div>
@@ -81,7 +92,13 @@ export function IntegrationCard({ ig, testResult }: { ig: Integration; testResul
       </div>
 
       <Drawer content={drawer} onClose={() => setDrawer(null)} />
-      {panelOpen && <IntegrationPanel id={ig.id} name={ig.name} onClose={() => setPanelOpen(false)} onChanged={() => router.refresh()} />}
+      {panelOpen && ig.id === 'messaging' && (
+        <MessagingConfigModal onClose={() => setPanelOpen(false)} onChanged={() => router.refresh()} />
+      )}
+      {panelOpen && ig.id !== 'messaging' && (
+        <IntegrationPanel id={ig.id} name={ig.name} onClose={() => setPanelOpen(false)} onChanged={() => router.refresh()} />
+      )}
     </div>
   );
 }
+

@@ -4,7 +4,7 @@ import { revalidateCampaign } from '@/lib/revalidate';
 
 export type RegisterResult =
   | { ok: false; reason: 'unknown-campaign' | 'unknown-contact' }
-  | { ok: true; alreadyRegistered: boolean; joinUrl: string | null; campaignName: string; queued: number };
+  | { ok: true; alreadyRegistered: boolean; joinUrl: string | null; campaignName: string; campaignId: string; scheduledAt: Date | null; queued: number };
 
 /**
  * Mark a contact as registered and fire whatever the cadence says should
@@ -38,7 +38,7 @@ export async function registerContact(
   const joinUrl = campaign.zoomLink || campaign.registrationLink || null;
 
   if (contact.registeredAt) {
-    return { ok: true, alreadyRegistered: true, joinUrl, campaignName: campaign.name, queued: 0 };
+    return { ok: true, alreadyRegistered: true, joinUrl, campaignName: campaign.name, campaignId: campaign.id, scheduledAt: campaign.scheduledAt, queued: 0 };
   }
 
   const now = campaign.simulatedNow ?? new Date();
@@ -102,9 +102,9 @@ export async function registerContact(
   });
 
   if (queued === null) {
-    return { ok: true, alreadyRegistered: true, joinUrl, campaignName: campaign.name, queued: 0 };
+    return { ok: true, alreadyRegistered: true, joinUrl, campaignName: campaign.name, campaignId: campaign.id, scheduledAt: campaign.scheduledAt, queued: 0 };
   }
 
   revalidateCampaign(campaignId);
-  return { ok: true, alreadyRegistered: false, joinUrl, campaignName: campaign.name, queued };
+  return { ok: true, alreadyRegistered: false, joinUrl, campaignName: campaign.name, campaignId: campaign.id, scheduledAt: campaign.scheduledAt, queued };
 }

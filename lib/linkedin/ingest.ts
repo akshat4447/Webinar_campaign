@@ -112,7 +112,7 @@ export async function processPendingLinkedinRegistrations(limit = 25, campaignId
   // Batch CRM sync once per modified campaign to prevent N+1 sync storms and 429 rate limits
   for (const campaignId of modifiedCampaignIds) {
     try {
-      await syncContactsToLeadSquared(campaignId);
+      await syncContactsToLeadSquared(campaignId, { createList: false });
     } catch (err) {
       await upsertAttentionItem(campaignId, {
         icon: 'ErrorProperty1Outline',

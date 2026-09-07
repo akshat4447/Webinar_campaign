@@ -46,6 +46,17 @@ export async function saveIntegrationConfigAction(id: string, fields: Record<str
   return { savedAt: new Date().toISOString() };
 }
 
+export async function getSendModeAction(): Promise<'sandbox' | 'live'> {
+  const { getSendMode } = await import('@/lib/sendGuard');
+  return getSendMode();
+}
+
+export async function setSendModeAction(mode: 'sandbox' | 'live'): Promise<{ ok: boolean; mode: 'sandbox' | 'live' }> {
+  const { saveSendMode } = await import('@/lib/sendGuard');
+  await saveSendMode(mode);
+  return { ok: true, mode };
+}
+
 /**
  * Finds a sending identity this tenant accepts and (optionally) saves it.
  * Sends no email — see probeSenderIdentity() for why the probe is safe.
@@ -271,4 +282,239 @@ export async function saveLsqActivityMappingAction(
   await saveActivityMap(map);
   await saveTriggerFieldMap(triggerFields);
   return { savedAt: new Date().toISOString() };
+}
+
+// --- channel delivery settings (LSQ Automation vs Direct Gateway) --------------
+
+export interface DirectChannelSettings {
+  mode: 'trigger' | 'direct';
+  endpoint: string;
+  hasAuthToken: boolean;
+  senderId: string;
+  templateId: string;
+  lastTestOk: boolean | null;
+  lastTestedAt: string | null;
+  lastTestDetail: string | null;
+}
+
+export interface ChannelDeliverySettingsResult {
+  sms: DirectChannelSettings;
+  whatsapp: DirectChannelSettings;
+  defaultPhone: string;
+}
+
+export async function getChannelDeliverySettingsAction(): Promise<ChannelDeliverySettingsResult> {
+  const { getChannelDeliveryMode, DIRECT_GATEWAY_KEYS } = await import('@/lib/channelDelivery');
+
+  const [smsMode, waMode] = await Promise.all([
+    getChannelDeliveryMode('sms'),
+    getChannelDeliveryMode('whatsapp'),
+  ]);
+
+  const keys = [
+    DIRECT_GATEWAY_KEYS.sms.endpoint,
+    DIRECT_GATEWAY_KEYS.sms.authToken,
+    DIRECT_GATEWAY_KEYS.sms.senderId,
+    DIRECT_GATEWAY_KEYS.sms.templateId,
+    DIRECT_GATEWAY_KEYS.whatsapp.endpoint,
+    DIRECT_GATEWAY_KEYS.whatsapp.authToken,
+    DIRECT_GATEWAY_KEYS.whatsapp.senderId,
+    DIRECT_GATEWAY_KEYS.whatsapp.templateId,
+    'integration.direct_sms.lastTestOk',
+    'integration.direct_sms.lastTestedAt',
+    'integration.direct_sms.lastTestDetail',
+    'integration.direct_wa.lastTestOk',
+    'integration.direct_wa.lastTestedAt',
+    'integration.direct_wa.lastTestDetail',
+  ];
+
+  const rows = await db.appSetting.findMany({ where: { key: { in: keys } } });
+  const map = new Map(rows.map((r) => [r.key, r.value]));
+
+  // Find a default test phone from contacts or operator
+  let defaultPhone = '+919123443870';
+  try {
+    const contact = await db.contact.findFirst({
+      where: { phone: { not: null } },
+      orderBy: { id: 'desc' },
+      select: { phone: true },
+    });
+    if (contact?.phone) defaultPhone = contact.phone;
+  } catch {
+    /* fallback to default */
+  }
+
+  return {
+    sms: {
+      mode: smsMode,
+      endpoint: map.get(DIRECT_GATEWAY_KEYS.sms.endpoint) || '',
+      hasAuthToken: !!map.get(DIRECT_GATEWAY_KEYS.sms.authToken),
+      senderId: map.get(DIRECT_GATEWAY_KEYS.sms.senderId) || '',
+      templateId: map.get(DIRECT_GATEWAY_KEYS.sms.templateId) || '',
+      lastTestOk: map.has('integration.direct_sms.lastTestOk') ? map.get('integration.direct_sms.lastTestOk') === '1' : null,
+      lastTestedAt: map.get('integration.direct_sms.lastTestedAt') || null,
+      lastTestDetail: map.get('integration.direct_sms.lastTestDetail') || null,
+    },
+    whatsapp: {
+      mode: waMode,
+      endpoint: map.get(DIRECT_GATEWAY_KEYS.whatsapp.endpoint) || '',
+      hasAuthToken: !!map.get(DIRECT_GATEWAY_KEYS.whatsapp.authToken),
+      senderId: map.get(DIRECT_GATEWAY_KEYS.whatsapp.senderId) || '',
+      templateId: map.get(DIRECT_GATEWAY_KEYS.whatsapp.templateId) || '',
+      lastTestOk: map.has('integration.direct_wa.lastTestOk') ? map.get('integration.direct_wa.lastTestOk') === '1' : null,
+      lastTestedAt: map.get('integration.direct_wa.lastTestedAt') || null,
+      lastTestDetail: map.get('integration.direct_wa.lastTestDetail') || null,
+    },
+    defaultPhone,
+  };
+}
+
+export async function saveChannelDeliveryModeAction(channel: 'sms' | 'whatsapp', mode: 'trigger' | 'direct') {
+  const { setChannelDeliveryMode } = await import('@/lib/channelDelivery');
+  await setChannelDeliveryMode(channel, mode);
+  return { ok: true, mode };
+}
+
+export async function saveDirectGatewayConfigAction(
+  channel: 'sms' | 'whatsapp',
+  config: { endpoint?: string; authToken?: string; senderId?: string; templateId?: string }
+) {
+  const { DIRECT_GATEWAY_KEYS } = await import('@/lib/channelDelivery');
+  const keys = DIRECT_GATEWAY_KEYS[channel];
+
+  const ops: Promise<unknown>[] = [];
+  if (config.endpoint !== undefined) {
+    ops.push(
+      db.appSetting.upsert({
+        where: { key: keys.endpoint },
+        create: { key: keys.endpoint, value: config.endpoint.trim() },
+        update: { value: config.endpoint.trim() },
+      })
+    );
+  }
+  if (config.authToken !== undefined && config.authToken.trim()) {
+    ops.push(
+      db.appSetting.upsert({
+        where: { key: keys.authToken },
+        create: { key: keys.authToken, value: config.authToken.trim() },
+        update: { value: config.authToken.trim() },
+      })
+    );
+  }
+  if (config.senderId !== undefined) {
+    ops.push(
+      db.appSetting.upsert({
+        where: { key: keys.senderId },
+        create: { key: keys.senderId, value: config.senderId.trim() },
+        update: { value: config.senderId.trim() },
+      })
+    );
+  }
+  if (config.templateId !== undefined) {
+    ops.push(
+      db.appSetting.upsert({
+        where: { key: keys.templateId },
+        create: { key: keys.templateId, value: config.templateId.trim() },
+        update: { value: config.templateId.trim() },
+      })
+    );
+  }
+
+  await Promise.all(ops);
+  return { ok: true, savedAt: new Date().toISOString() };
+}
+
+export async function testDirectChannelAction(params: {
+  channel: 'sms' | 'whatsapp';
+  targetPhone: string;
+  endpoint?: string;
+  authToken?: string;
+  senderId?: string;
+  templateId?: string;
+}): Promise<{ ok: boolean; status: number; latencyMs: number; detail: string; rawResponse?: string }> {
+  const { channel, targetPhone } = params;
+  const { DIRECT_GATEWAY_KEYS, executeDirectSend } = await import('@/lib/channelDelivery');
+  const keys = DIRECT_GATEWAY_KEYS[channel];
+
+  // Resolve typed values or stored DB values
+  const [dbEndpoint, dbAuthToken, dbSenderId, dbTemplateId] = await Promise.all([
+    db.appSetting.findUnique({ where: { key: keys.endpoint } }),
+    db.appSetting.findUnique({ where: { key: keys.authToken } }),
+    db.appSetting.findUnique({ where: { key: keys.senderId } }),
+    db.appSetting.findUnique({ where: { key: keys.templateId } }),
+  ]);
+
+  const endpoint = params.endpoint?.trim() || dbEndpoint?.value || '';
+  const authToken = params.authToken?.trim() || dbAuthToken?.value || '';
+  const senderId = params.senderId?.trim() || dbSenderId?.value || '';
+  const templateId = params.templateId?.trim() || dbTemplateId?.value || '';
+
+  if (!endpoint) {
+    return {
+      ok: false,
+      status: 0,
+      latencyMs: 0,
+      detail: `Direct ${channel.toUpperCase()} Endpoint URL is required.`,
+    };
+  }
+
+  const cleanPhone = targetPhone.replace(/[^\d+]/g, '');
+  if (!cleanPhone || cleanPhone.length < 10) {
+    return {
+      ok: false,
+      status: 0,
+      latencyMs: 0,
+      detail: 'Please provide a valid mobile number with country code (e.g. +919123443870).',
+    };
+  }
+
+  const testMessage = `Test message from Webinar Campaign Agent (${channel.toUpperCase()}) at ${new Date().toLocaleTimeString()}`;
+
+  try {
+    const result = await executeDirectSend({
+      channel,
+      endpoint,
+      authToken,
+      senderId,
+      templateId,
+      phone: cleanPhone,
+      message: testMessage,
+    });
+
+    const detail = result.ok
+      ? `HTTP ${result.status} (${result.latencyMs}ms) · Gateway accepted test message: ${result.rawText.slice(0, 150) || 'OK'}`
+      : `HTTP ${result.status} (${result.latencyMs}ms) · Gateway error: ${result.rawText.slice(0, 200) || 'Failed'}`;
+
+    // Persist diagnostic result
+    const prefix = channel === 'sms' ? 'integration.direct_sms' : 'integration.direct_wa';
+    await Promise.all([
+      db.appSetting.upsert({ where: { key: `${prefix}.lastTestOk` }, create: { key: `${prefix}.lastTestOk`, value: result.ok ? '1' : '0' }, update: { value: result.ok ? '1' : '0' } }),
+      db.appSetting.upsert({ where: { key: `${prefix}.lastTestedAt` }, create: { key: `${prefix}.lastTestedAt`, value: new Date().toISOString() }, update: { value: new Date().toISOString() } }),
+      db.appSetting.upsert({ where: { key: `${prefix}.lastTestDetail` }, create: { key: `${prefix}.lastTestDetail`, value: detail }, update: { value: detail } }),
+    ]);
+
+    return {
+      ok: result.ok,
+      status: result.status,
+      latencyMs: result.latencyMs,
+      detail,
+      rawResponse: result.rawText,
+    };
+  } catch (err) {
+    const errorMsg = String(err instanceof Error ? err.message : err);
+    const detail = `Request failed: ${errorMsg.slice(0, 200)}`;
+    const prefix = channel === 'sms' ? 'integration.direct_sms' : 'integration.direct_wa';
+    await Promise.all([
+      db.appSetting.upsert({ where: { key: `${prefix}.lastTestOk` }, create: { key: `${prefix}.lastTestOk`, value: '0' }, update: { value: '0' } }),
+      db.appSetting.upsert({ where: { key: `${prefix}.lastTestedAt` }, create: { key: `${prefix}.lastTestedAt`, value: new Date().toISOString() }, update: { value: new Date().toISOString() } }),
+      db.appSetting.upsert({ where: { key: `${prefix}.lastTestDetail` }, create: { key: `${prefix}.lastTestDetail`, value: detail }, update: { value: detail } }),
+    ]);
+
+    return {
+      ok: false,
+      status: 0,
+      latencyMs: 0,
+      detail,
+    };
+  }
 }

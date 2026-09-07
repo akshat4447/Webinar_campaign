@@ -2,7 +2,7 @@
 
 import { db } from '@/lib/db';
 import { launchCadence, processDueSends, restartCadence } from '@/lib/cadence';
-import { sendModeLabel } from '@/lib/sendGuard';
+import { getSendMode } from '@/lib/sendGuard';
 import { resolveStepDate, offsetLabel, ANCHOR_LABEL, STEP_DEFAULTS } from '@/lib/stepSchedule';
 import { revalidateCampaign } from '@/lib/revalidate';
 import { z } from 'zod';
@@ -210,7 +210,7 @@ export async function launchCadenceAction(campaignId: string) {
   // Fire anything already due (e.g. the Day-0 invite) immediately after launch.
   const processed = await processDueSends(validCampaignId);
   revalidateCampaign(validCampaignId);
-  return { ...result, ...processed, sendMode: sendModeLabel() };
+  return { ...result, ...processed, sendMode: await getSendMode() };
 }
 
 /**

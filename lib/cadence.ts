@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { createOrUpdateLead, sendEmailToLead, LeadSquaredError } from '@/lib/leadsquared';
-import { resolveRecipient, sendModeLabel, getSendMode } from '@/lib/sendGuard';
+import { resolveRecipient, getSendMode } from '@/lib/sendGuard';
 import { upsertAttentionItem, resolveAttentionItems } from '@/lib/attentionItems';
 import { resolveStepDate } from '@/lib/stepSchedule';
 import { isWithinSendWindow } from '@/lib/sendWindow';
@@ -134,6 +134,12 @@ export async function launchCadence(campaignId: string) {
   // not the primary mechanism. All writes are one transaction: a crash partway
   // through used to be able to leave sends queued while the campaign still read
   // as not_started.
+  // Resolved once, before the transaction, and reused in the log line below —
+  // sendModeLabel() only reads the env var, so it can report "sandbox" here
+  // even when the DB-backed send mode (what actually governs the sends this
+  // launch queues) has been switched to live on Integrations.
+  const activeSendMode = await getSendMode();
+
   const { queued } = await db.$transaction(async (tx) => {
     // If this campaign was stopped and restarted, purge leftover 'skipped' sends
     // for these steps so fresh sends can be queued without unique constraint or duplicate exclusion conflicts.
@@ -160,7 +166,7 @@ export async function launchCadence(campaignId: string) {
     await tx.activityLogEntry.create({
       data: {
         campaignId,
-        text: `Launched cadence: ${toCreate.length} send(s) queued across ${scheduled.length} step(s) for ${approvedContacts.length} approved contact(s) (SEND_MODE=${sendModeLabel()})${skips.length ? ` — skipped ${skips.join('; ')}` : ''}`,
+        text: `Launched cadence: ${toCreate.length} send(s) queued across ${scheduled.length} step(s) for ${approvedContacts.length} approved contact(s) (SEND_MODE=${activeSendMode})${skips.length ? ` — skipped ${skips.join('; ')}` : ''}`,
         dot: 'var(--success-500)',
       },
     });

@@ -1,8 +1,11 @@
 import { IntegrationCard } from './IntegrationCard';
 import { LsqActivityMappingCard } from './LsqActivityMappingCard';
 import { ConnectResultBanner } from './ConnectResultBanner';
+import { DeliverySettingsBar } from './DeliverySettingsBar';
 import { integrationsData } from '@/lib/demo-data';
-import { getTestResult, resolveIntegrationField } from '@/lib/integrationConfig';
+import { getTestResult } from '@/lib/integrationConfig';
+import { getChannelDeliverySettingsAction } from '@/lib/actions/integrations';
+import { getSendMode } from '@/lib/sendGuard';
 import { zoomIsConfigured, getZoomMode } from '@/lib/zoom/client';
 import { linkedinIsConfigured, getLinkedinMode } from '@/lib/linkedin/client';
 
@@ -15,15 +18,43 @@ export default async function IntegrationsPage(props: PageProps<'/integrations'>
   const connected = typeof sp.connected === 'string' ? sp.connected : undefined;
   const detail = typeof sp.detail === 'string' ? sp.detail : undefined;
 
-  const cards = await Promise.all(integrationsData.map(async (ig) => ({ ig, testResult: await getTestResult(ig.id) })));
-
   // One glanceable answer to "where do messages actually go right now?" — the
   // delivery-affecting switches live in three places, so they're surfaced here.
-  const [smsStrategy, waStrategy] = await Promise.all([
-    resolveIntegrationField('lsq', 'smsStrategy'),
-    resolveIntegrationField('lsq', 'whatsappStrategy'),
+  const [channelSettings, sendMode] = await Promise.all([
+    getChannelDeliverySettingsAction(),
+    getSendMode(),
   ]);
-  const sendMode = process.env.SEND_MODE === 'live' ? 'live' : 'sandbox';
+  const smsMode = channelSettings.sms.mode;
+  const waMode = channelSettings.whatsapp.mode;
+
+  // Trigger mode rides on the already-verified LSQ integration, so it needs no
+  // test of its own; a channel switched to Direct Gateway does, and its badge
+  // must reflect that channel's own last real test result — not a blanket
+  // "Active" regardless of whether direct delivery has ever been proven to work.
+  const directChannels = [channelSettings.sms, channelSettings.whatsapp].filter((c) => c.mode === 'direct');
+  const messagingBadge = directChannels.some((c) => c.lastTestOk === false)
+    ? { color: 'error', text: 'Error' }
+    : directChannels.some((c) => c.lastTestOk === null)
+      ? { color: 'gray', text: 'Not tested yet' }
+      : { color: 'success', text: 'Active (2 modes)' };
+
+  const cards = await Promise.all(
+    integrationsData.map(async (ig) => {
+      const testResult = await getTestResult(ig.id);
+      if (ig.id === 'messaging') {
+        return {
+          ig: {
+            ...ig,
+            lastOp: `SMS: ${smsMode === 'trigger' ? 'LSQ Automation' : 'Direct API'} · WA: ${waMode === 'trigger' ? 'LSQ Automation (Route Mobile)' : 'Direct API'}`,
+            endpoint: 'Activity #302 / Direct Gateway REST API',
+          },
+          testResult,
+          messagingBadge,
+        };
+      }
+      return { ig, testResult, messagingBadge: null };
+    })
+  );
   const liMode = await getLinkedinMode();
   const liConnected = await linkedinIsConfigured();
   const zoomMode = await getZoomMode();
@@ -44,9 +75,9 @@ export default async function IntegrationsPage(props: PageProps<'/integrations'>
         ? 'Live mode, but not connected — click Connect with LinkedIn'
         : 'Live · Events API connected · touches manual';
   const delivery = [
-    { label: 'Email', value: `${sendMode}${sendMode === 'sandbox' ? ' → allowlisted lead' : ''}` },
-    { label: 'SMS', value: `LSQ ${(smsStrategy || 'trigger').toLowerCase()} strategy` },
-    { label: 'WhatsApp', value: `LSQ ${(waStrategy || 'trigger').toLowerCase()} strategy` },
+    { label: 'Email', value: `${sendMode}${sendMode === 'sandbox' ? ' → allowlisted lead' : ' (Direct to Leads)'}` },
+    { label: 'SMS', value: smsMode === 'trigger' ? 'LSQ Automation (Trigger #302)' : 'Direct Gateway REST API' },
+    { label: 'WhatsApp', value: waMode === 'trigger' ? 'LSQ Automation (Route Mobile #61182)' : 'Direct Gateway REST API' },
     { label: 'LinkedIn', value: liValue },
     { label: 'Zoom', value: zoomValue },
   ];
@@ -62,23 +93,14 @@ export default async function IntegrationsPage(props: PageProps<'/integrations'>
 
       <ConnectResultBanner connected={connected} detail={detail} />
 
-      <div style={{ background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', padding: '14px 20px', marginBottom: 20 }}>
-        <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 700, color: 'var(--n90)', marginBottom: 8 }}>Delivery settings</div>
-        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-          {delivery.map((d) => (
-            <div key={d.label}>
-              <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{d.label}</div>
-              <div style={{ fontSize: 'var(--fs-label-1)', fontWeight: 600, color: 'var(--n80)', marginTop: 2 }}>{d.value}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <DeliverySettingsBar initialSendMode={sendMode} deliveryItems={delivery} />
 
       <LsqActivityMappingCard />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(288px, 1fr))', gap: 16 }}>
-        {cards.map(({ ig, testResult }) => (
-          <IntegrationCard key={ig.id} ig={ig} testResult={testResult} />
+
+        {cards.map(({ ig, testResult, messagingBadge }) => (
+          <IntegrationCard key={ig.id} ig={ig} testResult={testResult} messagingBadge={messagingBadge} />
         ))}
       </div>
 

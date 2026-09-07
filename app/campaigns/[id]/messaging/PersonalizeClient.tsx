@@ -865,6 +865,7 @@ export function PersonalizeClient({
           stepLabel={activeStepLabel}
           channel={activeChannel.toLowerCase() as 'email' | 'linkedin' | 'sms' | 'whatsapp'}
           currentBody={selected?.message ? selected.message.body : templateBody}
+          canApply={!!selected?.message}
           onApplyAngle={(angle) => {
             if (selected?.message) {
               patchSelected({

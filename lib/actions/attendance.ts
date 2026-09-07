@@ -14,3 +14,8 @@ export async function pushAccountsForSdrAction(campaignId: string, contactIds: s
   revalidateCampaign(campaignId);
   return result;
 }
+
+export async function generatePostEventDebriefAction(campaignId: string) {
+  const { getPostEventDebrief } = await import('@/lib/postEvent');
+  return getPostEventDebrief(campaignId);
+}

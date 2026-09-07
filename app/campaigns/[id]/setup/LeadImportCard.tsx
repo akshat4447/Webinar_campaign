@@ -305,7 +305,7 @@ export function LeadImportCard({
               onChange={(e) => void chooseDestList(e.target.value)}
               style={{ width: '100%', height: 34, fontSize: 'var(--fs-label-1)' }}
             >
-              <option value="">Create a new list for this campaign (default)</option>
+              <option value="">Do not add to any LeadSquared list (default)</option>
               {destLists?.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name} ({l.members} members)
@@ -313,7 +313,7 @@ export function LeadImportCard({
               ))}
             </select>
             <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', marginTop: 5 }}>
-              Only static lists are listed &mdash; dynamic lists are query-driven and reject additions.
+              Only static lists accept additions. Contacts are upserted to LeadSquared leads directly without auto-creating lists.
             </div>
           </div>
         </div>

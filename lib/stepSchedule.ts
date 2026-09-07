@@ -1,5 +1,5 @@
 export type Anchor = 'launch' | 'webinar' | 'event';
-export type OffsetUnit = 'days' | 'hours';
+export type OffsetUnit = 'days' | 'hours' | 'minutes';
 
 export interface StepSchedule {
   offsetValue: number;
@@ -23,11 +23,13 @@ export const STEP_DEFAULTS: Record<string, StepSchedule> = {
   noshow: { offsetValue: 2, offsetUnit: 'hours', anchor: 'webinar' },
   whatsapp: { offsetValue: 0, offsetUnit: 'days', anchor: 'event' },
   sms: { offsetValue: -1, offsetUnit: 'hours', anchor: 'webinar' },
+  doors_open: { offsetValue: -15, offsetUnit: 'minutes', anchor: 'webinar' },
 };
 
 export function applyOffset(base: Date, offsetValue: number, offsetUnit: string): Date {
   const d = new Date(base);
-  if (offsetUnit === 'hours') d.setHours(d.getHours() + offsetValue);
+  if (offsetUnit === 'minutes') d.setMinutes(d.getMinutes() + offsetValue);
+  else if (offsetUnit === 'hours') d.setHours(d.getHours() + offsetValue);
   else d.setDate(d.getDate() + offsetValue);
   return d;
 }
@@ -47,9 +49,9 @@ export function resolveStepDate(step: StepSchedule, opts: { launchAt: Date; webi
 /** Human label for the offset, e.g. "Day 0", "+4 days", "T-3 days", "+2 hours". */
 export function offsetLabel(step: StepSchedule): string {
   if (step.anchor === 'event') return 'On trigger';
-  const unit = step.offsetUnit === 'hours' ? 'hour' : 'day';
+  const unit = step.offsetUnit === 'minutes' ? 'min' : step.offsetUnit === 'hours' ? 'hour' : 'day';
   const n = Math.abs(step.offsetValue);
-  const plural = n === 1 ? unit : `${unit}s`;
+  const plural = step.offsetUnit === 'minutes' ? 'mins' : (n === 1 ? unit : `${unit}s`);
 
   if (step.anchor === 'webinar') {
     if (step.offsetValue === 0) return 'At start';

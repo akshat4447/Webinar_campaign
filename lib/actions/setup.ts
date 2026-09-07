@@ -348,7 +348,7 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
     `${classified.length - withEmail} contacts have no usable email — queued for Apollo/Apify enrichment`,
   ];
 
-  const sync = await syncContactsToLeadSquared(campaignId);
+  const sync = await syncContactsToLeadSquared(campaignId, { createList: false });
   if (sync.error) {
     logLines.push(`LeadSquared sync failed: ${sync.error.slice(0, 200)}`);
     await upsertAttentionItem(campaignId, {
@@ -359,7 +359,8 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
       actionsCsv: 'retry',
     });
   } else {
-    logLines.push(`Synced to LeadSquared: ${sync.leadsCreated} leads created, ${sync.leadsUpdated} updated, added to list ${sync.listId}`);
+    const listInfo = sync.listId ? `, added to list ${sync.listId}` : '';
+    logLines.push(`Synced to LeadSquared: ${sync.leadsCreated} leads created, ${sync.leadsUpdated} updated${listInfo}`);
     await resolveAttentionItems(campaignId, ['LeadSquared lead sync failed']);
   }
 
@@ -394,14 +395,24 @@ function rawLeadToContact(row: RawLsqLead) {
 
 export async function importFromLsqListAction(campaignId: string, listId: string, listName: string): Promise<CsvImportResult> {
   try {
+    // Explicitly bind campaign to the selected LeadSquared list so no new duplicate list is created.
+    await db.campaign.update({
+      where: { id: campaignId },
+      data: { lsqListId: listId },
+    });
+
     const rawLeads = await getLeadsInList(listId);
     const classified = rawLeads.map(rawLeadToContact);
     await upsertContacts(campaignId, classified);
 
     const withEmail = classified.filter((c) => !c.missingInfo).length;
-    const logLines = [`Fetched ${classified.length} contacts from LeadSquared list "${listName}"`, `${classified.length - withEmail} contacts have no usable email on file`];
+    const logLines = [
+      `Bound campaign to LeadSquared list "${listName}" (${listId})`,
+      `Fetched ${classified.length} contacts from LeadSquared list "${listName}"`,
+      `${classified.length - withEmail} contacts have no usable email on file`,
+    ];
 
-    const sync = await syncContactsToLeadSquared(campaignId);
+    const sync = await syncContactsToLeadSquared(campaignId, { createList: false });
     if (sync.error) {
       logLines.push(`LeadSquared list sync failed: ${sync.error.slice(0, 200)}`);
       await upsertAttentionItem(campaignId, {
@@ -412,7 +423,7 @@ export async function importFromLsqListAction(campaignId: string, listId: string
         actionsCsv: 'retry',
       });
     } else {
-      logLines.push(`Added ${withEmail} contacts to LeadSquared campaign list ${sync.listId}`);
+      logLines.push(`Synced contacts to LeadSquared list "${listName}" (${listId})`);
       await resolveAttentionItems(campaignId, ['LeadSquared lead sync failed']);
     }
 
@@ -424,6 +435,7 @@ export async function importFromLsqListAction(campaignId: string, listId: string
     return { ok: false, error: String(err) };
   }
 }
+
 
 
 

@@ -2,9 +2,10 @@ import { db } from '@/lib/db';
 import { CadenceGroups } from './CadenceGroups';
 import { LinkedInPanel } from './LinkedInPanel';
 import { LaunchCadenceCard } from './LaunchCadenceCard';
+import { VisualCadenceTimeline } from './VisualCadenceTimeline';
 import { renderMergeFields } from '@/lib/cadence';
 import { resolveStepTemplate } from '@/lib/messageTemplates';
-import { sendModeLabel } from '@/lib/sendGuard';
+import { getSendMode } from '@/lib/sendGuard';
 import { getLinkedInProgressAction } from '@/lib/actions/linkedin';
 import { getServerNow } from '@/lib/actions/clock';
 import { normalizeLinkedInSlug, peopleSearchUrl } from '@/lib/linkedinUrl';
@@ -28,6 +29,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
   const personalizedByContact = new Map(personalizedLinkedIn.map((p) => [p.contactId, p.body]));
   const approvedCount = await db.contact.count({ where: { campaignId: id, approved: true } });
   const linkedinProgress = await getLinkedInProgressAction(id);
+  const activeSendMode = await getSendMode();
 
   // Messages a step can be pointed at: the shared library plus this campaign's
   // own overrides, keyed by routable channel so a step only offers messages it
@@ -107,6 +109,18 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', padding: '28px 36px 48px 36px' }}>
+      <VisualCadenceTimeline
+        webinarDate={campaign.date}
+        steps={steps.map((s) => ({
+          id: s.key,
+          title: s.title,
+          timing: s.timing,
+          channel: s.channel,
+          enabled: s.enabled,
+          group: s.group,
+        }))}
+        countsByStep={countsByStep}
+      />
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 300px)', gap: 20, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <CadenceGroups
@@ -126,7 +140,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
             initialProgress={linkedinProgress}
           />
 
-          <LaunchCadenceCard campaignId={id} approvedCount={approvedCount} cadenceStatus={campaign.cadenceStatus} sendMode={sendModeLabel()} />
+          <LaunchCadenceCard campaignId={id} approvedCount={approvedCount} cadenceStatus={campaign.cadenceStatus} sendMode={activeSendMode} />
         </div>
       </div>
     </main>

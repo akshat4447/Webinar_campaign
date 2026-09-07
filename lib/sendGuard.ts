@@ -12,8 +12,16 @@ export class UnverifiedRecipientError extends Error {
 // Independently of send mode, an *inferred* address (emailSimulated, not yet
 // human-verified) is refused outright: enrichment guesses addresses from a name
 // plus a company, and those guesses can land on a real person who never opted in.
-export function resolveRecipient(contact: { email: string | null; emailSimulated?: boolean; emailVerified?: boolean }): { email: string; sandboxed: boolean } {
-  const mode = process.env.SEND_MODE ?? 'sandbox';
+//
+// `mode` is required, not defaulted from process.env here — the real send mode
+// is DB-overridable (see getSendMode() below), so a caller must resolve it
+// first and pass the result. A silent env-only fallback in this function once
+// meant a future caller could reach live/sandbox behavior that disagreed with
+// what Integrations actually has configured.
+export function resolveRecipient(
+  contact: { email: string | null; emailSimulated?: boolean; emailVerified?: boolean },
+  mode: 'sandbox' | 'live'
+): { email: string; sandboxed: boolean } {
   const allowlist = process.env.SEND_ALLOWLIST_LEAD_EMAIL;
 
   if (contact.emailSimulated && !contact.emailVerified) {
@@ -28,6 +36,23 @@ export function resolveRecipient(contact: { email: string | null; emailSimulated
   return { email: allowlist, sandboxed: true };
 }
 
-export function sendModeLabel(): 'sandbox' | 'live' {
+export async function getSendMode(): Promise<'sandbox' | 'live'> {
+  try {
+    const { db } = await import('@/lib/db');
+    const setting = await db.appSetting.findUnique({ where: { key: 'send_mode' } });
+    if (setting?.value === 'live' || setting?.value === 'sandbox') return setting.value;
+  } catch {
+    /* fallback to env */
+  }
   return process.env.SEND_MODE === 'live' ? 'live' : 'sandbox';
 }
+
+export async function saveSendMode(mode: 'sandbox' | 'live'): Promise<void> {
+  const { db } = await import('@/lib/db');
+  await db.appSetting.upsert({
+    where: { key: 'send_mode' },
+    create: { key: 'send_mode', value: mode },
+    update: { value: mode },
+  });
+}
+

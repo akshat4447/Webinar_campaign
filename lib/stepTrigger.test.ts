@@ -9,7 +9,7 @@ import { isAutomatableChannel } from './channels';
  * restatement of the new rule.
  */
 const LEGACY_AUTOMATED_STEP_KEYS = [
-  'invite', 'nudge', 'final', 't3', 't1d', 't1h', 'sms', 'smsInvite', 'waInvite',
+  'invite', 'nudge', 'final', 't3', 't1d', 't1h', 'sms', 'smsInvite', 'waInvite', 'doors_open',
 ];
 
 function asStep(key: string, channel: string, enabled = true) {

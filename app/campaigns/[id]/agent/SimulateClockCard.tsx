@@ -9,17 +9,24 @@ import { advanceSimulatedClockAction } from '@/lib/actions/control';
 export function SimulateClockCard({ campaignId, simulatedNow }: { campaignId: string; simulatedNow: string | null }) {
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   async function advance(days: number) {
     setBusy(true);
-    const res = await advanceSimulatedClockAction(campaignId, days);
-    setBusy(false);
-    setLastResult(
-      `Now: ${new Date(res.simulatedNow).toLocaleDateString()} — ${res.sent} sent, ${res.failed} failed this tick.` +
-        (res.dailyLimitReached ? ` Daily send limit reached — ${res.remaining} more queued for tomorrow.` : '')
-    );
-    router.refresh();
+    setError(null);
+    try {
+      const res = await advanceSimulatedClockAction(campaignId, days);
+      setLastResult(
+        `Now: ${new Date(res.simulatedNow).toLocaleDateString()} — ${res.sent} sent, ${res.failed} failed this tick.` +
+          (res.dailyLimitReached ? ` Daily send limit reached — ${res.remaining} more queued for tomorrow.` : '')
+      );
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not advance the clock — try again.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -38,6 +45,7 @@ export function SimulateClockCard({ campaignId, simulatedNow }: { campaignId: st
         ))}
       </div>
       {lastResult && <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--n70)', marginBottom: 12 }}>{lastResult}</div>}
+      {error && <div style={{ fontSize: 'var(--fs-label-1)', color: 'var(--danger-500)', marginBottom: 12 }}>{error}</div>}
       <Button hierarchy="primary" size="md" fullWidth icon={<Icon name="arrow-right" size={14} />} iconPosition="trailing" onClick={() => router.push(`/campaigns/${campaignId}/overview`)}>
         Go to dashboard
       </Button>

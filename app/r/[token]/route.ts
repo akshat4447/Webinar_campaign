@@ -25,11 +25,22 @@ export async function GET(request: Request, ctx: RouteContext<'/r/[token]'>) {
     return NextResponse.redirect(`${origin}/r/result?status=${result.reason}`);
   }
 
-  // Straight to the join link when there is one — the point of one-click is
-  // that the contact ends up somewhere useful, not on a receipt page.
-  if (result.joinUrl) return NextResponse.redirect(ensureAbsoluteUrl(result.joinUrl));
+  // If the webinar is happening right now or starting within 15 minutes, send straight to the join link.
+  // Otherwise, route to the Attendee Calendar Hub where they can save it to Google/Outlook Calendar and .ics.
+  const isStartingSoon =
+    result.scheduledAt &&
+    result.scheduledAt.getTime() - Date.now() <= 15 * 60 * 1000 &&
+    result.scheduledAt.getTime() - Date.now() >= -3 * 60 * 60 * 1000;
 
+  if (isStartingSoon && result.joinUrl) {
+    return NextResponse.redirect(ensureAbsoluteUrl(result.joinUrl));
+  }
+
+  // Carry the same signed token forward rather than a raw campaignId — the
+  // result page re-verifies it before showing any campaign detail, so this
+  // stays gated to the person who actually registered instead of anyone who
+  // can guess or enumerate a campaignId in the URL.
   return NextResponse.redirect(
-    `${origin}/r/result?status=${result.alreadyRegistered ? 'already' : 'registered'}&c=${encodeURIComponent(result.campaignName)}`
+    `${origin}/r/result?status=${result.alreadyRegistered ? 'already' : 'registered'}&t=${encodeURIComponent(token)}`
   );
 }

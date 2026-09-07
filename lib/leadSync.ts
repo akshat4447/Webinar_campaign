@@ -58,10 +58,18 @@ function leadFieldsFor(c: {
 // happens and how it's repaired).
 const STALE_LEAD_ERROR = /Records not associated with List/i;
 
+export interface LeadSyncOptions {
+  /**
+   * Whether to auto-create a static list in LeadSquared if campaign.lsqListId is not set.
+   * Defaults to false (Option 2: strict opt-in, never create lists autonomously).
+   */
+  createList?: boolean;
+}
+
 // Pushes every contact with an email (that doesn't already have an lsqLeadId)
-// to LeadSquared as a real Lead, then adds every synced contact's lead to a
-// single static list for this campaign — creating that list on first use.
-export async function syncContactsToLeadSquared(campaignId: string): Promise<LeadSyncResult> {
+// to LeadSquared as a real Lead, then optionally adds synced leads to a static
+// list if a list ID is bound to the campaign or createList is explicitly enabled.
+export async function syncContactsToLeadSquared(campaignId: string, options?: LeadSyncOptions): Promise<LeadSyncResult> {
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId } });
   const contacts = await db.contact.findMany({ where: { campaignId, email: { not: null } } });
   const toCreate = contacts.filter((c) => !c.lsqLeadId);
@@ -88,7 +96,7 @@ export async function syncContactsToLeadSquared(campaignId: string): Promise<Lea
     }
 
     let listId = campaign.lsqListId;
-    if (!listId) {
+    if (!listId && options?.createList === true) {
       const listName = `${campaign.name} — Webinar Campaign Agent`;
       // Self-heal: a prior run may have created the list in LSQ but failed
       // before saving its id locally (e.g. a transient DB error) — reuse it
@@ -98,38 +106,41 @@ export async function syncContactsToLeadSquared(campaignId: string): Promise<Lea
       await db.campaign.update({ where: { id: campaignId }, data: { lsqListId: listId } });
     }
 
-    let synced = await db.contact.findMany({ where: { campaignId, lsqLeadId: { not: null }, email: { not: null } } });
-    let leadIds = synced.map((c) => c.lsqLeadId).filter((id): id is string => !!id);
+    if (listId) {
+      let synced = await db.contact.findMany({ where: { campaignId, lsqLeadId: { not: null }, email: { not: null } } });
+      let leadIds = synced.map((c) => c.lsqLeadId).filter((id): id is string => !!id);
 
-    if (leadIds.length > 0) {
-      try {
-        await addLeadsToStaticList(listId, leadIds);
-      } catch (err) {
-        // A locally-stored lsqLeadId can go stale — the record it pointed to was
-        // deleted or purged on the LSQ side (trial-account cleanup, manual
-        // dedup, GDPR delete) independent of anything this app did, so the id
-        // this app has cached is no longer a real lead. LSQ correctly refuses
-        // to add a non-existent lead to a list. Since Lead.CreateOrUpdate is
-        // keyed on email (not on our stored id) and upserts, re-running it for
-        // every already-"synced" contact gets back a valid current id — for an
-        // untouched lead that's the same id as before; for a stale one it's a
-        // freshly (re)created lead. One retry, not an infinite loop.
-        if (err instanceof LeadSquaredError && STALE_LEAD_ERROR.test(String(err.body))) {
-          const refreshed = await bulkCreateOrUpdateLeads(synced.map(leadFieldsFor));
-          const succeeded = refreshed.filter((r) => r.LeadId);
-          await db.$transaction(succeeded.map((r) => db.contact.update({ where: { id: synced[r.RowNumber].id }, data: { lsqLeadId: r.LeadId } })));
-          synced = await db.contact.findMany({ where: { campaignId, lsqLeadId: { not: null }, email: { not: null } } });
-          leadIds = synced.map((c) => c.lsqLeadId).filter((id): id is string => !!id);
+      if (leadIds.length > 0) {
+        try {
           await addLeadsToStaticList(listId, leadIds);
-          rowErrors.unshift(`${succeeded.length} stale LeadSquared record(s) were re-created after their ids went stale`);
-        } else {
-          throw err;
+        } catch (err) {
+          // A locally-stored lsqLeadId can go stale — the record it pointed to was
+          // deleted or purged on the LSQ side (trial-account cleanup, manual
+          // dedup, GDPR delete) independent of anything this app did, so the id
+          // this app has cached is no longer a real lead. LSQ correctly refuses
+          // to add a non-existent lead to a list. Since Lead.CreateOrUpdate is
+          // keyed on email (not on our stored id) and upserts, re-running it for
+          // every already-"synced" contact gets back a valid current id — for an
+          // untouched lead that's the same id as before; for a stale one it's a
+          // freshly (re)created lead. One retry, not an infinite loop.
+          if (err instanceof LeadSquaredError && STALE_LEAD_ERROR.test(String(err.body))) {
+            const refreshed = await bulkCreateOrUpdateLeads(synced.map(leadFieldsFor));
+            const succeeded = refreshed.filter((r) => r.LeadId);
+            await db.$transaction(succeeded.map((r) => db.contact.update({ where: { id: synced[r.RowNumber].id }, data: { lsqLeadId: r.LeadId } })));
+            synced = await db.contact.findMany({ where: { campaignId, lsqLeadId: { not: null }, email: { not: null } } });
+            leadIds = synced.map((c) => c.lsqLeadId).filter((id): id is string => !!id);
+            await addLeadsToStaticList(listId, leadIds);
+            rowErrors.unshift(`${succeeded.length} stale LeadSquared record(s) were re-created after their ids went stale`);
+          } else {
+            throw err;
+          }
         }
       }
     }
 
-    return { listId, leadsCreated, leadsUpdated, leadsFailed, error: rowErrors.length > 0 ? rowErrors.slice(0, 3).join('; ') : undefined };
+    return { listId: listId ?? null, leadsCreated, leadsUpdated, leadsFailed, error: rowErrors.length > 0 ? rowErrors.slice(0, 3).join('; ') : undefined };
   } catch (err) {
-    return { listId: campaign.lsqListId, leadsCreated, leadsUpdated, leadsFailed: toCreate.length - leadsCreated - leadsUpdated, error: String(err) };
+    return { listId: campaign.lsqListId ?? null, leadsCreated, leadsUpdated, leadsFailed: toCreate.length - leadsCreated - leadsUpdated, error: String(err) };
   }
 }
+

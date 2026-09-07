@@ -14,10 +14,15 @@ export function RunScoringPrompt({ campaignId, contactCount }: { campaignId: str
   async function run() {
     setBusy(true);
     setError(null);
-    const res = await runScoringAction(campaignId);
-    setBusy(false);
-    if (!res.ok) setError(res.error ?? 'Scoring failed.');
-    else router.refresh();
+    try {
+      const res = await runScoringAction(campaignId);
+      if (!res.ok) setError(res.error ?? 'Scoring failed.');
+      else router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Scoring failed.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (

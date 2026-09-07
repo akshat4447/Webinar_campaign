@@ -50,6 +50,7 @@ export interface AccountEngagementRow {
   topContactName: string;
   action: 'Follow up' | 'Nurture' | 'Not contacted';
   actionColor: 'success' | 'blue' | 'gray';
+  intentTier: 'high' | 'medium' | 'low';
 }
 
 /** Top N accounts by attendance, for the post-event engagement table. */
@@ -72,6 +73,14 @@ export async function getAccountEngagement(campaignId: string, take = 12): Promi
       ? attendedRows.reduce((a, b) => ((a.watchMinutes ?? 0) >= (b.watchMinutes ?? 0) ? a : b))
       : cs.reduce((a, b) => ((a.score ?? 0) >= (b.score ?? 0) ? a : b));
 
+    // Intent Tiering: High (multiple attendees or >35m watch), Medium (attended), Low (no-show)
+    const intentTier: 'high' | 'medium' | 'low' =
+      attendedRows.length > 1 || (avgWatchMinutes !== null && avgWatchMinutes >= 35)
+        ? 'high'
+        : attendedRows.length > 0
+        ? 'medium'
+        : 'low';
+
     return {
       account,
       contactIds: cs.map((c) => c.id),
@@ -82,8 +91,34 @@ export async function getAccountEngagement(campaignId: string, take = 12): Promi
       topContactName: top.name,
       action: attendedRows.length > 0 ? 'Follow up' : cs.some((c) => c.score !== null) ? 'Nurture' : 'Not contacted',
       actionColor: attendedRows.length > 0 ? 'success' : cs.some((c) => c.score !== null) ? 'blue' : 'gray',
+      intentTier,
     };
   });
 
   return rows.sort((a, b) => b.attended - a.attended || b.contactCount - a.contactCount).slice(0, take);
+}
+
+/** Generates AI Executive Debrief and SDR Handoff Guide for this webinar (Pillar 3) */
+export async function getPostEventDebrief(campaignId: string) {
+  const { generatePostEventDebrief } = await import('@/lib/claude');
+  const [campaign, stats, accounts, totalApproved] = await Promise.all([
+    db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { name: true } }),
+    getPostEventStats(campaignId),
+    getAccountEngagement(campaignId, 20),
+    db.contact.count({ where: { campaignId, approved: true } }),
+  ]);
+
+  return generatePostEventDebrief({
+    topic: campaign.name,
+    totalApproved,
+    attendedCount: stats.attended,
+    noShowCount: stats.noShow,
+    avgWatchMinutes: stats.avgWatchMinutes,
+    accounts: accounts.map((a) => ({
+      account: a.account,
+      attended: a.attended,
+      avgWatchMinutes: a.avgWatchMinutes ?? 0,
+      action: a.action,
+    })),
+  });
 }

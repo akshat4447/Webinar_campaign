@@ -58,6 +58,18 @@ export function startZoomAutosync() {
 
     for (const m of meetings) {
       if (linkedIds.has(m.id)) continue;
+      // Guard: Only import meetings that are designated webinars, workshops, or masterclasses.
+      // Avoids importing personal 1:1s, team standups, and internal meetings into campaigns.
+      const topicLower = (m.topic || '').toLowerCase();
+      const isWebinarEvent =
+        topicLower.includes('webinar') ||
+        topicLower.includes('masterclass') ||
+        topicLower.includes('workshop') ||
+        topicLower.includes('summit') ||
+        topicLower.includes('session');
+      if (!isWebinarEvent && process.env.ZOOM_IMPORT_ALL_MEETINGS !== 'true') {
+        continue;
+      }
       try {
         const scheduledAt = m.startTime ? new Date(m.startTime) : null;
         const campaign = await db.campaign.create({

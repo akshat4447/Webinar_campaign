@@ -16,9 +16,8 @@ const MAX_ROWS = 6;
  * them back into scoring. This computes a real signal instead: approval rate
  * by persona (seniority + function), across every scored contact in every
  * campaign, using the same score/approved fields the Dashboard's scoreBands
- * analysis already trusts. It's not fed back into the scoring prompt (that
- * would be a real ML feedback loop, out of scope here) — the copy below is
- * adjusted to describe what this actually is: a track record, not a live loop.
+ * analysis already trusts. It IS fed back into scoring now — see
+ * getPersonaLearningInsights() below, consumed by scoreContacts().
  */
 export async function getPersonaLearning(): Promise<PersonaLearningRow[]> {
   const contacts = await db.contact.findMany({
@@ -41,3 +40,21 @@ export async function getPersonaLearning(): Promise<PersonaLearningRow[]> {
     .sort((a, b) => b.pct - a.pct || b.sampleSize - a.sampleSize)
     .slice(0, MAX_ROWS);
 }
+
+/**
+ * Compiles historical campaign learning insights to ground Claude's scoring
+ * prompt in real track-record performance data. Only scoreContacts() calls
+ * this today — personalizeMessages() does not.
+ */
+export async function getPersonaLearningInsights(): Promise<string | null> {
+  try {
+    const rows = await getPersonaLearning();
+    if (rows.length === 0) return null;
+
+    const lines = rows.map((r) => `• ${r.label}: ${r.pct}% approval rate (sample: ${r.sampleSize} scored)`);
+    return `HISTORICAL WEBINAR CAMPAIGN TRACK RECORD (PRIOR LEARNING):\n${lines.join('\n')}\nCalibrate your scores based on which personas have historically converted in past webinars.`;
+  } catch {
+    return null;
+  }
+}
+

@@ -49,25 +49,54 @@ async function lsqFetch<T>(
   const qs = new URLSearchParams(query).toString();
   const url = `${cfg.baseUrl}${path}?${authQuery}${qs ? `&${qs}` : ''}`;
 
-  const res = await fetch(url, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-    cache: 'no-store',
-  });
+  const MAX_RETRIES = 3;
+  let lastError: unknown;
 
-  const text = await res.text();
-  let parsed: unknown = text;
-  try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    // some LSQ error responses aren't JSON — keep the raw text
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+        cache: 'no-store',
+      });
+
+      // Handle 429 rate limits or transient 503 errors with exponential backoff
+      if ((res.status === 429 || res.status === 503) && attempt < MAX_RETRIES) {
+        const backoffMs = Math.pow(2, attempt) * 1000 + Math.floor(Math.random() * 500);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        continue;
+      }
+
+      const text = await res.text();
+      let parsed: unknown = text;
+      try {
+        parsed = text ? JSON.parse(text) : null;
+      } catch {
+        // some LSQ error responses aren't JSON — keep the raw text
+      }
+
+      if (!res.ok) {
+        throw new LeadSquaredError(
+          res.status,
+          parsed,
+          `LeadSquared ${method} ${path} failed: ${res.status} ${typeof parsed === 'string' ? parsed : JSON.stringify(parsed)}`
+        );
+      }
+      return parsed as T;
+    } catch (err) {
+      lastError = err;
+      if (err instanceof LeadSquaredError && err.status !== 429 && err.status !== 503) {
+        throw err;
+      }
+      if (attempt < MAX_RETRIES) {
+        const backoffMs = Math.pow(2, attempt) * 1000 + Math.floor(Math.random() * 500);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      }
+    }
   }
 
-  if (!res.ok) {
-    throw new LeadSquaredError(res.status, parsed, `LeadSquared ${method} ${path} failed: ${res.status} ${typeof parsed === 'string' ? parsed : JSON.stringify(parsed)}`);
-  }
-  return parsed as T;
+  throw lastError instanceof Error ? lastError : new Error(`LeadSquared request failed after ${MAX_RETRIES} attempts.`);
 }
 
 // --- connectivity check -----------------------------------------------------
@@ -120,6 +149,13 @@ export async function addLeadsToStaticList(listId: string, leadIds: string[]): P
     await lsqFetch('/LeadSegmentation.svc/AddLeadsToStaticList', { method: 'POST', body: { listId, leadIds: chunk } });
     if (i + 25 < leadIds.length) await sleep(200);
   }
+}
+
+export async function emptyStaticList(listId: string): Promise<void> {
+  await lsqFetch<{ Status: string; Message: { Id: string } }>('/LeadSegmentation.svc/Lists/EmptyStaticList', {
+    method: 'GET',
+    query: { ListId: listId },
+  });
 }
 
 export interface BulkLeadResult {
