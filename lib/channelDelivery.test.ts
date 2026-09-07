@@ -1,4 +1,23 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+const appSettingsStore = new Map<string, string>();
+
+vi.mock('@/lib/db', () => ({
+  db: {
+    appSetting: {
+      findUnique: vi.fn(async ({ where }: { where: { key: string } }) => {
+        const val = appSettingsStore.get(where.key);
+        return val !== undefined ? { key: where.key, value: val } : null;
+      }),
+      upsert: vi.fn(async ({ where, create, update }: { where: { key: string }; create: { key: string; value: string }; update: { value: string } }) => {
+        const val = update?.value ?? create?.value;
+        appSettingsStore.set(where.key, val);
+        return { key: where.key, value: val };
+      }),
+    },
+  },
+}));
+
 import { getChannelDeliveryMode, setChannelDeliveryMode, executeDirectSend } from './channelDelivery';
 
 describe('Channel Delivery Two-Mode System', () => {

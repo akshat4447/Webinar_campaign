@@ -34,6 +34,8 @@ function isViewId(value: string | undefined): value is ViewId {
   return VIEWS.some((v) => v.id === value);
 }
 
+export const dynamic = 'force-dynamic';
+
 export default async function WebinarsPage(props: PageProps<'/'>) {
   const { view: rawView } = await props.searchParams;
   const view: ViewId = isViewId(typeof rawView === 'string' ? rawView : undefined)

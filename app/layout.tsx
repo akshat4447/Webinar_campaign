@@ -10,13 +10,24 @@ export const metadata: Metadata = {
   description: 'Run B2B webinar campaigns end to end — audience, messaging, cadence and reporting',
 };
 
+export const dynamic = 'force-dynamic';
+
 export default async function RootLayout({ children }: LayoutProps<'/'>) {
-  const [totalCount, liveCount, draftCount, completedCount] = await Promise.all([
-    db.campaign.count({ where: { archived: false } }),
-    db.campaign.count({ where: { archived: false, status: 'live' } }),
-    db.campaign.count({ where: { archived: false, status: 'draft' } }),
-    db.campaign.count({ where: { archived: false, status: 'completed' } }),
-  ]);
+  let totalCount = 0;
+  let liveCount = 0;
+  let draftCount = 0;
+  let completedCount = 0;
+
+  try {
+    [totalCount, liveCount, draftCount, completedCount] = await Promise.all([
+      db.campaign.count({ where: { archived: false } }),
+      db.campaign.count({ where: { archived: false, status: 'live' } }),
+      db.campaign.count({ where: { archived: false, status: 'draft' } }),
+      db.campaign.count({ where: { archived: false, status: 'completed' } }),
+    ]);
+  } catch {
+    // Database connection may not be available during static build / prerender
+  }
 
   return (
     <html lang="en">

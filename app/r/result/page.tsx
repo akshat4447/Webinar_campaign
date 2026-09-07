@@ -16,6 +16,8 @@ function formatGoogleCalendarDate(d: Date): string {
   return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 }
 
+export const dynamic = 'force-dynamic';
+
 export default async function RegistrationResultPage(props: PageProps<'/r/result'>) {
   const sp = await props.searchParams;
   const status = typeof sp.status === 'string' ? sp.status : 'malformed';

@@ -39,14 +39,18 @@ function settingKey(id: string, field: string) {
 export async function getIntegrationConfig(id: string): Promise<Record<string, string>> {
   const fields = INTEGRATION_FIELDS[id] ?? [];
   if (fields.length === 0) return {};
-  const rows = await db.appSetting.findMany({ where: { key: { in: fields.map((f) => settingKey(id, f.key)) } } });
-  const byKey = new Map(rows.map((r) => [r.key, r.value]));
-  const out: Record<string, string> = {};
-  for (const f of fields) {
-    const v = byKey.get(settingKey(id, f.key));
-    if (v) out[f.key] = v;
+  try {
+    const rows = await db.appSetting.findMany({ where: { key: { in: fields.map((f) => settingKey(id, f.key)) } } });
+    const byKey = new Map(rows.map((r) => [r.key, r.value]));
+    const out: Record<string, string> = {};
+    for (const f of fields) {
+      const v = byKey.get(settingKey(id, f.key));
+      if (v) out[f.key] = v;
+    }
+    return out;
+  } catch {
+    return {};
   }
-  return out;
 }
 
 /** DB value, falling back to env — this is what a real call actually uses. */

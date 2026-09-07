@@ -27,6 +27,8 @@ function isRange(v: string | undefined): v is DashboardRange {
   return RANGES.some((r) => r.id === v);
 }
 
+export const dynamic = 'force-dynamic';
+
 export default async function DashboardPage(props: PageProps<'/dashboard'>) {
   const { range: rawRange } = await props.searchParams;
   const range: DashboardRange = isRange(typeof rawRange === 'string' ? rawRange : undefined) ? (rawRange as DashboardRange) : '30d';

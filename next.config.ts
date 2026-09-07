@@ -6,6 +6,9 @@ import type { NextConfig } from "next";
 const TUNNEL_ORIGINS = ['*.trycloudflare.com', '*.loca.lt', '*.ngrok-free.app', '*.ngrok.io', 'localhost:3000'];
 
 const nextConfig: NextConfig = {
+  // Output standalone bundle for Docker and containerized deployments
+  output: 'standalone',
+
   // Lets the dev server accept HMR/dev-resource requests when accessed
   // through a tunnel rather than localhost directly.
   allowedDevOrigins: TUNNEL_ORIGINS,
@@ -13,6 +16,20 @@ const nextConfig: NextConfig = {
     serverActions: {
       allowedOrigins: TUNNEL_ORIGINS,
     },
+  },
+
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+        ],
+      },
+    ];
   },
 };
 
