@@ -13,8 +13,11 @@ services:
       - key: NODE_VERSION
         value: 20.18.0
       # Single instance only — see the README's "Background automation" note.
-      # Safe to leave on for a one-instance web service; do NOT also run the
-      # cadence-tick cron job below with this set, or sends get double-processed.
+      # On Render's FREE plan specifically, this service spins down after ~15
+      # minutes idle and only wakes on the next incoming request — so this
+      # timer effectively pauses whenever nothing's visiting the app, and
+      # resumes once something wakes it back up. Better than nothing, but
+      # don't expect it to fire reliably on a schedule on the free tier.
       - key: ZOOM_AUTOSYNC
         value: "1"
       - key: ZOOM_AUTOSYNC_SECONDS
@@ -65,34 +68,14 @@ services:
       # registration, .ics downloads, OAuth redirects) build correctly.
       - key: APP_ORIGIN
         sync: false
-      # Shared with the cadence-cron job below — set the SAME value on both
-      # services after the first deploy. Protects /api/cron/cadence from
-      # being triggered by anyone who finds the URL.
+      # Protects GET /api/cron/cadence from being triggered by anyone who
+      # finds the URL. Render's Cron Job service type has no free plan, so
+      # on the free tier this endpoint is driven by an external scheduler
+      # instead (cron-job.org, a GitHub Actions scheduled workflow, etc.) —
+      # see the README's "Background automation" section. Give it the same
+      # value you configure there.
       - key: CRON_SECRET
         sync: false
-
-  # Drives scheduled cadence sends by calling the app's own /api/cron/cadence
-  # endpoint (app/api/cron/cadence/route.ts) rather than running a second copy
-  # of the app as a background worker — no separate build, no second
-  # DATABASE_URL connection pool, and the same endpoint Vercel Cron uses
-  # (see vercel.json) if you ever deploy there too. This replaces relying on
-  # the web service's own in-process CADENCE_AUTOTICK timer, which stops when
-  # that process restarts and would double-process sends if the service ever
-  # scaled past one instance — leave CADENCE_AUTOTICK unset above while this
-  # is enabled.
-  - type: cron
-    name: webinar-studio-cadence-cron
-    runtime: node
-    plan: free
-    schedule: "*/5 * * * *"
-    buildCommand: "true"
-    startCommand: 'curl -sf -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/cadence"'
-    envVars:
-      - key: CRON_SECRET
-        sync: false
-      # Update if you rename the web service above or attach a custom domain.
-      - key: APP_URL
-        value: https://webinar-studio.onrender.com
 
 databases:
   - name: webinar-studio-db

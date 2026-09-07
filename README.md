@@ -45,13 +45,13 @@ Almost everything above can *also* be set per-field from the **Integrations** pa
 
 The app needs one thing neither platform gives you by default: a **real, network-reachable Postgres database** — never a local file. Both `render.yaml` and `netlify.toml` in this repo are ready to use as-is, and both drive scheduled cadence sends through one real HTTP endpoint, `GET /api/cron/cadence` (`app/api/cron/cadence/route.ts`) — the same one `vercel.json` wires up for Vercel Cron. Protect it in any real deployment by setting `CRON_SECRET`; the route runs unauthenticated if it's left unset.
 
-### Render (recommended — supports full background automation)
+### Render (free tier)
 
-1. Push this repo to GitHub, then in Render: **New → Blueprint**, point it at the repo. Render reads `render.yaml` and provisions, together: a free Postgres database, the web service (build runs `prisma migrate deploy` before `next build`), and a lightweight cron job that calls `/api/cron/cadence` every 5 minutes.
+1. Push this repo to GitHub, then in Render: **New → Blueprint**, point it at the repo. Render reads `render.yaml` and provisions a free Postgres database plus the web service (build runs `prisma migrate deploy` before `next build`).
 2. After the first deploy, open the **web service → Environment** and fill in the secrets `render.yaml` left blank (`sync: false`): `ANTHROPIC_API_KEY`, LSQ credentials, `CRON_SECRET` (pick any random string), Zoom/LinkedIn OAuth app credentials, etc. — or skip most of these and configure them from the running app's **Integrations** page instead, which always wins over env vars.
-3. Open the **cadence-cron job's Environment** and set the *same* `CRON_SECRET` value you just picked, so its request to the web service authenticates. `APP_URL` in `render.yaml` already points at `https://webinar-studio.onrender.com` — update it if you renamed the service or attached a custom domain.
-4. For Zoom/LinkedIn OAuth: create each app in its developer portal with the redirect URI `https://<your-service>.onrender.com/api/auth/{zoom,linkedin}/callback`. The app derives its own origin from Render's proxy headers, so `ZOOM_REDIRECT_URI`/`LINKEDIN_REDIRECT_URI` only need setting if you put a custom domain in front and see a mismatch.
-5. Keep `SEND_MODE=sandbox` until you've verified templates and sender identity from the Integrations page — flipping to `live` is a real, deliberate decision, not a default.
+3. For Zoom/LinkedIn OAuth: create each app in its developer portal with the redirect URI `https://<your-service>.onrender.com/api/auth/{zoom,linkedin}/callback`. The app derives its own origin from Render's proxy headers, so `ZOOM_REDIRECT_URI`/`LINKEDIN_REDIRECT_URI` only need setting if you put a custom domain in front and see a mismatch.
+4. Keep `SEND_MODE=sandbox` until you've verified templates and sender identity from the Integrations page — flipping to `live` is a real, deliberate decision, not a default.
+5. Set up the cadence scheduler — see "Background automation" below. Render's Cron Job service type has **no free plan**, so `render.yaml` doesn't include one; use a free external scheduler instead.
 
 A `Dockerfile` is also in the repo (multi-stage, uses `next.config.ts`'s `output: 'standalone'`) if you'd rather deploy as a Render **Docker** web service instead of the native Node runtime above — either works; the Blueprint uses native Node because it's simpler to wire secrets into.
 
@@ -59,15 +59,17 @@ A `Dockerfile` is also in the repo (multi-stage, uses `next.config.ts`'s `output
 
 1. **Add a new site → Import an existing project**, point it at this repo. Netlify reads `netlify.toml`, installs the Next.js Runtime plugin, and runs `prisma migrate deploy` before every build.
 2. In **Site configuration → Environment variables**, set `DATABASE_URL` (pointing at a real hosted Postgres — Render's own, Neon, and Supabase all work), `CRON_SECRET`, plus whichever credentials you want to bootstrap with; the rest can be configured later from the Integrations page.
-3. There is no long-lived process on Netlify's serverless functions, so `CADENCE_AUTOTICK`/`ZOOM_AUTOSYNC` (see "Background automation" below) don't run here at all — leave them unset and drive `/api/cron/cadence` from a Netlify Scheduled Function or an external cron service instead (step 4).
-4. Add a scheduler that calls `GET https://<your-site>.netlify.app/api/cron/cadence` with header `Authorization: Bearer <CRON_SECRET>` every 5 minutes — a [Netlify Scheduled Function](https://docs.netlify.com/functions/scheduled-functions/), a GitHub Actions workflow on a `schedule:` trigger, or a free service like cron-job.org all work.
+3. There is no long-lived process on Netlify's serverless functions either, so `CADENCE_AUTOTICK`/`ZOOM_AUTOSYNC` don't run here — same external-scheduler answer as Render, below.
 
 ### Background automation (matters on either platform)
 
-`CADENCE_AUTOTICK` and `ZOOM_AUTOSYNC` (see `instrumentation.ts`) are **in-process timers** — convenient for a single, always-on server, but they stop the moment that process restarts, and would double-process sends if the service ever scaled to more than one instance. `/api/cron/cadence` sidesteps this entirely by doing the same work as a stateless, externally-triggered HTTP call instead.
+`CADENCE_AUTOTICK` and `ZOOM_AUTOSYNC` (see `instrumentation.ts`) are **in-process timers** — convenient for a single, always-on server, but they stop the moment that process restarts, would double-process sends if the service ever scaled to more than one instance, and don't run at all on a serverless platform. Neither Render's free tier nor Netlify give you a free always-on cron primitive, so on either one, leave both env vars unset and instead point a **free external scheduler** at the app's own `GET /api/cron/cadence` endpoint (`app/api/cron/cadence/route.ts` — the same one `vercel.json` wires up for Vercel Cron) every 5 minutes, with header `Authorization: Bearer <CRON_SECRET>`:
 
-- **Render**: `render.yaml`'s cron job already calls that endpoint on a schedule — don't also set `CADENCE_AUTOTICK` on the web service, or sends get processed twice. `ZOOM_AUTOSYNC` is left on the web service itself, which is fine for exactly one instance (there's no equivalent HTTP endpoint for Zoom sync yet).
-- **Netlify**: neither timer runs at all — see step 4 above; there's no in-process alternative here, the endpoint is the only option.
+- **[cron-job.org](https://cron-job.org)** (free, no code) — simplest option regardless of which platform hosts the app.
+- **A GitHub Actions workflow** on a `schedule:` trigger, `curl`-ing the endpoint — free on a public repo, and lives right next to the code.
+- **A Netlify Scheduled Function**, if the app itself is on Netlify.
+
+`ZOOM_AUTOSYNC` has no equivalent HTTP endpoint yet, so on a serverless/no-persistent-process deployment (Netlify, or Render without an upgraded always-on setup), Zoom meeting creation and attendance import need triggering manually from the app's Setup/Overview pages instead of running automatically.
 
 ## Scripts
 
