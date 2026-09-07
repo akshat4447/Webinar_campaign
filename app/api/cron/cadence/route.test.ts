@@ -40,7 +40,7 @@ describe('/api/cron/cadence', () => {
     vi.mocked(db.campaign.findMany).mockResolvedValue([
       { id: 'c1', name: 'Webinar 1' },
       { id: 'c2', name: 'Webinar 2' },
-    ] as any);
+    ] as unknown as Awaited<ReturnType<typeof db.campaign.findMany>>);
 
     vi.mocked(processDueSends).mockResolvedValueOnce({
       processed: 5,
