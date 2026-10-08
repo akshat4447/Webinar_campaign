@@ -1,12 +1,14 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { appOrigin } from './appOrigin';
 
 describe('appOrigin', () => {
-  const original = process.env.APP_ORIGIN;
+  beforeEach(() => {
+    vi.stubEnv('APP_ORIGIN', undefined);
+    vi.stubEnv('RENDER_EXTERNAL_URL', undefined);
+  });
 
   afterEach(() => {
-    if (original === undefined) delete process.env.APP_ORIGIN;
-    else process.env.APP_ORIGIN = original;
+    vi.unstubAllEnvs();
   });
 
   it('falls back to localhost:3000 when unset — dev and CLI scripts work with no configuration', () => {
@@ -16,6 +18,17 @@ describe('appOrigin', () => {
 
   it('uses APP_ORIGIN when set', () => {
     process.env.APP_ORIGIN = 'https://webinars.example.com';
+    expect(appOrigin()).toBe('https://webinars.example.com');
+  });
+
+  it('uses the assigned Render URL when APP_ORIGIN is unset', () => {
+    process.env.RENDER_EXTERNAL_URL = 'https://webinar-studio.onrender.com/';
+    expect(appOrigin()).toBe('https://webinar-studio.onrender.com');
+  });
+
+  it('prefers a custom APP_ORIGIN over the assigned Render URL', () => {
+    process.env.APP_ORIGIN = 'https://webinars.example.com/';
+    process.env.RENDER_EXTERNAL_URL = 'https://webinar-studio.onrender.com';
     expect(appOrigin()).toBe('https://webinars.example.com');
   });
 

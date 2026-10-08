@@ -2,6 +2,10 @@
 
 The repository is ready for a reviewed code release with the checks below. Hosted production has not been provisioned or smoke-tested in this session. Follow [DEPLOYMENT.md](DEPLOYMENT.md) for the remaining environment and scheduling setup. This report contains no actual recipients, provider keys, CRM identifiers or raw delivery payloads.
 
+**Subsequent hosting configuration change:** at the user's request, `render.yaml` now selects free web/PostgreSQL plans for temporary testing, runs migrations at startup, detects Render's public URL, and disables process timers during setup. The release evidence below describes the original production audit; the current free template is not an always-on production deployment. See [the updated Render runbook](DEPLOYMENT.md#render-renderyaml) for sleep, database expiry and scheduling requirements.
+
+The free-template change passed the published Render JSON schema, five origin-resolution unit tests, zero-warning lint and a default production build including TypeScript. Its exact startup command was exercised twice against an isolated PostgreSQL database: all 16 migrations applied on the first start and were skipped on restart; DB-backed health and application pages returned successfully. This validates local startup behavior, not provisioning on Render's free hardware.
+
 ## Scope and completed corrections
 
 The review covered app routes and server actions, shared UI, styling and assets, provider clients and callbacks, registration and calendar links, cadence and durable jobs, attendance and analytics, Prisma schema/migrations, dependency tooling, deployment configuration, operational scripts, and unit/database/browser verification. Generated dependencies and build caches were treated as reproducible output rather than source.

@@ -5,7 +5,7 @@ The canonical repository is `akshat4447/Webinar_campaign`, branch `main`. The ro
 ## Shared release requirements
 
 1. Use Node **24.x**, persistent PostgreSQL 16 or newer, and the committed lockfile (`npm ci`).
-2. Set `DATABASE_URL`, the final HTTPS `APP_ORIGIN`, and two independent persistent secrets: `REGISTRATION_SECRET` and `CREDENTIALS_ENCRYPTION_KEY`, each at least 32 characters. Generate each separately with `openssl rand -hex 32`. Keep these values in hosting environment settings, never in GitHub files.
+2. Set `DATABASE_URL`, the final HTTPS `APP_ORIGIN`, and two independent persistent secrets: `REGISTRATION_SECRET` and `CREDENTIALS_ENCRYPTION_KEY`, each at least 32 characters. Render supplies the origin automatically through `RENDER_EXTERNAL_URL`; set `APP_ORIGIN` explicitly for a custom domain. Generate each key separately with `openssl rand -hex 32`. Keep these values in hosting environment settings, never in GitHub files.
 3. Back up the existing database and both keys. An empty hosting database does not contain the existing local campaigns or integration settings. Restore the intended backup before migration if moving existing data.
 4. Apply `npm run db:migrate:deploy` against the intended database before serving the release. The approval correction migration revokes only unreviewed, unscored website registrations; it preserves manual and scored decisions.
 5. For older installations with plaintext saved credentials, run `npm run credentials:encrypt` once with the persistent encryption key. The operation is idempotent. Retain both keys across releases; replacing them can invalidate credentials or attendee links.
@@ -16,11 +16,32 @@ The operator studio and worker endpoint have **no authentication or authorizatio
 
 ## Render: `render.yaml`
 
-Create or update a Blueprint using the repository's `main` branch. The template declares an always-on paid web service (`0.5c-512mb`) and paid PostgreSQL (`0.1c-256mb`, 5 GB, version 16). Applying the Blueprint provisions billable resources; storing this file in GitHub does not.
+The current template creates **one free full-stack Next.js web service and one free PostgreSQL 16 database**. It deploys both the frontend and backend together; Vercel is not required for this setup. Both resources explicitly use `plan: free`; no paid worker, cron job or disk is declared.
 
-The Blueprint installs with `npm ci`, builds the app, applies migrations with the pre-deploy command, starts `npm start`, and checks `/api/health`. Fill the prompted origin and persistent keys. Provider settings can be saved through Integrations. Automatic deployment waits for repository checks to pass.
+### Deploy the free Blueprint
 
-The web service enables five-minute cadence and Zoom timers. These make real provider calls after configuration. Database leases prevent overlapping cadence workers; keep a single primary deployment responsible for scheduling. A free sleeping web service and an expiring free database are unsuitable substitutes for these production settings. Render restricts the pre-deploy command to paid services. See [Render deployment commands](https://render.com/docs/deploys#pre-deploy-command), [compute plans](https://render.com/docs/compute-plans), and the [Blueprint specification](https://render.com/docs/blueprint-spec).
+1. In the [Render dashboard](https://dashboard.render.com), choose **New → Blueprint** and connect `akshat4447/Webinar_campaign` from GitHub.
+2. Select branch **main** and Blueprint path **render.yaml**. Render reads the committed file from GitHub; uploading a local YAML alone does not supply the application code.
+3. Review the resource list: `webinar-studio` and `webinar-studio-db` must both show **Free**. A workspace supports only one free PostgreSQL database. This file targets a fresh free setup; do not assume it can convert an existing paid database into a free one.
+4. Fill the two prompted keys. For a new empty installation, run the following command **twice** and use a different output for each key:
+
+   ```sh
+   openssl rand -hex 32
+   ```
+
+   When restoring existing data, reuse its original keys. If moving existing campaigns, restore the intended database backup before the app's first successful startup; the template otherwise starts with an empty database. Subsequent Blueprint updates do not prompt again for `sync: false` values; maintain them in the service's Environment settings.
+5. Apply the Blueprint. The database's internal connection URL is wired automatically into `DATABASE_URL`. The build runs `npm ci --include=dev && npm run build`; explicitly including development dependencies preserves the required build/install tooling under `NODE_ENV=production`.
+6. Startup runs `npm run db:migrate:deploy && npm start`. Migration failure prevents the app from serving. This also runs on restarts and wake-ups; already-applied migrations are skipped. Free services cannot use Render's paid pre-deploy command. The health check is `/api/health`, and future automatic deployments wait for GitHub checks to pass.
+7. Open the assigned `https://…onrender.com` URL and check `/api/health` returns HTTP 200. The app uses Render's assigned URL for absolute links without another environment setting. For a custom domain, add its HTTPS URL as `APP_ORIGIN`, redeploy, and update provider callbacks.
+8. Configure providers through **Integrations** and verify a designated test registration and email before launching a campaign. Configure SMS and WhatsApp through the intended LeadSquared activities/automation; a CRM activity receipt is not proof of handset delivery.
+
+### Free-tier scheduling and lifetime
+
+`CADENCE_AUTOTICK=false` and `ZOOM_AUTOSYNC=false` keep process timers disabled during setup. **Scheduled cadence jobs, queued background work and automatic Zoom synchronization do not run unattended with this default configuration.** For a controlled cadence test, call `GET https://YOUR_ORIGIN/api/cron/cadence`; this can make real provider calls. Zoom synchronization also requires `ZOOM_AUTOSYNC=true`. A dependable scheduler must be deliberately configured before expecting automatic campaigns to work; sleeping process timers are insufficient.
+
+Free web services sleep after **15 minutes** without inbound traffic and typically take about a minute to wake. Free PostgreSQL has **1 GB** storage, expires after **30 days**, and has no managed backups. Back up or upgrade before expiry. These limits make this a temporary test deployment, not the production configuration described in the original audit. See [Render's free-tier limits](https://render.com/docs/free), [default public URL variables](https://render.com/docs/environment-variables), [deployment commands](https://render.com/docs/deploys#pre-deploy-command), and the [Blueprint specification](https://render.com/docs/blueprint-spec).
+
+For ongoing production, upgrade the web and database plans and commit matching paid plan values to the Blueprint so future syncs preserve them. Move migrations to `preDeployCommand`, use `startCommand: npm start`, and deliberately enable one scheduler owner after provider verification. Retain the existing database and keys.
 
 ## Vercel: `vercel.json`
 
