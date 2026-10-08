@@ -54,7 +54,7 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "eslint": "^9",
+    "eslint": "^10",
     "eslint-config-next": "16.4.0",
     "fast-glob": "file:tooling/next-glob-compat",
     "tsx": "^4.23.12",
