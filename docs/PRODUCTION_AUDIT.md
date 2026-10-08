@@ -40,7 +40,7 @@ The review covered app routes and server actions, shared UI, styling and assets,
 | Existing data | 14 campaigns, 19 contacts, 67 send records, one registered contact preserved through migration. |
 | Credential scan | No configured live credentials or designated live test recipient in publishable files; no configured secret match in `main` history. |
 
-Checks use isolated test databases and mocked/local provider responses; they do not claim end-to-end success for every external provider. Raw evidence is kept in ignored `artifacts/verification/` and protected local release logs. Clean-checkout and GitHub CI results are recorded in the release completion message.
+Checks use isolated test databases and mocked/local provider responses; they do not claim end-to-end success for every external provider. Raw evidence is generated under ignored `artifacts/verification/` and archived outside the project with protected local release logs. A clean checkout also passed installation, all unit/integration tests, typecheck, lint, the default production build, browser and load verification. GitHub CI results are recorded in the release completion message. Date fixtures use explicit timezone offsets to avoid machine-local assumptions.
 
 ## Explicit production limitations
 

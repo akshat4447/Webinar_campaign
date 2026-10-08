@@ -3,12 +3,12 @@ import { formatWebinarDate, toDateTimeLocal, parseLegacyWebinarDate, reminderDat
 
 describe('formatWebinarDate', () => {
   it('renders month/day/year, 12-hour time, and the IST label', () => {
-    const d = new Date(2026, 7, 28, 15, 0); // Aug 28 2026, 3:00 PM, local
+    const d = new Date('2026-08-28T15:00:00+05:30'); // Explicit India time on every host
     expect(formatWebinarDate(d)).toBe('Aug 28, 2026 · 3:00 PM IST');
   });
 
   it('pads minutes and keeps a two-digit hour for midday times', () => {
-    const d = new Date(2026, 0, 5, 9, 5);
+    const d = new Date('2026-01-05T09:05:00+05:30');
     expect(formatWebinarDate(d)).toBe('Jan 5, 2026 · 9:05 AM IST');
   });
 });
