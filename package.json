@@ -58,7 +58,7 @@
     "eslint-config-next": "16.4.0",
     "fast-glob": "file:tooling/next-glob-compat",
     "tsx": "^4.23.12",
-    "typescript": "^5",
+    "typescript": "^7",
     "vitest": "^4.1.11"
   },
   "overrides": {
