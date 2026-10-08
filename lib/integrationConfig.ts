@@ -1,3 +1,4 @@
+import { encryptCredential, decryptCredential } from '@/lib/credentialCipher';
 // Server-only. Persisted integration credentials, layered on top of the
 // existing .env.local values — same pattern as lib/activityPush.ts's single
 // cached AppSetting row, just with one row per credential field.
@@ -18,11 +19,19 @@ function envFallback(id: string, key: string): string | undefined {
     'lsq.secretKey': process.env.LSQ_SECRET_KEY,
     'lsq.host': process.env.LSQ_HOST,
     'lsq.senderEmail': process.env.LSQ_SENDER_EMAIL,
+    'lsq.webhookSecret': process.env.LSQ_WEBHOOK_SECRET,
     'claude.apiKey': process.env.ANTHROPIC_API_KEY,
-    'zoom.mode': process.env.ZOOM_MODE,
+    'apollo.apiKey': process.env.APOLLO_API_KEY,
+    'zoom.accountId': process.env.ZOOM_ACCOUNT_ID,
     'zoom.redirectUri': process.env.ZOOM_REDIRECT_URI,
-    'linkedin.mode': process.env.LINKEDIN_MODE,
+    'zoom.webhookSecret': process.env.ZOOM_WEBHOOK_SECRET,
+    'zoom.hostEmail': process.env.ZOOM_HOST_EMAIL,
     'linkedin.redirectUri': process.env.LINKEDIN_REDIRECT_URI,
+    'netcore.apiKey': process.env.NETCORE_API_KEY,
+    'netcore.fromEmail': process.env.NETCORE_FROM_EMAIL,
+    'netcore.fromName': process.env.NETCORE_FROM_NAME,
+    'netcore.domain': process.env.NETCORE_DOMAIN,
+    'netcore.webhookSecret': process.env.NETCORE_WEBHOOK_SECRET,
     // zoom.clientId/clientSecret deliberately not here — same as linkedin,
     // each OAuth call site falls back to its env var itself (see
     // lib/zoom/client.ts, app/api/auth/zoom/*), since a client credential
@@ -45,11 +54,16 @@ export async function getIntegrationConfig(id: string): Promise<Record<string, s
     const out: Record<string, string> = {};
     for (const f of fields) {
       const v = byKey.get(settingKey(id, f.key));
-      if (v) out[f.key] = v;
+      if (v) out[f.key] = f.secret ? decryptCredential(v) : v;
     }
     return out;
-  } catch {
-    return {};
+  } catch (err) {
+    // A genuine DB outage here previously looked identical to "nothing saved
+    // yet" to every caller (every integration status UI, activityPush's
+    // credential check) — at least surface it in the logs so an incident
+    // isn't mistaken for "integration not configured".
+    console.error(`[integrationConfig] getIntegrationConfig(${id}) failed:`, err);
+    throw err;
   }
 }
 
@@ -71,14 +85,32 @@ export async function getIntegrationConfigMasked(id: string): Promise<Record<str
   return out;
 }
 
-/** Upserts only the non-blank fields — a blank field means "leave unchanged". */
+/** Upserts non-blank fields; clears fields explicitly marked as '__CLEAR__' or empty string when submitted. */
 export async function saveIntegrationConfig(id: string, fields: Record<string, string>): Promise<void> {
   const schema = INTEGRATION_FIELDS[id] ?? [];
+  const currentSaved = await getIntegrationConfig(id);
+
+  // If LeadSquared host or accessKey is being updated to a new tenant,
+  // and no new senderEmail is explicitly provided, remove the old senderEmail
+  // so it doesn't pollute the new tenant with an invalid user address from the old org.
+  if (id === 'lsq') {
+    const isNewTenant =
+      Boolean(fields['accessKey'] && fields['accessKey'] !== currentSaved['accessKey']) ||
+      Boolean(fields['host'] && fields['host'] !== currentSaved['host']);
+    if (isNewTenant && !fields['senderEmail']) {
+      await db.appSetting.deleteMany({ where: { key: settingKey('lsq', 'senderEmail') } });
+    }
+  }
+
   for (const f of schema) {
+    if (!(f.key in fields)) continue;
     const value = fields[f.key];
-    if (!value) continue;
     const key = settingKey(id, f.key);
-    await db.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    if (value === '__CLEAR__' || value === '') {
+      await db.appSetting.deleteMany({ where: { key } });
+    } else if (value && value.trim()) {
+      await db.appSetting.upsert({ where: { key }, create: { key, value: f.secret ? encryptCredential(value.trim()) : value.trim() }, update: { value: f.secret ? encryptCredential(value.trim()) : value.trim() } });
+    }
   }
 }
 

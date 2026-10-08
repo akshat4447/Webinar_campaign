@@ -1,24 +1,9 @@
-# Netlify's Next.js Runtime auto-detects the framework and wires up routing,
-# server actions, and API routes as serverless functions — no manual redirects
-# or publish directory needed. See README.md's "Deploying" section for the
-# real caveat this app has on Netlify specifically: DATABASE_URL must point
-# at a real hosted Postgres (never a local file), and CADENCE_AUTOTICK /
-# ZOOM_AUTOSYNC (in-process timers) do not run here at all — there is no
-# long-lived process on a serverless platform. Instead, call
-# GET /api/cron/cadence (protected by CRON_SECRET — set it in Netlify's
-# environment variables) on a schedule from a Netlify Scheduled Function or
-# an external cron service (cron-job.org, a GitHub Actions scheduled
-# workflow, etc.) — the same endpoint Vercel Cron uses, see vercel.json.
-
+# Set Node 24, PostgreSQL, persistent signing/encryption keys, and APP_ORIGIN.
+# Run database migrations in a separate release step before serving new code.
+# Schedule GET /api/cron/cadence; persistent timers are unavailable in serverless functions.
 [build]
-  # Applies pending schema migrations to the connected Postgres database
-  # before every build — requires DATABASE_URL to already be set in the
-  # Netlify site's environment variables (Site configuration → Environment
-  # variables), pointing at a real hosted Postgres instance.
-  command = "npx prisma migrate deploy && npm run build"
-
+  command = "npm run build"
 [build.environment]
-  NODE_VERSION = "20.18.0"
-
+  NODE_VERSION = "24"
 [[plugins]]
   package = "@netlify/plugin-nextjs"

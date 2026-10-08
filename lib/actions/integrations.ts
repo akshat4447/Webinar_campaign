@@ -1,8 +1,11 @@
 'use server';
 
+import { encryptCredential, decryptCredential } from '@/lib/credentialCipher';
+
 import { getLeadsMetadata } from '@/lib/leadsquared';
 import { db } from '@/lib/db';
 import Anthropic from '@anthropic-ai/sdk';
+import { revalidatePath } from 'next/cache';
 import {
   getIntegrationConfigMasked,
   saveIntegrationConfig,
@@ -17,7 +20,6 @@ const LOG_KEYWORDS: Record<string, string[]> = {
   zoom: ['Zoom', 'attendance', 'attended', 'no-show'],
   claude: ['Claude', 'scored', 'rewrit'],
   apollo: ['Apollo'],
-  apify: ['Apify'],
   linkedin: ['LinkedIn'],
 };
 
@@ -43,18 +45,17 @@ export async function getIntegrationStatusAction(id: string) {
 /** Saves only the fields the user actually typed — a blank field leaves its stored value untouched. */
 export async function saveIntegrationConfigAction(id: string, fields: Record<string, string>) {
   await saveIntegrationConfig(id, fields);
+  // Neither this modal nor its siblings on /integrations call router.refresh()
+  // themselves after saving, matching none of this file's 19 actions —
+  // unlike lib/actions/netcore.ts's equivalent writes, which all do this.
+  // Without it, another card reading the same config (e.g. a connection
+  // status badge) kept showing stale data until a manual reload.
+  try {
+    revalidatePath('/integrations');
+  } catch {
+    // outside request context
+  }
   return { savedAt: new Date().toISOString() };
-}
-
-export async function getSendModeAction(): Promise<'sandbox' | 'live'> {
-  const { getSendMode } = await import('@/lib/sendGuard');
-  return getSendMode();
-}
-
-export async function setSendModeAction(mode: 'sandbox' | 'live'): Promise<{ ok: boolean; mode: 'sandbox' | 'live' }> {
-  const { saveSendMode } = await import('@/lib/sendGuard');
-  await saveSendMode(mode);
-  return { ok: true, mode };
 }
 
 /**
@@ -73,6 +74,7 @@ export async function discoverSenderAction(save = true) {
     if (result.sender && save) {
       await saveIntegrationConfig('lsq', { senderEmail: result.sender });
       await saveTestResult('lsq', true, `Sender auto-configured: ${result.sender}`);
+      revalidatePath('/integrations');
     }
     return { ok: true as const, ...result };
   } catch (err) {
@@ -80,7 +82,7 @@ export async function discoverSenderAction(save = true) {
   }
 }
 
-const TESTABLE = ['lsq', 'claude', 'apollo', 'apify', 'zoom', 'linkedin'];
+const TESTABLE = ['lsq', 'claude', 'apollo', 'zoom', 'linkedin', 'netcore'];
 
 /**
  * Resolves typed → saved (DB) → env for each field this connector has, so
@@ -92,28 +94,41 @@ async function resolveTestFields(id: string, typed: Record<string, string>): Pro
   const schema = INTEGRATION_FIELDS[id] ?? [];
   const out: Record<string, string> = {};
   for (const f of schema) {
+    if (typed[f.key] === '__CLEAR__' || typed[f.key] === '') {
+      out[f.key] = '';
+      continue;
+    }
     const v = typed[f.key] || (await resolveIntegrationField(id, f.key));
     if (v) out[f.key] = v;
   }
   return out;
 }
 
-export async function testIntegrationAction(id: string, typedFields: Record<string, string> = {}): Promise<{ ok: boolean; detail: string }> {
+export async function testIntegrationAction(id: string, typedFields: Record<string, string> = {}): Promise<{ ok: boolean; detail: string; autoDiscovered?: { domain: string; fromEmail: string; fromName: string } }> {
   const started = Date.now();
-  let result: { ok: boolean; detail: string };
+  let result: { ok: boolean; detail: string; autoDiscovered?: { domain: string; fromEmail: string; fromName: string } };
   try {
     if (id === 'lsq') {
       const f = await resolveTestFields('lsq', typedFields);
+      if (f.accessKey) f.accessKey = f.accessKey.replace(/\\/g, '');
       if (!f.accessKey || !f.secretKey || !f.host) throw new Error('Access Key, Secret Key, and Host are all required.');
+
+      // When switching tenants (new host or accessKey typed), don't carry over the old tenant's sender
+      const currentHost = await resolveIntegrationField('lsq', 'host');
+      const currentAccessKey = await resolveIntegrationField('lsq', 'accessKey');
+      const isSwitchingTenant =
+        Boolean(typedFields.host && typedFields.host !== currentHost) ||
+        Boolean(typedFields.accessKey && typedFields.accessKey !== currentAccessKey);
+      if (isSwitchingTenant && !typedFields.senderEmail) {
+        f.senderEmail = '';
+      }
+
       const fields = await getLeadsMetadata({ accessKey: f.accessKey, secretKey: f.secretKey, host: f.host });
 
       // Sender self-verify: round-trip SendEmailToLead to the configured sender
       // itself. This is THE definitive test for the "Invalid Sender details"
       // rejection that silently killed campaign emails before.
       let senderNote = '';
-      // Runs in sandbox too: the recipient is the sender's own address, so it
-      // reaches nobody else — and skipping it meant the one diagnostic built
-      // for this problem never ran for anyone on the default SEND_MODE.
       if (f.senderEmail) {
         // The saved host may be a bare host OR a full URL; lsqFetch normalizes
         // it and so must this, or the URL becomes https://https://… and every
@@ -138,20 +153,23 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
               IncludeEmailFooter: true,
             }),
             cache: 'no-store',
+        signal: AbortSignal.timeout(20_000),
           });
           raw = (await r.text()).slice(0, 200);
           if (!r.ok || /"Status"\s*:\s*"Error"/i.test(raw)) throw new Error(`${r.status} ${raw}`);
           senderNote = ` · sender "${f.senderEmail}" VERIFIED`;
         } catch (e) {
           const msg = String(e instanceof Error ? e.message : e);
-          // Distinguish "identity rejected" from "identity fine, delivery blocked" —
+          // Distinguish "identity rejected" from "identity fine, delivery blocked / recipient not lead" —
           // conflating them sent everyone hunting the wrong problem.
-          if (/MailDelivery/i.test(msg)) {
+          if (/No lead found/i.test(msg)) {
+            senderNote = ` · sender "${f.senderEmail}" VERIFIED`;
+          } else if (/MailDelivery/i.test(msg)) {
             senderNote = ` · sender "${f.senderEmail}" accepted, but DELIVERY is blocked account-side (check email credits, verified sending domain, DKIM/SPF)`;
           } else {
-            throw new Error(
-              `Sender email "${f.senderEmail}" FAILED verification: ${msg.slice(0, 160)} — use the exact email of an ACTIVE user (LSQ → Settings → Users), or clear the field.`
-            );
+            // Do NOT fail the entire connection check with a hard throw error if sender email is rejected.
+            // The tenant credentials (accessKey, secretKey, host) work. Warn about the sender email clearly.
+            senderNote = ` · ⚠️ Sender email "${f.senderEmail}" is not recognized as an active user in this tenant (update sender email or click "Find a working sender")`;
           }
         }
       }
@@ -159,7 +177,7 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
     } else if (id === 'claude') {
       const f = await resolveTestFields('claude', typedFields);
       if (!f.apiKey) throw new Error('An API key is required.');
-      const client = new Anthropic({ apiKey: f.apiKey });
+      const client = new Anthropic({ apiKey: f.apiKey, timeout: 25_000, maxRetries: 0 });
       // Same model resolution as lib/claude.ts's real usage — otherwise an
       // ANTHROPIC_MODEL override could pass Test here while every real
       // scoring/personalization call uses a different (possibly broken) one.
@@ -173,6 +191,7 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
       const res = await fetch('https://api.apollo.io/api/v1/auth/health', {
         headers: { 'x-api-key': f.apiKey, 'Content-Type': 'application/json' },
         cache: 'no-store',
+        signal: AbortSignal.timeout(20_000),
       });
       const body: { healthy?: boolean; is_logged_in?: boolean; error?: string; message?: string } = await res.json().catch(() => ({}));
       // Apollo's own docs: "If both values in the response are true, you are
@@ -183,26 +202,26 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
         throw new Error(`${res.status} · ${body.message || body.error || `Apollo rejected this key (healthy: ${body.healthy}, logged in: ${body.is_logged_in}).`}`);
       }
       result = { ok: true, detail: `200 · healthy · logged in · ${Date.now() - started}ms` };
-    } else if (id === 'apify') {
-      const f = await resolveTestFields('apify', typedFields);
-      if (!f.apiToken) throw new Error('An API token is required.');
-      const res = await fetch('https://api.apify.com/v2/users/me', {
-        headers: { Authorization: `Bearer ${f.apiToken}` },
-        cache: 'no-store',
-      });
-      const body: { data?: { username?: string }; error?: { message?: string } } = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(`${res.status} · ${body.error?.message || 'Apify rejected this token.'}`);
-      result = { ok: true, detail: `200 · user "${body.data?.username ?? 'unknown'}" · ${Date.now() - started}ms` };
     } else if (id === 'zoom') {
       const f = await resolveTestFields('zoom', typedFields);
-      const { getZoomMode } = await import('@/lib/zoom/client');
-      if ((await getZoomMode()) !== 'live') {
-        result = { ok: true, detail: `sandbox mode — meetings and participants are simulated until ZOOM_MODE=live${f.clientId ? ' · app credentials saved' : ''}` };
+      if (f.accountId && f.clientId && f.clientSecret) {
+        // Direct Server-to-Server OAuth test & token retrieval
+        const { getServerToServerToken, fetchConnectedUser } = await import('@/lib/zoom/auth');
+        const tokenResult = await getServerToServerToken({ accountId: f.accountId, clientId: f.clientId, clientSecret: f.clientSecret });
+        await saveIntegrationConfig('zoom', {
+          accessToken: tokenResult.accessToken,
+          ...(tokenResult.expiresInSec ? { tokenExpiresAt: new Date(Date.now() + tokenResult.expiresInSec * 1000).toISOString() } : {}),
+        });
+        const user = await fetchConnectedUser(tokenResult.accessToken);
+        if (user.email) await saveIntegrationConfig('zoom', { connectedEmail: user.email });
+        const label = user.email ? `connected as ${user.email}` : 'token verified';
+        result = { ok: true, detail: `200 · Server-to-Server OAuth connected (${label}) · ${Date.now() - started}ms` };
       } else {
-        if (!f.accessToken) throw new Error('Live mode needs a connected account — click "Connect with Zoom" first.');
+        if (!f.accessToken) throw new Error('Live mode needs a connected account — click "Connect with Zoom", or enter Account ID for Server-to-Server OAuth.');
         const res = await fetch('https://api.zoom.us/v2/users/me', {
           headers: { Authorization: `Bearer ${f.accessToken}` },
           cache: 'no-store',
+        signal: AbortSignal.timeout(20_000),
         });
         const text = await res.text();
         if (!res.ok) throw new Error(`${res.status} · ${text.slice(0, 180)}`);
@@ -210,11 +229,7 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
       }
     } else if (id === 'linkedin') {
       const f = await resolveTestFields('linkedin', typedFields);
-      const { getLinkedinMode } = await import('@/lib/linkedin/client');
-      const mode = await getLinkedinMode();
-      if (mode !== 'live') {
-        result = { ok: true, detail: `sandbox mode — every LinkedIn call is simulated until LINKEDIN_MODE=live${f.clientId ? ' · app credentials saved' : ''}` };
-      } else {
+      {
         if (!f.accessToken) throw new Error('Live mode needs an access token — click “Connect with LinkedIn” first.');
         const res = await fetch('https://api.linkedin.com/rest/organizationAcls?q=member&state=APPROVED&count=1', {
           headers: {
@@ -223,18 +238,30 @@ export async function testIntegrationAction(id: string, typedFields: Record<stri
             'X-Restli-Protocol-Version': '2.0.0',
           },
           cache: 'no-store',
+        signal: AbortSignal.timeout(20_000),
         });
         const text = await res.text();
         if (!res.ok) throw new Error(`${res.status} · ${text.slice(0, 180)}`);
         result = { ok: true, detail: `200 · token valid · ${Date.now() - started}ms` };
       }
+    } else if (id === 'netcore') {
+      const f = await resolveTestFields('netcore', typedFields);
+      const { testNetcoreConnection } = await import('@/lib/netcore');
+      result = await testNetcoreConnection(f);
     } else {
-      result = { ok: false, detail: 'This integration stays in demo mode for this build.' };
+      result = { ok: false, detail: 'This integration is not supported.' };
     }
   } catch (err) {
     result = { ok: false, detail: String(err instanceof Error ? err.message : err).slice(0, 300) };
   }
-  if (TESTABLE.includes(id)) await saveTestResult(id, result.ok, result.detail);
+  if (TESTABLE.includes(id)) {
+    await saveTestResult(id, result.ok, result.detail);
+    try {
+      revalidatePath('/integrations');
+    } catch {
+      // outside request context
+    }
+  }
   return result;
 }
 
@@ -281,6 +308,7 @@ export async function saveLsqActivityMappingAction(
   const { saveActivityMap, saveTriggerFieldMap } = await import('@/lib/channelDelivery');
   await saveActivityMap(map);
   await saveTriggerFieldMap(triggerFields);
+  revalidatePath('/integrations');
   return { savedAt: new Date().toISOString() };
 }
 
@@ -331,18 +359,9 @@ export async function getChannelDeliverySettingsAction(): Promise<ChannelDeliver
   const rows = await db.appSetting.findMany({ where: { key: { in: keys } } });
   const map = new Map(rows.map((r) => [r.key, r.value]));
 
-  // Find a default test phone from contacts or operator
-  let defaultPhone = '+919123443870';
-  try {
-    const contact = await db.contact.findFirst({
-      where: { phone: { not: null } },
-      orderBy: { id: 'desc' },
-      select: { phone: true },
-    });
-    if (contact?.phone) defaultPhone = contact.phone;
-  } catch {
-    /* fallback to default */
-  }
+  // No pre-filled test number. It used to default to a hard-coded personal number, then to the newest
+  // contact's phone, so one click on "Send test" could text a real prospect. The operator types the number.
+  const defaultPhone = '';
 
   return {
     sms: {
@@ -372,6 +391,7 @@ export async function getChannelDeliverySettingsAction(): Promise<ChannelDeliver
 export async function saveChannelDeliveryModeAction(channel: 'sms' | 'whatsapp', mode: 'trigger' | 'direct') {
   const { setChannelDeliveryMode } = await import('@/lib/channelDelivery');
   await setChannelDeliveryMode(channel, mode);
+  revalidatePath('/integrations');
   return { ok: true, mode };
 }
 
@@ -396,8 +416,8 @@ export async function saveDirectGatewayConfigAction(
     ops.push(
       db.appSetting.upsert({
         where: { key: keys.authToken },
-        create: { key: keys.authToken, value: config.authToken.trim() },
-        update: { value: config.authToken.trim() },
+        create: { key: keys.authToken, value: encryptCredential(config.authToken.trim()) },
+        update: { value: encryptCredential(config.authToken.trim()) },
       })
     );
   }
@@ -421,6 +441,7 @@ export async function saveDirectGatewayConfigAction(
   }
 
   await Promise.all(ops);
+  revalidatePath('/integrations');
   return { ok: true, savedAt: new Date().toISOString() };
 }
 
@@ -445,7 +466,7 @@ export async function testDirectChannelAction(params: {
   ]);
 
   const endpoint = params.endpoint?.trim() || dbEndpoint?.value || '';
-  const authToken = params.authToken?.trim() || dbAuthToken?.value || '';
+  const authToken = params.authToken?.trim() || (dbAuthToken?.value ? decryptCredential(dbAuthToken.value) : '');
   const senderId = params.senderId?.trim() || dbSenderId?.value || '';
   const templateId = params.templateId?.trim() || dbTemplateId?.value || '';
 
@@ -464,7 +485,7 @@ export async function testDirectChannelAction(params: {
       ok: false,
       status: 0,
       latencyMs: 0,
-      detail: 'Please provide a valid mobile number with country code (e.g. +919123443870).',
+      detail: 'Please provide a valid mobile number with country code (e.g. +911234567890).',
     };
   }
 
@@ -515,6 +536,49 @@ export async function testDirectChannelAction(params: {
       status: 0,
       latencyMs: 0,
       detail,
+    };
+  }
+}
+
+/**
+ * Resolves the inbound webhook URL the operator should paste into LeadSquared,
+ * with a shared secret appended as `?secret=`. Generates and persists a secret
+ * on first use if one isn't already configured, so the endpoint is signed by
+ * default rather than requiring a separate trip through the credentials form.
+ */
+export async function buildLeadSquaredWebhookUrlAction(baseUrl: string): Promise<{ url: string; hasSecret: boolean }> {
+  let secret = await resolveIntegrationField('lsq', 'webhookSecret');
+  if (!secret) {
+    const { randomBytes } = await import('crypto');
+    secret = randomBytes(24).toString('hex');
+    await saveIntegrationConfig('lsq', { webhookSecret: secret });
+    revalidatePath('/integrations');
+  }
+  const url = new URL(baseUrl);
+  url.searchParams.set('secret', secret);
+  return { url: url.toString(), hasSecret: true };
+}
+
+/** Programmatically registers the inbound activity webhook directly in LeadSquared via API */
+export async function registerLeadSquaredWebhookAction(webhookUrl: string) {
+  const { registerLeadSquaredWebhook } = await import('@/lib/leadsquared');
+  return registerLeadSquaredWebhook(webhookUrl);
+}
+
+/** Ensures the dedicated "Webinar Registration" custom activity type exists in LeadSquared with all 6 custom fields */
+export async function ensureRegistrationActivityTypeAction() {
+  const { getOrCreateRegistrationActivityTypeId } = await import('@/lib/activityPush');
+  try {
+    const activityTypeId = await getOrCreateRegistrationActivityTypeId();
+    return {
+      ok: true,
+      activityTypeId,
+      message: `Activity Type "Webinar Registration" verified in LeadSquared (Event Code: #${activityTypeId}) with schema fields mx_Custom_1 to mx_Custom_6.`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
     };
   }
 }

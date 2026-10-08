@@ -3,7 +3,9 @@
 // on the Integrations page, from the DB — see resolveLsqConfig) and must not
 // ship to the browser. Endpoints verified against https://apidocs.leadsquared.com/.
 
-import { resolveIntegrationField, resolveIntegrationField as resolveField } from '@/lib/integrationConfig';
+import { resolveIntegrationField } from '@/lib/integrationConfig';
+import { retryDelayMs, sleep } from '@/lib/retry';
+import { assertValidLeadFields, assertValidActivities } from '@/lib/lsqPayload';
 
 export class LeadSquaredError extends Error {
   constructor(
@@ -27,76 +29,120 @@ export interface LsqConfigOverride {
 // wins over both. Every real call path goes through this — save a new key
 // from the UI and it takes effect everywhere immediately.
 async function resolveLsqConfig(override?: LsqConfigOverride) {
-  const accessKey = override?.accessKey || (await resolveIntegrationField('lsq', 'accessKey'));
+  let accessKey = override?.accessKey || (await resolveIntegrationField('lsq', 'accessKey'));
+  if (accessKey) accessKey = accessKey.replace(/\\/g, '');
   const secretKey = override?.secretKey || (await resolveIntegrationField('lsq', 'secretKey'));
   const rawHost = override?.host || (await resolveIntegrationField('lsq', 'host'));
   if (!accessKey || !secretKey) throw new Error('LeadSquared Access Key / Secret Key are not set — add them on the Integrations page or in .env.local');
   if (!rawHost) throw new Error('LeadSquared host is not set — add it on the Integrations page or in .env.local');
+  // Test hook: point every LeadSquared call at the local fake LeadSquared server
+  // (test-support/fakes/lsqFake.ts). Unset in every real environment.
+  const baseOverride = process.env.LSQ_API_BASE_URL?.trim();
+  if (baseOverride) return { accessKey, secretKey, baseUrl: baseOverride.replace(/\/+$/, '') };
   // Accept either a bare host ("api-in21.leadsquared.com") or a full base URL
   // ("https://api-in21.leadsquared.com/v2/") — only the hostname is used.
   const host = rawHost.includes('://') ? new URL(rawHost).host : rawHost.replace(/\/.*$/, '');
   return { accessKey, secretKey, baseUrl: `https://${host}/v2` };
 }
 
+const LSQ_REQUEST_TIMEOUT_MS = 30_000;
+const LSQ_MAX_ATTEMPTS = 4;
+
+/**
+ * LeadSquared reports application-level failures (bad field, missing
+ * attribute, invalid sender) as HTTP 500 with an `MX…Exception` body. Those are
+ * deterministic — replaying them only burns the rate limit — so a 500 is
+ * treated as transient only when it carries no such exception type.
+ */
+function isApplicationError(body: unknown): boolean {
+  if (body && typeof body === 'object') {
+    const type = (body as { ExceptionType?: unknown }).ExceptionType;
+    if (typeof type === 'string' && /^MX|Exception$/i.test(type)) return true;
+  }
+  return typeof body === 'string' && /"ExceptionType"\s*:\s*"MX/i.test(body);
+}
+
+/** Whether a response/error is worth replaying. `idempotent` = replaying cannot double-apply. */
+export function isRetryableLsqFailure(status: number | null, body: unknown, idempotent: boolean): boolean {
+  if (status === null) return idempotent; // network error / timeout: the request may have been processed
+  if (status === 429) return true; // explicit rate-limit rejection
+  if (status === 503) return idempotent; // acceptance may be ambiguous for writes
+  if (status >= 500 && !isApplicationError(body)) return idempotent;
+  return false;
+}
+
 async function lsqFetch<T>(
   path: string,
-  opts: { method?: 'GET' | 'POST' | 'PUT'; query?: Record<string, string>; body?: unknown } = {},
+  opts: {
+    method?: 'GET' | 'POST' | 'PUT';
+    query?: Record<string, string>;
+    body?: unknown;
+    /**
+     * True when replaying the call cannot double-apply (reads, upserts keyed by
+     * SearchBy, set-membership writes). Defaults to true for GET and false for
+     * anything else — a blindly replayed POST that already landed would, for
+     * example, post a custom activity twice.
+     */
+    idempotent?: boolean;
+  } = {},
   override?: LsqConfigOverride
 ): Promise<T> {
   const { method = 'GET', query, body } = opts;
+  const idempotent = opts.idempotent ?? method === 'GET';
   const cfg = await resolveLsqConfig(override);
   const authQuery = `accessKey=${encodeURIComponent(cfg.accessKey)}&secretKey=${encodeURIComponent(cfg.secretKey)}`;
   const qs = new URLSearchParams(query).toString();
-  const url = `${cfg.baseUrl}${path}?${authQuery}${qs ? `&${qs}` : ''}`;
+  const sep = path.includes('?') ? '&' : '?';
+  const url = `${cfg.baseUrl}${path}${sep}${authQuery}${qs ? `&${qs}` : ''}`;
 
-  const MAX_RETRIES = 3;
   let lastError: unknown;
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt < LSQ_MAX_ATTEMPTS; attempt++) {
+    const isLast = attempt === LSQ_MAX_ATTEMPTS - 1;
+    let res: Response;
     try {
-      const res = await fetch(url, {
+      res = await fetch(url, {
         method,
         headers: body ? { 'Content-Type': 'application/json' } : undefined,
         body: body ? JSON.stringify(body) : undefined,
         cache: 'no-store',
+        signal: AbortSignal.timeout(LSQ_REQUEST_TIMEOUT_MS),
       });
-
-      // Handle 429 rate limits or transient 503 errors with exponential backoff
-      if ((res.status === 429 || res.status === 503) && attempt < MAX_RETRIES) {
-        const backoffMs = Math.pow(2, attempt) * 1000 + Math.floor(Math.random() * 500);
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
-        continue;
-      }
-
-      const text = await res.text();
-      let parsed: unknown = text;
-      try {
-        parsed = text ? JSON.parse(text) : null;
-      } catch {
-        // some LSQ error responses aren't JSON — keep the raw text
-      }
-
-      if (!res.ok) {
-        throw new LeadSquaredError(
-          res.status,
-          parsed,
-          `LeadSquared ${method} ${path} failed: ${res.status} ${typeof parsed === 'string' ? parsed : JSON.stringify(parsed)}`
-        );
-      }
-      return parsed as T;
     } catch (err) {
       lastError = err;
-      if (err instanceof LeadSquaredError && err.status !== 429 && err.status !== 503) {
-        throw err;
+      if (!isLast && isRetryableLsqFailure(null, null, idempotent)) {
+        await sleep(retryDelayMs(attempt));
+        continue;
       }
-      if (attempt < MAX_RETRIES) {
-        const backoffMs = Math.pow(2, attempt) * 1000 + Math.floor(Math.random() * 500);
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
-      }
+      throw new Error(`LeadSquared ${method} ${path} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
+
+    const text = await res.text();
+    let parsed: unknown = text;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      // some LSQ error responses aren't JSON — keep the raw text
+    }
+
+    if (res.ok) {
+      if (parsed && typeof parsed === 'object' && /^(error|failed|failure)$/i.test(String((parsed as {Status?:unknown}).Status ?? ''))) throw new LeadSquaredError(400,parsed,`LeadSquared rejected ${path}: ${JSON.stringify(parsed)}`);
+      return parsed as T;
+    }
+
+    lastError = new LeadSquaredError(
+      res.status,
+      parsed,
+      `LeadSquared ${method} ${path} failed: ${res.status} ${typeof parsed === 'string' ? parsed : JSON.stringify(parsed)}`
+    );
+    if (!isLast && isRetryableLsqFailure(res.status, parsed, idempotent)) {
+      await sleep(retryDelayMs(attempt, res.headers.get('retry-after')));
+      continue;
+    }
+    throw lastError;
   }
 
-  throw lastError instanceof Error ? lastError : new Error(`LeadSquared request failed after ${MAX_RETRIES} attempts.`);
+  throw lastError instanceof Error ? lastError : new Error(`LeadSquared request failed after ${LSQ_MAX_ATTEMPTS} attempts.`);
 }
 
 // --- connectivity check -----------------------------------------------------
@@ -112,13 +158,83 @@ export interface LeadField {
   Value: string;
 }
 
+// --- tenant field discovery ---------------------------------------------------------------------
+// LeadSquared rejects a WHOLE lead (HTTP 500 MXUnknownAttributeException) if even one custom
+// attribute does not exist in the tenant. The app writes optional enrichment fields (ICP score,
+// seniority, function), so on a tenant that has not created them every sync used to fail outright.
+// Custom (`mx_*`) attributes are therefore checked against the tenant's own schema first; unknown
+// ones are skipped and reported, never sent. Standard attributes are left alone. If the schema
+// cannot be fetched, fields are sent unchanged (the pre-existing behaviour) rather than dropped.
+
+const SCHEMA_TTL_MS = 5 * 60 * 1000;
+let schemaCache: { key: string; at: number; names: Set<string> } | null = null;
+const droppedSeen = new Set<string>();
+
+// Test seam: `undefined` = use the real tenant schema; a Set / null forces what discovery returns.
+let schemaOverride: Set<string> | null | undefined;
+export function setLeadSchemaOverrideForTests(v: Set<string> | null | undefined): void {
+  schemaOverride = v;
+}
+
+export function resetLeadSchemaCache(): void {
+  schemaCache = null;
+  schemaOverride = undefined;
+  droppedSeen.clear();
+}
+
+/** Custom attribute names that exist in the tenant (lower-cased for comparison), or null if unknown. */
+export async function getTenantCustomFieldNames(): Promise<Set<string> | null> {
+  if (schemaOverride !== undefined) return schemaOverride;
+  try {
+    const cfg = await resolveLsqConfig();
+    const key = `${cfg.baseUrl}|${cfg.accessKey}`;
+    if (schemaCache && schemaCache.key === key && Date.now() - schemaCache.at < SCHEMA_TTL_MS) return schemaCache.names;
+    const meta = await lsqFetch<Array<{ SchemaName: string }>>('/LeadManagement.svc/LeadsMetaData.Get', {});
+    if (!Array.isArray(meta) || meta.length === 0) return null;
+    const names = new Set(meta.map((m) => String(m.SchemaName).toLowerCase()));
+    schemaCache = { key, at: Date.now(), names };
+    return names;
+  } catch {
+    return null;
+  }
+}
+
+/** Splits `fields` into those safe to send and the unknown custom attributes that must be skipped. */
+export function splitUnknownCustomFields(fields: LeadField[], known: Set<string> | null): { kept: LeadField[]; dropped: string[] } {
+  if (!known) return { kept: fields, dropped: [] };
+  const kept: LeadField[] = [];
+  const dropped: string[] = [];
+  for (const f of fields) {
+    if (/^mx_/i.test(f.Attribute) && !known.has(f.Attribute.toLowerCase())) dropped.push(f.Attribute);
+    else kept.push(f);
+  }
+  return { kept, dropped };
+}
+
+/** Custom fields skipped since the last call (deduplicated) — for a one-line "create these fields" notice. */
+export function takeSkippedCustomFields(): string[] {
+  const out = [...droppedSeen];
+  droppedSeen.clear();
+  return out;
+}
+
+async function withKnownFields(fields: LeadField[]): Promise<LeadField[]> {
+  const { kept, dropped } = splitUnknownCustomFields(fields, await getTenantCustomFieldNames());
+  for (const d of dropped) droppedSeen.add(d);
+  return kept;
+}
+
 export async function createOrUpdateLead(fields: LeadField[], searchBy: string = 'EmailAddress'): Promise<{ Status: string; Message: { Id: string; AffectedRows: number } }> {
-  const hasSearchBy = fields.some((f) => f.Attribute === 'SearchBy');
-  const body = hasSearchBy ? fields : [...fields, { Attribute: 'SearchBy', Value: searchBy }];
+  assertValidLeadFields(fields);
+  const sendable = await withKnownFields(fields);
+  const hasSearchBy = sendable.some((f) => f.Attribute === 'SearchBy');
+  const body = hasSearchBy ? sendable : [...sendable, { Attribute: 'SearchBy', Value: searchBy }];
+  // Upsert keyed on SearchBy: replaying it cannot create a second lead.
   return lsqFetch('/LeadManagement.svc/Lead.CreateOrUpdate', {
     method: 'POST',
     query: { postUpdatedLead: 'true' },
     body,
+    idempotent: true,
   });
 }
 
@@ -131,8 +247,12 @@ export interface LsqList {
 }
 
 export async function getLists(): Promise<LsqList[]> {
-  const result = await lsqFetch<LsqList[] | { message?: string }>('/LeadManagement.svc/Lists.Get');
-  return Array.isArray(result) ? result : [];
+  const result = await lsqFetch<LsqList[] | { Status?: string; Message?: LsqList[] }>('/LeadManagement.svc/Lists.Get');
+  if (Array.isArray(result)) return result;
+  if (result && typeof result === 'object' && Array.isArray((result as { Message?: LsqList[] }).Message)) {
+    return (result as { Message: LsqList[] }).Message;
+  }
+  return [];
 }
 
 export async function createEmptyList(name: string, description: string): Promise<string> {
@@ -146,7 +266,8 @@ export async function createEmptyList(name: string, description: string): Promis
 export async function addLeadsToStaticList(listId: string, leadIds: string[]): Promise<void> {
   for (let i = 0; i < leadIds.length; i += 25) {
     const chunk = leadIds.slice(i, i + 25);
-    await lsqFetch('/LeadSegmentation.svc/AddLeadsToStaticList', { method: 'POST', body: { listId, leadIds: chunk } });
+    // Adding to a static list is set-membership: replaying is harmless.
+    await lsqFetch('/LeadSegmentation.svc/AddLeadsToStaticList', { method: 'POST', body: { listId, leadIds: chunk }, idempotent: true });
     if (i + 25 < leadIds.length) await sleep(200);
   }
 }
@@ -172,43 +293,125 @@ export interface BulkLeadResult {
 
 // Each entry in `leads` is one lead's field list (must include a unique
 // identifier — email or phone — plus SearchBy). Chunks to LSQ's 25-per-call cap.
-// The returned RowNumber is normalized to a 0-based index into the original
-// `leads` array (LSQ's own RowNumber is 1-based within each chunk).
+// The returned RowNumber is a 0-based index into the original `leads` array
+// (LSQ's own RowNumber is 1-based within each chunk), and the result array is
+// dense: result[i] always describes leads[i].
+//
+// A lead that fails local validation (malformed email, bad attribute name) is
+// reported as that row's failure and NOT sent — one bad CSV row must not sink
+// the other 24 in its chunk, let alone the whole import.
 export async function bulkCreateOrUpdateLeads(leads: LeadField[][]): Promise<BulkLeadResult[]> {
-  const results: BulkLeadResult[] = [];
-  for (let i = 0; i < leads.length; i += 25) {
-    const chunk = leads.map((fields) => (fields.some((f) => f.Attribute === 'SearchBy') ? fields : [...fields, { Attribute: 'SearchBy', Value: 'EmailAddress' }])).slice(i, i + 25);
-    const chunkResults = await lsqFetch<BulkLeadResult[]>('/LeadManagement.svc/Lead/Bulk/CreateOrUpdate', { method: 'POST', body: chunk });
-    for (const r of chunkResults) results.push({ ...r, RowNumber: r.RowNumber - 1 + i });
-    if (i + 25 < leads.length) await sleep(200);
+  const results: BulkLeadResult[] = new Array(leads.length);
+  const failRow = (i: number, ExceptionType: string, ErrorMessage: string): BulkLeadResult => ({
+    RowNumber: i,
+    LeadId: '',
+    LeadCreated: false,
+    LeadUpdated: false,
+    AffectedRows: 0,
+    ExceptionType,
+    ErrorMessage,
+  });
+
+  const known = await getTenantCustomFieldNames();
+  const prepared: LeadField[][] = [];
+  const validIdx: number[] = [];
+  leads.forEach((fields, i) => {
+    try {
+      assertValidLeadFields(fields);
+      const { kept, dropped } = splitUnknownCustomFields(fields, known);
+      for (const d of dropped) droppedSeen.add(d);
+      prepared[i] = kept;
+      validIdx.push(i);
+    } catch (err) {
+      results[i] = failRow(i, 'LsqPayloadError', err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  for (let i = 0; i < validIdx.length; i += 25) {
+    const idxChunk = validIdx.slice(i, i + 25);
+    const chunk = idxChunk.map((idx) => {
+      const fields = prepared[idx];
+      return fields.some((f) => f.Attribute === 'SearchBy') ? fields : [...fields, { Attribute: 'SearchBy', Value: 'EmailAddress' }];
+    });
+    // Upsert keyed on SearchBy — safe to replay.
+    const chunkResults = await lsqFetch<BulkLeadResult[]>('/LeadManagement.svc/Lead/Bulk/CreateOrUpdate', { method: 'POST', body: chunk, idempotent: true });
+    for (const r of chunkResults) {
+      const original = idxChunk[r.RowNumber - 1];
+      if (original !== undefined) results[original] = { ...r, RowNumber: original };
+    }
+    if (i + 25 < validIdx.length) await sleep(200);
+  }
+
+  // Anything LeadSquared did not answer for is a failure, never a silent hole.
+  for (let i = 0; i < results.length; i++) {
+    if (!results[i]) results[i] = failRow(i, 'MissingResult', 'LeadSquared returned no result for this row.');
   }
   return results;
 }
 
-const CONTACT_COLUMNS = ['ProspectID', 'FirstName', 'LastName', 'EmailAddress', 'Phone', 'Company', 'Designation'];
+const CANDIDATE_LINKEDIN_COLUMNS = [
+  'mx_LinkedIn_Profile',
+  'mx_Linkedin_Profile',
+  'LinkedIn',
+  'LinkedInUrl',
+  'mx_LinkedIn_Url',
+  'mx_Linkedin_Url',
+  'mx_LinkedIn',
+  'mx_Linkedin',
+];
+
+const CONTACT_COLUMNS = [
+  'ProspectID',
+  'FirstName',
+  'LastName',
+  'EmailAddress',
+  'Phone',
+  'Company',
+  'Designation',
+  ...CANDIDATE_LINKEDIN_COLUMNS,
+];
 
 export interface RawLsqLead {
   [attribute: string]: string;
 }
 
-export async function getLeadsInList(listId: string, pageSize = 200): Promise<RawLsqLead[]> {
-  const result = await lsqFetch<{ RecordCount: number; Leads: Array<{ LeadPropertyList: Array<{ Attribute: string; Value: string }> }> }>(
-    '/LeadManagement.svc/Leads/Retrieve/BySearchParameter',
-    {
-      method: 'POST',
-      body: {
-        SearchParameters: { ListId: listId, RetrieveBehaviour: '0' },
-        Columns: { Include_CSV: CONTACT_COLUMNS.join(',') },
-        Sorting: { ColumnName: 'CreatedOn', Direction: '1' },
-        Paging: { PageIndex: 1, PageSize: pageSize },
-      },
+export async function getLeadsInList(listId: string, pageSize = 200, maxLeads = 2000): Promise<RawLsqLead[]> {
+  const allRows: RawLsqLead[] = [];
+  let pageIndex = 1;
+
+  while (allRows.length < maxLeads) {
+    const result = await lsqFetch<{ RecordCount: number; Leads: Array<{ LeadPropertyList: Array<{ Attribute: string; Value: string }> }> }>(
+      '/LeadManagement.svc/Leads/Retrieve/BySearchParameter',
+      {
+        method: 'POST',
+        body: {
+          SearchParameters: { ListId: listId, RetrieveBehaviour: '0' },
+          Columns: { Include_CSV: CONTACT_COLUMNS.join(',') },
+          Sorting: { ColumnName: 'CreatedOn', Direction: '1' },
+          Paging: { PageIndex: pageIndex, PageSize: pageSize },
+        },
+      }
+    );
+
+    const leads = result.Leads ?? [];
+    if (leads.length === 0) break;
+
+    for (const lead of leads) {
+      const row: RawLsqLead = {};
+      for (const prop of lead.LeadPropertyList) row[prop.Attribute] = prop.Value;
+      allRows.push(row);
+      if (allRows.length >= maxLeads) break;
     }
-  );
-  return (result.Leads ?? []).map((lead) => {
-    const row: RawLsqLead = {};
-    for (const prop of lead.LeadPropertyList) row[prop.Attribute] = prop.Value;
-    return row;
-  });
+
+    if (leads.length < pageSize || allRows.length >= (result.RecordCount ?? 0)) {
+      break;
+    }
+
+    pageIndex++;
+    await sleep(150);
+  }
+
+  return allRows;
 }
 
 // --- custom activity push-back ------------------------------------------------
@@ -234,11 +437,90 @@ export interface CustomActivity {
   Fields?: { SchemaName: string; Value: string }[];
 }
 
-export async function pushCustomActivities(activities: CustomActivity[]): Promise<void> {
+/** Thrown when a later chunk fails after earlier ones were already accepted. */
+export class PartialActivityPushError extends Error {
+  constructor(
+    /** Activities (from the start of the input array) LeadSquared already accepted. */
+    public pushed: number,
+    public cause: unknown,
+    public acceptedIndices: number[] = Array.from({length:pushed},(_,i)=>i)
+  ) {
+    super(`LeadSquared accepted ${pushed} activities before failing: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = 'PartialActivityPushError';
+  }
+}
+
+/**
+ * Posts custom activities in chunks of 25. NOT idempotent at the LeadSquared
+ * level (a replay posts a duplicate), so the caller must guard each activity
+ * with the idempotency ledger (lib/idempotency.ts) — and this call reports
+ * exactly how many were accepted if a later chunk fails, so the caller can
+ * release only the claims that did not land.
+ */
+export async function pushCustomActivities(activities: CustomActivity[]): Promise<number> {
+  assertValidActivities(activities);
+  const acceptedIndices:number[]=[];
   for (let i = 0; i < activities.length; i += 25) {
-    const chunk = activities.slice(i, i + 25);
-    await lsqFetch('/ProspectActivity.svc/Bulk/CustomActivity/Add/ByLeadId', { method: 'POST', body: chunk });
-    if (i + 25 < activities.length) await sleep(250);
+    const chunk = activities.slice(i,i+25);
+    try {
+      const result=await lsqFetch<{Response?:Array<{RowNumber?:number;ActivityCreated?:boolean;ProspectActivityId?:string;ExceptionMessage?:string}>;Status?:string;Message?:{Count?:number}}>('/ProspectActivity.svc/Bulk/CustomActivity/Add/ByLeadId',{method:'POST',body:chunk,idempotent:false});
+      if(Array.isArray(result?.Response)){
+        const rows=result.Response;
+        const rowMap=new Map(rows.map(row=>[row.RowNumber,row]));
+        if(rowMap.size!==chunk.length || rows.length!==chunk.length || !chunk.every((_,index)=>rowMap.has(index+1)))throw new Error('LeadSquared returned incomplete activity receipts; outcome is uncertain.');
+        const rejected:string[]=[];
+        for(let index=0;index<chunk.length;index++){
+          const row=rowMap.get(index+1)!;
+          if(row.ActivityCreated===true && row.ProspectActivityId)acceptedIndices.push(i+index);
+          else if(row.ActivityCreated===false)rejected.push(row.ExceptionMessage||`Activity row ${index+1} was rejected.`);
+          else throw new Error('LeadSquared activity response has no creation proof; outcome is uncertain.');
+        }
+        if(rejected.length)throw new LeadSquaredError(400,rows,rejected.join('; '));
+      }else if(result?.Status==='Success' && result.Message?.Count===chunk.length){
+        acceptedIndices.push(...chunk.map((_,index)=>i+index));
+      }else throw new Error('LeadSquared response contains no activity creation receipts; outcome is uncertain.');
+    }catch(error){if(acceptedIndices.length)throw new PartialActivityPushError(acceptedIndices.length,error,acceptedIndices);throw error;}
+    if(i+25<activities.length)await sleep(250);
+  }
+  const pushed=acceptedIndices.length;
+  return pushed;
+}
+
+/**
+ * Register an activity webhook programmatically in LeadSquared.
+ * Posts to /v2/Webhook.svc/Create so LeadSquared will notify this app
+ * whenever a lead activity is created (e.g. registration on form/landing page).
+ */
+export async function registerLeadSquaredWebhook(
+  url: string,
+  description: string = 'Webinar Campaign Studio Registration Activity Sync'
+): Promise<{ ok: boolean; webhookId?: string; message: string }> {
+  try {
+    const result = await lsqFetch<{ Status?: string; Message?: { Id?: string } | string; ExceptionType?: string }>('/Webhook.svc/Create', {
+      method: 'POST',
+      body: {
+        Description: description,
+        URL: url,
+        Method: 'POST',
+        ContentType: 'application/json',
+        WebhookEvent: '2', // LeadActivity_Post_Create
+        IsSpecificLandingPage: false,
+        NotifyOnFailure: true,
+      },
+    });
+
+    const msg = result?.Message;
+    const webhookId = typeof msg === 'object' && msg ? String(msg.Id || '') : String(msg || '');
+    return {
+      ok: true,
+      webhookId: webhookId || undefined,
+      message: `Webhook registered successfully in LeadSquared${webhookId ? ` (ID: ${webhookId})` : ''}`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -256,18 +538,22 @@ export interface LsqUser {
 
 /** Every user on the account — the candidate pool for a sending identity. */
 export async function listUsers(): Promise<LsqUser[]> {
-  const rows = await lsqFetch<Array<Record<string, unknown>>>('/UserManagement.svc/Users.Get');
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .map((u) => ({
-      id: String(u.UserId ?? u.ID ?? ''),
-      email: String(u.EmailAddress ?? ''),
-      firstName: String(u.FirstName ?? ''),
-      lastName: String(u.LastName ?? ''),
-      role: String(u.Role ?? ''),
-      active: Number(u.StatusCode ?? 0) === 0,
-    }))
-    .filter((u) => u.email.includes('@'));
+  try {
+    const rows = await lsqFetch<Array<Record<string, unknown>>>('/UserManagement.svc/Users.Get');
+    if (!Array.isArray(rows)) return [];
+    return rows
+      .map((u) => ({
+        id: String(u.UserId ?? u.ID ?? ''),
+        email: String(u.EmailAddress ?? ''),
+        firstName: String(u.FirstName ?? ''),
+        lastName: String(u.LastName ?? ''),
+        role: String(u.Role ?? ''),
+        active: Number(u.StatusCode ?? 0) === 0,
+      }))
+      .filter((u) => u.email.includes('@'));
+  } catch {
+    return [];
+  }
 }
 
 export type SenderProbe = { verdict: 'valid' | 'invalid' | 'error'; detail: string };
@@ -330,10 +616,6 @@ async function throttle() {
   const wait = lastSendAt + 220 - Date.now();
   if (wait > 0) await sleep(wait);
   lastSendAt = Date.now();
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function sendEmailToLead(params: SendEmailParams): Promise<{ ID: string; MemberCount: number; TotalRecipient: number }> {
@@ -427,7 +709,7 @@ export class UnsupportedChannelError extends Error {
   }
 }
 
-/** GET a single lead by email — used to resolve the sandbox allowlist phone. */
+
 export async function getLeadByEmailAddress(email: string): Promise<RawLsqLead | null> {
   // Two details verified against the live API, both previously wrong here:
   //  • the query parameter is `emailaddress`, not `email` — with the wrong name
@@ -459,6 +741,42 @@ export async function getLeadByEmailAddress(email: string): Promise<RawLsqLead |
   return row;
 }
 
+/** GET a single lead by LeadId (ProspectId) */
+export async function getLeadById(leadId: string): Promise<RawLsqLead | null> {
+  const result = await lsqFetch<unknown>('/LeadManagement.svc/Leads.GetById', {
+    query: { id: leadId },
+  });
+
+  const rows: unknown[] = Array.isArray(result)
+    ? result
+    : ((result as { Leads?: unknown[] } | null)?.Leads ?? (result && typeof result === 'object' ? [result] : []));
+  const first = rows[0];
+  if (!first || typeof first !== 'object') return null;
+
+  const obj = first as Record<string, unknown>;
+  if (Array.isArray(obj.LeadPropertyList)) {
+    const row: RawLsqLead = {};
+    for (const prop of obj.LeadPropertyList as Array<{ Attribute: string; Value: string }>) row[prop.Attribute] = prop.Value;
+    return row;
+  }
+
+  const row: RawLsqLead = {};
+  for (const [k, v] of Object.entries(obj)) row[k] = v == null ? '' : String(v);
+  return row;
+}
+
+/** Read-only despite the provider's POST transport; bounded, paginated activity audit. */
+export async function getLeadActivities(leadId: string, offset = 0, activityEvent?: number): Promise<Record<string, unknown>[]> {
+  if (!leadId || !Number.isSafeInteger(offset) || offset < 0) throw new Error('Valid lead ID and activity page are required.');
+  const result = await lsqFetch<unknown>('/ProspectActivity.svc/Retrieve', {
+    method: 'POST', query: { leadId }, idempotent: true,
+    body: { ...(activityEvent ? { Parameter: { ActivityEvent: activityEvent } } : {}), Paging: { Offset: String(offset), RowCount: '100' } },
+  });
+  const rows = Array.isArray(result) ? result : (result as { Activities?: unknown[]; ProspectActivities?: unknown[] } | null)?.Activities ?? (result as { ProspectActivities?: unknown[] } | null)?.ProspectActivities;
+  if (!Array.isArray(rows)) throw new Error('LeadSquared returned an unrecognized activity response.');
+  return rows.filter((row): row is Record<string, unknown> => !!row && typeof row === 'object');
+}
+
 /** Strategy A transport for SMS — endpoint comes from tenant config. */
 export async function sendSmsToLeadDirect(params: {
   mobile: string;
@@ -466,7 +784,7 @@ export async function sendSmsToLeadDirect(params: {
   dltTemplateId?: string | null;
   senderId?: string | null;
 }): Promise<unknown> {
-  const path = await resolveField('lsq', 'smsEndpoint');
+  const path = await resolveIntegrationField('lsq', 'smsEndpoint');
   if (!path) {
     throw new UnsupportedChannelError('No lsq.smsEndpoint configured — set it on the Integrations page or use the trigger strategy.');
   }
@@ -481,7 +799,7 @@ export async function sendSmsToLeadDirect(params: {
 
 /** Strategy A transport for WhatsApp — same config story as SMS. */
 export async function sendWhatsappDirect(params: { mobile: string; message: string }): Promise<unknown> {
-  const path = await resolveField('lsq', 'waEndpoint');
+  const path = await resolveIntegrationField('lsq', 'waEndpoint');
   if (!path) {
     throw new UnsupportedChannelError('No lsq.waEndpoint configured — WhatsApp sends run through the trigger strategy.');
   }
@@ -561,6 +879,7 @@ export async function getActivityTypeDetails(
   id: number
 ): Promise<{ name: string; fields: Array<{ schemaName: string; displayName: string }> } | null> {
   const candidates = [
+    `/ProspectActivity.svc/CustomActivity/GetActivitySetting?code=${id}`,
     `/ProspectActivity.svc/ActivityType.Get?ActivityEvent=${id}`,
     `/ProspectActivity.svc/ActivityTypeDetails.Get?ActivityEvent=${id}`,
     `/ProspectActivity.svc/Types/${id}`,

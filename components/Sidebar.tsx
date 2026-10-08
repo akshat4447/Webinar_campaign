@@ -10,7 +10,7 @@ import { Icon } from './ui/Icon';
 interface NavItem {
   href: string;
   label: string;
-  icon: 'dashboard' | 'document' | 'template';
+  icon: 'dashboard' | 'document' | 'template' | 'linkedin';
   match: (pathname: string) => boolean;
 }
 
@@ -23,23 +23,14 @@ const NAV: NavItem[] = [
     // A campaign workspace and the wizard both live under Webinars.
     match: (p) => p === '/' || p.startsWith('/campaigns'),
   },
+  {
+    href: '/linkedin',
+    label: 'LinkedIn Outreach',
+    icon: 'linkedin',
+    match: (p) => p.startsWith('/linkedin'),
+  },
   { href: '/templates', label: 'Templates', icon: 'template', match: (p) => p === '/templates' },
 ];
-
-function navItemStyle(active: boolean): React.CSSProperties {
-  return {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    padding: '9px 12px',
-    borderRadius: 'var(--radius-md)',
-    background: active ? 'var(--accent-50)' : 'transparent',
-    color: active ? 'var(--accent-700)' : 'var(--n60)',
-    textDecoration: 'none',
-    fontSize: 'var(--fs-label-1)',
-    fontWeight: 'var(--fw-semibold)',
-  };
-}
 
 export function Sidebar({
   totalCount,
@@ -56,47 +47,33 @@ export function Sidebar({
   const isIntegrations = pathname === '/integrations';
 
   return (
-    <aside
-      style={{
-        width: 216,
-        flexShrink: 0,
-        background: 'var(--surface-card)',
-        borderRight: '1px solid var(--border-subtle)',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '22px 14px',
-        boxSizing: 'border-box',
-        overflowY: 'auto',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px 22px 8px' }}>
-        <div style={{ width: 30, height: 30, borderRadius: 7, overflow: 'hidden', flexShrink: 0 }}>
-<svg width="30" height="30" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <aside className="lsq-sidebar lsq-home-sidebar">
+      <div className="lsq-sidebar__brand lsq-home-brand">
+        <div className="lsq-home-brand__logo">
+<svg width="32" height="32" aria-hidden="true" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect width="87.2732" height="87.2732" fill="#0C9AFC" />
             <path d="M0 43.3984H43.875V87.2735H0V43.3984Z" fill="#172738" />
             <path d="M43.875 43.3984H0L43.875 87.2735V43.3984Z" fill="#F5F5F5" />
             </svg>
         </div>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 'var(--fw-bold)', color: 'var(--n90)', lineHeight: 1.1 }}>
-            Webinar Studio
-          </div>
-          <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n50)', lineHeight: 1.2 }}>Campaign workspace</div>
+        <div className="lsq-home-brand__text">
+          <div className="lsq-home-brand__name">Webinar Studio</div>
+          <div className="lsq-home-brand__tag">Campaign workspace</div>
         </div>
       </div>
 
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <nav className="lsq-sidebar__nav lsq-home-sidenav" aria-label="Main">
         {NAV.map((item) => {
           const active = item.match(pathname);
           return (
             <Link
               key={item.href}
               href={item.href}
-              className="lsq-nav"
+              className="lsq-home-nav"
               data-active={active ? 'true' : 'false'}
-              style={navItemStyle(active)}
+              aria-current={active ? 'page' : undefined}
             >
-              <Icon name={item.icon} size={17} style={{ color: active ? 'var(--accent-700)' : 'var(--n60)' }} />
+              <Icon name={item.icon} size={16} />
               {item.label}
             </Link>
           );
@@ -106,91 +83,31 @@ export function Sidebar({
       {/* Live agent status. Kept from the previous shell: it is the only place
           in the app that answers "is anything running right now?" without
           opening a campaign. */}
-      <div
-        style={{
-          marginTop: 20,
-          padding: 14,
-          borderRadius: 'var(--radius-lg)',
-          background: 'var(--n10)',
-          border: '1px solid var(--border-subtle)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <span
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: 'var(--success-500)',
-              animation: 'lsq-pulse 2s infinite',
-              flexShrink: 0,
-            }}
-          />
-          <span
-            style={{
-              fontSize: 'var(--fs-label-2)',
-              fontWeight: 'var(--fw-bold)',
-              color: 'var(--n80)',
-              letterSpacing: '0.03em',
-            }}
-          >
-            AGENT ONLINE
-          </span>
+      <div className="lsq-sidebar__status lsq-home-side-status">
+        <div className="lsq-home-side-status__head">
+          <span className="lsq-home-side-status__dot" aria-hidden="true" />
+          Agent online
         </div>
-        <div style={{ fontSize: 'var(--fs-label-2)', color: 'var(--n60)', lineHeight: 1.5 }}>
+        <p className="lsq-home-side-status__body">
           {totalCount} {totalCount === 1 ? 'webinar' : 'webinars'} across {liveCount} live, {draftCount} draft,{' '}
           {completedCount} completed.
-        </div>
+        </p>
       </div>
 
-      <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 2, paddingTop: 20 }}>
+      <div className="lsq-sidebar__foot lsq-home-side-foot">
         <Link
           href="/integrations"
-          className="lsq-nav"
+          className="lsq-home-nav"
           data-active={isIntegrations ? 'true' : 'false'}
-          style={navItemStyle(isIntegrations)}
+          aria-current={isIntegrations ? 'page' : undefined}
         >
-          <div
-            style={{
-              width: 17,
-              height: 17,
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 3,
-              flexShrink: 0,
-              color: isIntegrations ? 'var(--accent-700)' : 'var(--n60)',
-            }}
-          >
-            <span style={{ background: 'currentColor', borderRadius: 2 }} />
-            <span style={{ background: 'currentColor', borderRadius: 2, opacity: 0.55 }} />
-            <span style={{ background: 'currentColor', borderRadius: 2, opacity: 0.55 }} />
-            <span style={{ background: 'currentColor', borderRadius: 2 }} />
-          </div>
+          <Icon name="plug" size={16} />
           Integrations
         </Link>
 
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-            padding: '16px 8px 2px 8px',
-            marginTop: 8,
-            borderTop: '1px solid var(--border-subtle)',
-          }}
-        >
-          <span
-            style={{
-              fontSize: 'var(--fs-caption)',
-              fontWeight: 'var(--fw-semibold)',
-              letterSpacing: '0.08em',
-              color: 'var(--n50)',
-              textTransform: 'uppercase',
-            }}
-          >
-            Built on
-          </span>
-<svg width="108" height="19.8" viewBox="0 0 578 106" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <div className="lsq-sidebar__built lsq-home-built">
+          <span className="lsq-home-built__label">Built on</span>
+<svg role="img" aria-label="LeadSquared" width="108" height="20" viewBox="0 0 578 106" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M0 -0.000643553V43.7142H43.5897V88.043H86.7982V-0.000643553H0Z" fill="#0C9AFC" />
           <path d="M100.433 26.8136C96.9467 26.8136 96.9467 21.2945 100.433 21.2945H106.709C107.929 21.2945 108.888 22.2582 108.888 23.3975V82.5238H111.329C114.815 82.5238 114.815 88.043 111.329 88.043H100.869C97.3826 88.043 97.3826 82.5238 100.869 82.5238H103.31V26.8136H100.433" fill="#172738" />
           <path d="M121.353 62.5526H153.08C151.685 53.8804 146.63 47.1358 138.088 47.1358C129.633 47.1358 122.661 54.2309 121.353 62.5526V62.5526ZM139.221 88.4805C125.711 88.4805 115.862 78.0568 115.862 65.1807C115.862 52.5667 125.711 41.6172 138.175 41.6172C150.465 41.6172 158.397 52.0413 158.745 64.7421C158.745 66.3195 157.961 68.0712 156.043 68.0712H121.353C122.748 76.9182 130.244 82.9628 139.134 82.9628C142.272 82.9628 146.978 82.174 149.768 80.7723C151.859 79.7213 153.08 80.5966 153.603 81.5603C154.213 82.7872 153.951 84.4513 152.382 85.3277C148.896 87.3419 143.143 88.4805 139.221 88.4805" fill="#172738" />

@@ -1,23 +1,6 @@
 import { defineConfig } from 'vitest/config';
-import path from 'path';
-// @next/env is CommonJS — under this file's native-ESM loader (Vite's config
-// loader, not tsx) a named import doesn't get the interop shim, so pull the
-// default export and destructure instead.
-import nextEnv from '@next/env';
-
-// A couple of test files import modules that reach lib/db.ts at import time
-// (its Prisma client is created eagerly, module-level) — without this, those
-// suites fail with "DATABASE_URL is not set" since vitest doesn't load
-// .env/.env.local on its own the way Next's own dev/build/start commands do.
-nextEnv.loadEnvConfig(process.cwd());
-
+import { fileURLToPath } from 'node:url';
 export default defineConfig({
-  test: {
-    environment: 'node',
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(import.meta.dirname, './'),
-    },
-  },
+  resolve: { alias: { '@': fileURLToPath(new URL('.', import.meta.url)) } },
+  test: { fileParallelism: !process.env.TEST_DATABASE_URL, setupFiles: ['./test-support/setup.ts'], exclude: ['node_modules/**', '.next*/**', ...(process.env.TEST_DATABASE_URL ? [] : ['test-support/integration/**'])] },
 });

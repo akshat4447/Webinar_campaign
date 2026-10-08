@@ -1,25 +1,13 @@
-// Channel delivery for the SMS / WhatsApp cadence steps — BOTH strategies,
-// selectable per channel on the Integrations page:
-//
-//   trigger (default)  push a custom activity on the lead; a one-time LSQ
-//                      Automation program sends through LeadSquared's own
-//                      gateway, inheriting DND scrubbing, sender IDs and
-//                      Meta-approved WhatsApp templates.
-//   direct             call a per-lead send endpoint directly. The path is
-//                      tenant-specific config (lsq.smsEndpoint / lsq.waEndpoint)
-//                      because LSQ exposes these differently per account.
-//   auto               try direct first; on any failure fall back to trigger.
-//
-// Compliance lives here too: WhatsApp requires an explicit opt-in flag on the
-// contact, SMS respects the opt-out flag, and SEND_MODE=sandbox redirects every
-// send to the allowlist lead's phone — exactly how email sandboxing works.
+import { decryptCredential } from '@/lib/credentialCipher';
+import { assertPublicUrl, publicDispatcher } from '@/lib/safeFetch';
+import { DeliveryRejectedError } from '@/lib/deliveryGuard';
 
 import { db } from './db';
 import { resolveIntegrationField } from './integrationConfig';
-import { getSendMode } from './sendGuard';
 import {
   createActivityType,
-  getLeadByEmailAddress,
+  getActivityTypeDetails,
+  listActivityTypes,
   pushCustomActivities,
   type CustomActivity,
 } from './leadsquared';
@@ -156,84 +144,31 @@ export async function setChannelDeliveryMode(channel: DeliveryChannel, mode: 'tr
   });
 }
 
-/** One shared custom-activity type backs both channels' trigger strategy. */
-export async function ensureTriggerActivityTypeId(): Promise<number> {
-  const cached = await db.appSetting.findUnique({ where: { key: TRIGGER_TYPE_SETTING } });
-  if (cached?.value) return Number(cached.value);
-
-  // If a previous attempt left an orphan behind ("already exists"), retry under
-  // a numbered name — the next create carries the CORRECT mx_Custom_N fields,
-  // unlike whatever half-created row triggered the collision.
-  const baseName = 'WebinarAgent Channel Trigger';
-  const fields = [
-    { schemaName: 'mx_Custom_1', displayName: 'Channel' },
-    { schemaName: 'mx_Custom_2', displayName: 'Cadence Step' },
-    { schemaName: 'mx_Custom_3', displayName: 'Message' },
-  ];
-
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const name = attempt === 0 ? baseName : `${baseName} ${attempt + 1}`;
-    try {
-      const id = await createActivityType(name, fields);
-      await db.appSetting.upsert({
-        where: { key: TRIGGER_TYPE_SETTING },
-        create: { key: TRIGGER_TYPE_SETTING, value: String(id) },
-        update: { value: String(id) },
-      });
-      return id;
-    } catch (err) {
-      lastErr = err;
-      if (!/already exists/i.test(String(err))) throw err;
-    }
-  }
-  throw lastErr ?? new Error('Could not create the trigger activity type.');
+const validatedTriggerTypes=new Map<string,number>();
+async function triggerTypeValid(typeId:number,fields:TriggerFieldMap=DEFAULT_TRIGGER_FIELDS):Promise<boolean>{
+  if(!Number.isSafeInteger(typeId)||typeId<=0)return false;
+  const [host,accessKey]=await Promise.all([resolveIntegrationField('lsq','host'),resolveIntegrationField('lsq','accessKey')]);
+  const cacheKey=JSON.stringify([host,accessKey,typeId,fields]);
+  if((validatedTriggerTypes.get(cacheKey)||0)>Date.now())return true;
+  const details=await getActivityTypeDetails(typeId);
+  if(!details || !Object.values(fields).every(schema=>details.fields.some(field=>field.schemaName===schema)))return false;
+  validatedTriggerTypes.set(cacheKey,Date.now()+5*60_000);return true;
 }
-
-// The allowlist lead's phone (the same lead email receives every sandboxed
-// send), cached to avoid an LSQ round trip per message.
-//
-// ONLY a successful lookup is cached, and the cache is keyed by the email
-// itself — not just a bare value — so changing SEND_ALLOWLIST_LEAD_EMAIL
-// takes effect on the next send with no restart. Caching the MISS — which
-// this used to do for the life of the process — made the error message a
-// lie: it tells you to add a Phone in LeadSquared, but every later send
-// re-threw from cache without re-reading, so the fix appeared not to work
-// until the server was restarted. A config problem the operator is actively
-// fixing has to be re-checked.
-let cachedSandboxPhone: { email: string; phone: string } | null = null;
-export async function sandboxTargetPhone(): Promise<string> {
-  const email = process.env.SEND_ALLOWLIST_LEAD_EMAIL;
-  if (!email) throw new Error('SEND_ALLOWLIST_LEAD_EMAIL is not set — required while SEND_MODE=sandbox.');
-  if (cachedSandboxPhone && cachedSandboxPhone.email === email) return cachedSandboxPhone.phone;
-
-  const lead = await getLeadByEmailAddress(email);
-  // LSQ exposes both; either is a usable SMS/WhatsApp target.
-  const phone = lead?.Phone?.trim() || lead?.Mobile?.trim() || '';
-  if (!phone) {
-    throw new Error(
-      `The allowlist lead (${email}) has no Phone or Mobile in LeadSquared — add one so sandboxed SMS/WhatsApp sends have a target. It is re-checked on the next send; no restart needed.`
-    );
+/** Reuse a verified existing trigger; stale cached IDs are never delivery proof. */
+export async function ensureTriggerActivityTypeId():Promise<number>{
+  const fields=await getTriggerFieldMap();
+  const cached=await db.appSetting.findUnique({where:{key:TRIGGER_TYPE_SETTING}});
+  if(cached?.value && await triggerTypeValid(Number(cached.value),fields))return Number(cached.value);
+  const baseName='WebinarAgent Channel Trigger';
+  const existing=await listActivityTypes();
+  for(const type of existing.types.filter(t=>t.name===baseName||t.name.startsWith(baseName+' ')).sort((a,b)=>b.id-a.id)){
+    if(await triggerTypeValid(type.id,fields)){await db.appSetting.upsert({where:{key:TRIGGER_TYPE_SETTING},create:{key:TRIGGER_TYPE_SETTING,value:String(type.id)},update:{value:String(type.id)}});return type.id;}
   }
-  cachedSandboxPhone = { email, phone };
-  return phone;
-}
-
-let cachedSandboxLeadId: { email: string; leadId: string } | null = null;
-export async function sandboxTargetLeadId(): Promise<string> {
-  const email = process.env.SEND_ALLOWLIST_LEAD_EMAIL;
-  if (!email) throw new Error('SEND_ALLOWLIST_LEAD_EMAIL is not set — required while SEND_MODE=sandbox.');
-  if (cachedSandboxLeadId && cachedSandboxLeadId.email === email) return cachedSandboxLeadId.leadId;
-
-  const lead = await getLeadByEmailAddress(email);
-  const leadId = (lead?.ProspectID || lead?.ProspectId || lead?.LeadId) as string | undefined;
-  if (!leadId) {
-    throw new Error(
-      `The allowlist lead (${email}) was not found in LeadSquared — create it so sandboxed sends have a target lead.`
-    );
+  const schema=[{schemaName:fields.channel,displayName:'Channel'},{schemaName:fields.stepKey,displayName:'Cadence Step'},{schemaName:fields.message,displayName:'Message'}];
+  for(let attempt=0;attempt<6;attempt++){
+    try{const id=await createActivityType(attempt?`${baseName} ${attempt+1}`:baseName,schema);if(!await triggerTypeValid(id,fields))throw new Error('Created trigger does not have the required channel, step and message fields.');await db.appSetting.upsert({where:{key:TRIGGER_TYPE_SETTING},create:{key:TRIGGER_TYPE_SETTING,value:String(id)},update:{value:String(id)}});return id;}catch(error){if(!/already exists/i.test(String(error))||attempt===5)throw error;}
   }
-  cachedSandboxLeadId = { email, leadId };
-  return leadId;
+  throw new Error('Could not configure a valid channel trigger.');
 }
 
 export interface ChannelDeliveryInput {
@@ -241,7 +176,7 @@ export interface ChannelDeliveryInput {
   stepKey: string;
   campaignName: string;
   message: string;
-  /** Already transport-resolved: caller applies sandbox redirection. */
+
   phone: string;
   lsqLeadId: string;
   dltTemplateId?: string | null;
@@ -334,12 +269,17 @@ export async function executeDirectSend(params: DirectSendParams): Promise<Direc
     };
   }
 
+  await assertPublicUrl(endpoint);
+  const dispatcher = process.env.ALLOW_PRIVATE_FETCH === '1' ? undefined : publicDispatcher();
+  try {
   const res = await fetch(endpoint, {
+    dispatcher,
+    redirect: 'error',
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(10000),
-  });
+  } as RequestInit & { dispatcher?: ReturnType<typeof publicDispatcher> });
 
   const latencyMs = Date.now() - started;
   const rawText = await res.text();
@@ -357,6 +297,7 @@ export async function executeDirectSend(params: DirectSendParams): Promise<Direc
     body: parsedBody,
     rawText,
   };
+  } finally { await dispatcher?.close(); }
 }
 
 async function deliverDirect(input: ChannelDeliveryInput): Promise<string> {
@@ -370,7 +311,7 @@ async function deliverDirect(input: ChannelDeliveryInput): Promise<string> {
 
   // Fallback to legacy fields if new direct settings are not set
   const endpoint = endpointRaw?.value || (await resolveIntegrationField('lsq', input.channel === 'sms' ? 'smsEndpoint' : 'waEndpoint')) || '';
-  const authToken = authTokenRaw?.value || '';
+  const authToken = authTokenRaw?.value ? decryptCredential(authTokenRaw.value) : '';
   const senderId = input.senderId || senderIdRaw?.value || '';
   const templateId = input.dltTemplateId || templateIdRaw?.value || '';
 
@@ -391,7 +332,7 @@ async function deliverDirect(input: ChannelDeliveryInput): Promise<string> {
   });
 
   if (!result.ok) {
-    throw new Error(`Direct ${input.channel.toUpperCase()} gateway returned HTTP ${result.status} (${result.latencyMs}ms): ${result.rawText.slice(0, 200)}`);
+    throw new DeliveryRejectedError(`Direct ${input.channel.toUpperCase()} gateway returned HTTP ${result.status} (${result.latencyMs}ms)`, result.status);
   }
 
   // On successful direct dispatch, post standard activity to LeadSquared CRM for audit history
@@ -425,19 +366,15 @@ async function deliverDirect(input: ChannelDeliveryInput): Promise<string> {
 }
 
 async function deliverViaTrigger(input: ChannelDeliveryInput): Promise<string> {
-  // In sandbox mode, never attach activities to the real prospect's lead —
-  // that would trigger LeadSquared automation to message the real prospect.
-  let targetLeadId = input.lsqLeadId;
-  const sendMode = await getSendMode();
-  if (sendMode !== 'live') {
-    targetLeadId = await sandboxTargetLeadId();
-  }
+  const targetLeadId = input.lsqLeadId;
+  if (!targetLeadId) throw new Error('LeadSquared automation requires a linked lead.');
 
   // Per-channel mapped type wins; otherwise the shared auto-provisioned type.
   const map = await getActivityMap();
   const override = map[input.channel]?.typeId;
   const fieldNames = await getTriggerFieldMap();
   const typeId = override ?? (await ensureTriggerActivityTypeId());
+  if(override && !await triggerTypeValid(override,fieldNames))throw new DeliveryRejectedError(`Mapped ${input.channel} activity #${override} is missing the channel, step or message fields. Fix the activity mapping.`);
 
   const safeMessage = Array.from(input.message).slice(0, 500).join('');
   const activity: CustomActivity = {
@@ -450,18 +387,8 @@ async function deliverViaTrigger(input: ChannelDeliveryInput): Promise<string> {
       { SchemaName: fieldNames.message, Value: safeMessage },
     ],
   };
-  try {
-    await pushCustomActivities([activity]);
-  } catch (err) {
-    // If the type exists WITHOUT its custom fields (possible when a previous
-    // create attempt half-succeeded), fire the bare activity anyway — the
-    // automation trigger only needs the activity type to appear.
-    if (/custom|field/i.test(String(err))) {
-      await pushCustomActivities([{ ...activity, Fields: undefined }]);
-    } else {
-      throw err;
-    }
-  }
+  await pushCustomActivities([activity]);
+
   return `trigger activity posted${override ? ` on mapped type #${typeId}` : ''} — LSQ Automation delivers via its configured gateway`;
 }
 

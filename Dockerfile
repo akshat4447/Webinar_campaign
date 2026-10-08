@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:24-alpine AS base
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -6,6 +6,8 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+COPY tooling ./tooling
+COPY scripts/check-tooling.cjs ./scripts/check-tooling.cjs
 COPY prisma ./prisma/
 RUN npm ci
 
@@ -14,9 +16,12 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/prisma ./prisma
+COPY --from=deps /app/lib/generated/prisma ./lib/generated/prisma
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
+# Build imports the adapter but never connects; the runner requires its real URL.
+ENV DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build
 
 RUN npm run build
 

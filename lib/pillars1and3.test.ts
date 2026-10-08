@@ -28,7 +28,7 @@ describe('Pillar 1: Multi-Angle A/B Copy Testing', () => {
 
   it('generates SMS angles adhering to GSM-7 constraints without subject lines', async () => {
     const result = await generateMessageAngles({
-      topic: 'FinFlow Masterclass',
+      topic: 'Product Masterclass',
       channel: 'sms',
       stepLabel: 'Countdown Alert',
     });

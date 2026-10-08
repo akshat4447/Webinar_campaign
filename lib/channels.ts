@@ -83,7 +83,7 @@ export function checkSmsBody(body: string): { issues: Array<{ severity: 'error' 
   const segments = smsSegmentCount(body);
   const gsm7 = isGsm7(body);
 
-  if (!body.trim()) {
+  if (!body || !body.trim()) {
     issues.push({ severity: 'error', message: 'Message body is empty' });
     return { issues, valid: false, segments: 0, gsm7: true };
   }
@@ -98,4 +98,29 @@ export function checkSmsBody(body: string): { issues: Array<{ severity: 'error' 
   }
 
   return { issues, valid: !issues.some((i) => i.severity === 'error'), segments, gsm7 };
+}
+
+export interface ContactChannelEligibility {
+  email: string | null;
+  phone: string | null;
+  whatsappOptIn?: boolean | null;
+  smsOptOut?: boolean | null;
+  emailSimulated?: boolean | null;
+  emailVerified?: boolean | null;
+}
+
+/**
+ * Checks whether a contact is eligible to receive a message on a given channel.
+ * - sms: requires a phone number
+ * - whatsapp: requires a phone number and explicit opt-in
+ * - email: requires an email and not unverified-simulated
+ */
+export function isContactEligibleForChannel(
+  contact: ContactChannelEligibility,
+  channelDisplay: string | null | undefined
+): boolean {
+  const ch = normalizeChannel(channelDisplay);
+  if (ch === 'sms') return !!contact.phone && !contact.smsOptOut;
+  if (ch === 'whatsapp') return !!contact.phone && !!contact.whatsappOptIn;
+  return !!contact.email && !(contact.emailSimulated && !contact.emailVerified);
 }

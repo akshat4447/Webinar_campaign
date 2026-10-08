@@ -6,6 +6,9 @@ import type { NextConfig } from "next";
 const TUNNEL_ORIGINS = ['*.trycloudflare.com', '*.loca.lt', '*.ngrok-free.app', '*.ngrok.io', 'localhost:3000'];
 
 const nextConfig: NextConfig = {
+  // Lets a second server (e2e runs, a fresh Prisma client) run beside a developer's `next dev` without sharing .next.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
+
   // Output standalone bundle for Docker and containerized deployments
   output: 'standalone',
 

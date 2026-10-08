@@ -1,17 +1,22 @@
 // Apollo pre-flight for the LinkedIn send queue — "self-verification before
 // sending the invite", done through Apollo's official people-match API.
 //
-// What this deliberately is NOT: browser automation of LinkedIn. Scripted
-// outreach breaches LinkedIn's User Agreement and gets accounts restricted,
-// so the automated mode here processes a *labeled simulation* of the queue —
-// but only after every recipient passed this real-data sanity check.
+// LinkedIn outreach remains assisted: verification does not claim that a
+// message was sent. An operator records the actual manual delivery outcome.
 //
 // Verdicts:
 //   verified  — Apollo found the person and company/title still line up
 //   mismatch  — Apollo found them somewhere else or in a different role
 //   not_found — no confident profile match for name + company
-//   error     — the lookup itself failed (key missing counts as skip→verified
-//               with an explicit note, so a demo without credentials still runs)
+//   error     — the lookup could not be performed (no API key, auth rejected,
+//               rate limited, request threw). Deliberately NOT 'verified':
+//               only 'mismatch'/'not_found' block a LinkedIn touch, so 'error'
+//               still lets an operator work without Apollo — but it does not
+//               claim a check happened, and the caller leaves linkedinCheckedAt
+//               null so a later run with a working key actually re-checks.
+//               Reporting these as 'verified' used to stamp every contact
+//               fresh for the 7-day TTL, so saving a real key afterwards
+//               verified nobody.
 
 import { functionFor, seniorityFor } from './importHeuristics';
 
@@ -32,6 +37,7 @@ export interface ApolloPerson {
   found: boolean;
   title?: string;
   company?: string;
+  linkedinUrl?: string;
 }
 
 const COMPANY_SUFFIXES = /\b(inc|llc|ltd|limited|corp|corporation|co|company|group|holdings|technologies|technology|labs|plc|pvt|private|gmbh|sa|bv)\b/gi;
@@ -43,6 +49,15 @@ function normalizeCompany(name: string): string[] {
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter(Boolean);
+}
+
+export function cleanOrgName(account?: string | null): string | undefined {
+  if (!account) return undefined;
+  const trimmed = account.trim();
+  if (!trimmed || trimmed === '—' || trimmed === '-' || /^(unassigned|n\/a|na|none|unknown)$/i.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
 }
 
 /** True when both company names share any significant token ("acme financial" ≈ "Acme Financial Inc"). */
@@ -122,6 +137,8 @@ interface RawApolloResponse {
     match_confidence?: string;
     organization?: { name?: string };
     employment_history?: Array<{ title?: string; organization_name?: string }>;
+    linkedin_url?: string;
+    linkedin_profile_url?: string;
   } | null;
 }
 
@@ -140,12 +157,18 @@ function extractPerson(json: unknown): ApolloPerson {
     found: true,
     title: p!.title || history?.title,
     company: p!.organization?.name || history?.organization_name,
+    linkedinUrl: p!.linkedin_url || p!.linkedin_profile_url || undefined,
   };
 }
 
 export interface VerifyBatchResult {
   results: Map<string, VerificationOutcome>;
   usedLiveApi: boolean;
+  /** Set when the batch was cut short by something the operator has to fix —
+   *  a rejected/missing key, or a rate limit. Callers must surface this rather
+   *  than reporting a clean run: a 401 on the first contact used to abandon
+   *  every remaining lookup silently while the summary still read "0 errors". */
+  apiError?: string;
 }
 
 /**
@@ -163,13 +186,14 @@ export async function verifyContactsForLinkedIn(
   if (!apiKey) {
     const results = new Map<string, VerificationOutcome>();
     for (const c of contacts) {
-      results.set(c.id, { status: 'verified', note: 'Verification skipped — no Apollo API key configured on the Integrations page.' });
+      results.set(c.id, { status: 'error', note: 'Not verified — no Apollo API key configured on the Integrations page.' });
     }
-    return { results, usedLiveApi: false };
+    return { results, usedLiveApi: false, apiError: 'No Apollo API key configured — nothing was verified.' };
   }
 
   const results = new Map<string, VerificationOutcome>();
   let rateLimited = false;
+  let apiError: string | undefined;
 
   for (const c of contacts) {
     if (rateLimited) {
@@ -180,17 +204,19 @@ export async function verifyContactsForLinkedIn(
       const res = await fetch(APOLLO_MATCH_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-        body: JSON.stringify({ ...splitName(c.name), organization_name: c.account || undefined, reveal_personal_emails: false }),
+        body: JSON.stringify({ ...splitName(c.name), organization_name: cleanOrgName(c.account), reveal_personal_emails: false }),
         cache: 'no-store',
       });
 
       if (res.status === 429) {
         rateLimited = true;
+        apiError = apiError ?? 'Apollo rate limit hit (429) — the rest of this batch was skipped. Re-run verify shortly.';
         results.set(c.id, { status: 'error', note: 'Apollo rate limit hit (429) — re-run verify shortly.' });
         continue;
       }
       if (res.status === 401 || res.status === 403) {
         rateLimited = true;
+        apiError = apiError ?? `Apollo rejected the API key (HTTP ${res.status}) — save a valid key on the Integrations page. Nothing was verified.`;
         results.set(c.id, { status: 'error', note: 'Apollo rejected the API key — save a valid key on the Integrations page.' });
         continue;
       }
@@ -207,7 +233,7 @@ export async function verifyContactsForLinkedIn(
     await new Promise((r) => setTimeout(r, CALL_GAP_MS));
   }
 
-  return { results, usedLiveApi: true };
+  return { results, usedLiveApi: true, apiError };
 }
 
 export interface ApolloEnrichedContact {
@@ -216,6 +242,7 @@ export interface ApolloEnrichedContact {
   phone?: string;
   title?: string;
   company?: string;
+  linkedinUrl?: string;
 }
 
 interface RawApolloEnrichResponse {
@@ -225,6 +252,8 @@ interface RawApolloEnrichResponse {
     match_confidence?: string;
     organization?: { name?: string };
     phone_numbers?: Array<{ raw_number?: string; sanitized_number?: string }>;
+    linkedin_url?: string;
+    linkedin_profile_url?: string;
   } | null;
 }
 
@@ -238,13 +267,14 @@ interface RawApolloEnrichResponse {
  */
 export async function enrichContactsViaApollo(
   contacts: Array<{ id: string } & ContactBaseline>,
-  opts: { apiKey: string }
-): Promise<{ results: Map<string, ApolloEnrichedContact>; usedLiveApi: boolean }> {
+  opts: { apiKey: string; revealEmails?: boolean }
+): Promise<{ results: Map<string, ApolloEnrichedContact>; usedLiveApi: boolean; apiError?: string }> {
   const apiKey = opts.apiKey;
-  if (!apiKey) return { results: new Map(), usedLiveApi: false };
+  if (!apiKey) return { results: new Map(), usedLiveApi: false, apiError: 'No Apollo API key configured.' };
 
   const results = new Map<string, ApolloEnrichedContact>();
   let rateLimited = false;
+  let apiError: string | undefined;
 
   for (const c of contacts) {
     if (rateLimited) continue;
@@ -254,14 +284,24 @@ export async function enrichContactsViaApollo(
         headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
         body: JSON.stringify({
           ...splitName(c.name),
-          organization_name: c.account || undefined,
-          reveal_personal_emails: true,
+          organization_name: cleanOrgName(c.account),
+          // Revealing a personal email is a separately-billed Apollo credit.
+          // This was hardcoded true, so an operator who unchecked "Email" in
+          // the enrichment moderation modal still paid for one reveal per
+          // contact — and the revealed address was then discarded unread.
+          reveal_personal_emails: opts.revealEmails !== false,
         }),
         cache: 'no-store',
       });
 
-      if (res.status === 429 || res.status === 401 || res.status === 403) {
+      if (res.status === 401 || res.status === 403) {
         rateLimited = true;
+        apiError = `Apollo rejected the API key (HTTP ${res.status}) — no contact was enriched from Apollo. Save a valid key on the Integrations page.`;
+        continue;
+      }
+      if (res.status === 429) {
+        rateLimited = true;
+        apiError = 'Apollo rate limit hit (429) — the rest of this run was skipped. Try again shortly.';
         continue;
       }
       if (!res.ok) continue;
@@ -275,6 +315,7 @@ export async function enrichContactsViaApollo(
           phone: p!.phone_numbers?.[0]?.sanitized_number || p!.phone_numbers?.[0]?.raw_number || undefined,
           title: p!.title,
           company: p!.organization?.name,
+          linkedinUrl: p!.linkedin_url || p!.linkedin_profile_url || undefined,
         });
       } else {
         results.set(c.id, { found: false });
@@ -285,5 +326,5 @@ export async function enrichContactsViaApollo(
     await new Promise((r) => setTimeout(r, CALL_GAP_MS));
   }
 
-  return { results, usedLiveApi: true };
+  return { results, usedLiveApi: true, apiError };
 }

@@ -23,12 +23,13 @@ vi.mock('@/lib/leadsquared', () => {
     addLeadsToStaticList: vi.fn(),
     getLists: vi.fn(),
     LeadSquaredError: class LeadSquaredError extends Error {},
+    takeSkippedCustomFields: vi.fn(() => [] as string[]),
   };
 });
 
 import { db } from '@/lib/db';
 import * as lsq from '@/lib/leadsquared';
-import { syncContactsToLeadSquared } from './leadSync';
+import { syncContactsToLeadSquared, leadFieldsFor } from './leadSync';
 
 describe('Option 2: LeadSync Autonomous List Prevention', () => {
   beforeEach(() => {
@@ -121,5 +122,66 @@ describe('Option 2: LeadSync Autonomous List Prevention', () => {
     });
     expect(lsq.addLeadsToStaticList).toHaveBeenCalledWith('newly-created-list-111', ['lead-carol-789']);
     expect(result.listId).toBe('newly-created-list-111');
+  });
+
+  describe('leadFieldsFor tenant field mapping & enrichment', () => {
+    it('maps standard fields and enriched fields (score, seniority, function)', () => {
+      const contact = {
+        name: 'John Doe',
+        email: 'john@example.com',
+        account: 'Acme Corp',
+        title: 'VP Engineering',
+        phone: '+15551234567',
+        score: 92,
+        seniority: 'VP',
+        function: 'Engineering',
+      };
+
+      const fields = leadFieldsFor(contact);
+      expect(fields).toEqual(
+        expect.arrayContaining([
+          { Attribute: 'EmailAddress', Value: 'john@example.com' },
+          { Attribute: 'FirstName', Value: 'John' },
+          { Attribute: 'LastName', Value: 'Doe' },
+          { Attribute: 'Company', Value: 'Acme Corp' },
+          { Attribute: 'JobTitle', Value: 'VP Engineering' },
+          { Attribute: 'Phone', Value: '+15551234567' },
+          { Attribute: 'mx_Webinar_ICP_Score', Value: '92' },
+          { Attribute: 'mx_Seniority', Value: 'VP' },
+          { Attribute: 'mx_Function', Value: 'Engineering' },
+        ])
+      );
+    });
+
+    it('maps custom tenant fields from lsqFieldMappingTokens and extraFieldsJson', () => {
+      const contact = {
+        name: 'Jane Smith',
+        email: 'jane@innovate.com',
+        account: 'Innovate AI',
+        title: 'CTO',
+        extraFieldsJson: JSON.stringify({
+          Industry: 'Artificial Intelligence',
+          Region: 'North America',
+        }),
+      };
+
+      const mappingTokens = JSON.stringify([
+        { id: 'custom_industry', token: '{{Industry}}', lsqField: 'mx_Industry', label: 'Industry', enabled: true },
+        { id: 'custom_region', token: '{{Region}}', lsqField: 'mx_Region', label: 'Region', enabled: true },
+        { id: 'disabled_field', token: '{{Disabled}}', lsqField: 'mx_Disabled', label: 'Disabled', enabled: false },
+      ]);
+
+      const fields = leadFieldsFor(contact, mappingTokens);
+      expect(fields).toEqual(
+        expect.arrayContaining([
+          { Attribute: 'EmailAddress', Value: 'jane@innovate.com' },
+          { Attribute: 'FirstName', Value: 'Jane' },
+          { Attribute: 'Company', Value: 'Innovate AI' },
+          { Attribute: 'mx_Industry', Value: 'Artificial Intelligence' },
+          { Attribute: 'mx_Region', Value: 'North America' },
+        ])
+      );
+      expect(fields.some((f) => f.Attribute === 'mx_Disabled')).toBe(false);
+    });
   });
 });

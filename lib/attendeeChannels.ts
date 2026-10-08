@@ -1,3 +1,4 @@
+import { Prisma } from '@/lib/generated/prisma/client';
 import { db } from '@/lib/db';
 
 // Classifies attendees by which channel their invite went out on — the three
@@ -23,34 +24,13 @@ export interface AttendeeChannelStat {
 }
 
 async function computeBreakdown(campaignFilter: string | { in: string[] }): Promise<AttendeeChannelStat[]> {
-  const [sends, attendedContacts] = await Promise.all([
-    db.cadenceSend.findMany({
-      where: { campaignId: campaignFilter, stepKey: { in: Object.keys(INVITE_STEP_CHANNEL) }, status: 'sent' },
-      select: { contactId: true, stepKey: true },
-    }),
-    db.contact.findMany({ where: { campaignId: campaignFilter, attended: true }, select: { id: true } }),
+  const campaignIds=typeof campaignFilter==='string'?[campaignFilter]:campaignFilter.in;
+  if(!campaignIds.length)return [];
+  const [totals,channels]=await Promise.all([
+    db.contact.count({where:{campaignId:{in:campaignIds},attended:true}}),
+    db.$queryRaw<Array<{stepKey:string;attended:number}>>(Prisma.sql`SELECT s."stepKey",count(DISTINCT c.id)::int AS attended FROM "Contact" c JOIN "CadenceSend" s ON s."contactId"=c.id AND s."campaignId"=c."campaignId" WHERE c."campaignId" IN (${Prisma.join(campaignIds)}) AND c.attended AND s.status='sent' AND s."stepKey" IN ('invite','smsInvite','waInvite') GROUP BY s."stepKey"`),
   ]);
-
-  const attendedIds = new Set(attendedContacts.map((c) => c.id));
-  const totalAttended = attendedIds.size;
-  if (totalAttended === 0) return [];
-
-  const byChannel = new Map<string, Set<string>>();
-  for (const s of sends) {
-    if (!attendedIds.has(s.contactId)) continue;
-    const channel = INVITE_STEP_CHANNEL[s.stepKey];
-    const set = byChannel.get(channel) ?? new Set<string>();
-    set.add(s.contactId);
-    byChannel.set(channel, set);
-  }
-
-  return Object.values(INVITE_STEP_CHANNEL)
-    .map((label) => {
-      const attended = byChannel.get(label)?.size ?? 0;
-      return { label, attended, pctOfAttendees: Math.round((attended / totalAttended) * 100) };
-    })
-    .filter((c) => c.attended > 0)
-    .sort((a, b) => b.attended - a.attended);
+  return channels.map(c=>({label:INVITE_STEP_CHANNEL[c.stepKey],attended:c.attended,pctOfAttendees:totals?Math.round(c.attended/totals*100):0})).filter(c=>c.attended>0).sort((a,b)=>b.attended-a.attended);
 }
 
 /** One campaign's attendees, classified by invite channel. */

@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { getCachedCampaign } from '@/lib/campaignCache';
 
 /**
  * Post-event reporting: how the attendee/no-show sequences did, and which
@@ -13,24 +14,33 @@ import { db } from '@/lib/db';
 export interface PostEventStats {
   attended: number;
   noShow: number;
+  /** Registered contacts — the denominator for the shared attendance rate
+   *  (lib/attendanceRate.ts). Returned rather than recomputed by the client so
+   *  the tile can't end up dividing by a different population than the one
+   *  `attended` was counted from. */
+  registered: number;
   avgWatchMinutes: number | null;
   demoRequests: number | null;
 }
 
 export async function getPostEventStats(campaignId: string): Promise<PostEventStats> {
-  const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { demoRequests: true } });
-  const registered = await db.contact.findMany({
-    where: { campaignId, approved: true, registeredAt: { not: null } },
-    select: { attended: true, watchMinutes: true },
-  });
-  const attendedRows = registered.filter((c) => c.attended);
-  const withWatch = attendedRows.filter((c) => c.watchMinutes !== null && c.watchMinutes! > 0);
-  const avgWatchMinutes =
-    withWatch.length > 0 ? Math.round(withWatch.reduce((sum, c) => sum + (c.watchMinutes ?? 0), 0) / withWatch.length) : null;
+  // Request-memoized (lib/campaignCache.ts) — on the Results page this is the
+  // same full campaign row the layout and the page itself already fetched,
+  // so this no longer costs its own round trip there. Still correct (if
+  // slightly heavier than the old narrow select) when called on its own.
+  const campaign = await getCachedCampaign(campaignId);
+  const scope = {campaignId, registeredAt:{not:null}};
+  const [registered, measured] = await Promise.all([
+    db.contact.count({where:scope}),
+    db.contact.aggregate({where:{...scope,attended:true},_count:{_all:true},_avg:{watchMinutes:true}}),
+  ]);
+  const attended = measured._count._all;
+  const avgWatchMinutes = measured._avg.watchMinutes === null ? null : Math.round(measured._avg.watchMinutes);
 
   return {
-    attended: attendedRows.length,
-    noShow: Math.max(0, registered.length - attendedRows.length),
+    attended,
+    noShow: Math.max(0, registered - attended),
+    registered,
     avgWatchMinutes,
     // demoRequests has no live computation path in this app — Zoom and the
     // CRM don't carry a "requested a demo" signal, so this stays the
@@ -41,7 +51,6 @@ export async function getPostEventStats(campaignId: string): Promise<PostEventSt
 
 export interface AccountEngagementRow {
   account: string;
-  contactIds: string[];
   contactCount: number;
   attended: number;
   avgWatchMinutes: number | null;
@@ -55,54 +64,44 @@ export interface AccountEngagementRow {
 
 /** Top N accounts by attendance, for the post-event engagement table. */
 export async function getAccountEngagement(campaignId: string, take = 12): Promise<AccountEngagementRow[]> {
-  const contacts = await db.contact.findMany({
-    where: { campaignId, approved: true },
-    select: { id: true, name: true, account: true, attended: true, watchMinutes: true, score: true },
+  const limit = Math.max(1,Math.min(50,Math.floor(take)));
+  type Aggregate = {account:string;contactCount:bigint;attended:bigint;avgWatchMinutes:number|null;scored:bigint;topContactId:string;topContactName:string};
+  const groups = await db.$queryRaw<Aggregate[]>`WITH grouped AS (
+    SELECT "account", count(*) AS "contactCount", count(*) FILTER (WHERE "attended" AND "registeredAt" IS NOT NULL) AS attended,
+      avg("watchMinutes") FILTER (WHERE "attended" AND "registeredAt" IS NOT NULL) AS "avgWatchMinutes",
+      count(*) FILTER (WHERE "score" IS NOT NULL) AS scored
+    FROM "Contact" WHERE "campaignId" = ${campaignId} AND ("approved" OR "registeredAt" IS NOT NULL)
+    GROUP BY "account" ORDER BY attended DESC, "contactCount" DESC, "account" ASC LIMIT ${limit}
+  ) SELECT g.*, top.id AS "topContactId", top.name AS "topContactName" FROM grouped g CROSS JOIN LATERAL (
+    SELECT "id" AS id, "name" AS name FROM "Contact" WHERE "campaignId" = ${campaignId} AND "account" = g."account" AND ("approved" OR "registeredAt" IS NOT NULL)
+    ORDER BY ("attended" AND "registeredAt" IS NOT NULL) DESC, CASE WHEN "attended" AND "registeredAt" IS NOT NULL THEN COALESCE("watchMinutes",0) ELSE COALESCE("score",0) END DESC, "id" ASC LIMIT 1
+  ) top ORDER BY g.attended DESC, g."contactCount" DESC, g."account" ASC`;
+  return groups.map(group => {
+    const attended = Number(group.attended);
+    const avgWatchMinutes = group.avgWatchMinutes === null ? null : Math.round(Number(group.avgWatchMinutes));
+    const hasScore = Number(group.scored)>0;
+    return {account:group.account,contactCount:Number(group.contactCount),attended,avgWatchMinutes,topContactId:group.topContactId,topContactName:group.topContactName,
+      action:attended?'Follow up':hasScore?'Nurture':'Not contacted',actionColor:attended?'success':hasScore?'blue':'gray',intentTier:attended>1||(avgWatchMinutes!==null&&avgWatchMinutes>=35)?'high':attended?'medium':'low'};
   });
-
-  const byAccount = new Map<string, typeof contacts>();
-  for (const c of contacts) byAccount.set(c.account, [...(byAccount.get(c.account) ?? []), c]);
-
-  const rows: AccountEngagementRow[] = [...byAccount.entries()].map(([account, cs]) => {
-    const attendedRows = cs.filter((c) => c.attended);
-    const withWatch = attendedRows.filter((c) => (c.watchMinutes ?? 0) > 0);
-    const avgWatchMinutes = withWatch.length > 0 ? Math.round(withWatch.reduce((s, c) => s + (c.watchMinutes ?? 0), 0) / withWatch.length) : null;
-    // The contact to act on: the longest-watching attendee if anyone showed
-    // up, otherwise whoever scored highest — sales still needs a name to call.
-    const top = attendedRows.length > 0
-      ? attendedRows.reduce((a, b) => ((a.watchMinutes ?? 0) >= (b.watchMinutes ?? 0) ? a : b))
-      : cs.reduce((a, b) => ((a.score ?? 0) >= (b.score ?? 0) ? a : b));
-
-    // Intent Tiering: High (multiple attendees or >35m watch), Medium (attended), Low (no-show)
-    const intentTier: 'high' | 'medium' | 'low' =
-      attendedRows.length > 1 || (avgWatchMinutes !== null && avgWatchMinutes >= 35)
-        ? 'high'
-        : attendedRows.length > 0
-        ? 'medium'
-        : 'low';
-
-    return {
-      account,
-      contactIds: cs.map((c) => c.id),
-      contactCount: cs.length,
-      attended: attendedRows.length,
-      avgWatchMinutes,
-      topContactId: top.id,
-      topContactName: top.name,
-      action: attendedRows.length > 0 ? 'Follow up' : cs.some((c) => c.score !== null) ? 'Nurture' : 'Not contacted',
-      actionColor: attendedRows.length > 0 ? 'success' : cs.some((c) => c.score !== null) ? 'blue' : 'gray',
-      intentTier,
-    };
-  });
-
-  return rows.sort((a, b) => b.attended - a.attended || b.contactCount - a.contactCount).slice(0, take);
 }
 
 /** Generates AI Executive Debrief and SDR Handoff Guide for this webinar (Pillar 3) */
 export async function getPostEventDebrief(campaignId: string) {
   const { generatePostEventDebrief } = await import('@/lib/claude');
   const [campaign, stats, accounts, totalApproved] = await Promise.all([
-    db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { name: true } }),
+    db.campaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: {
+        name: true,
+        description: true,
+        speakerName: true,
+        speakerTitle: true,
+        speakers: {
+          orderBy: { order: 'asc' },
+          select: { name: true, title: true, company: true },
+        },
+      },
+    }),
     getPostEventStats(campaignId),
     getAccountEngagement(campaignId, 20),
     db.contact.count({ where: { campaignId, approved: true } }),
@@ -110,6 +109,10 @@ export async function getPostEventDebrief(campaignId: string) {
 
   return generatePostEventDebrief({
     topic: campaign.name,
+    description: campaign.description,
+    speakerName: campaign.speakerName,
+    speakerTitle: campaign.speakerTitle,
+    speakers: campaign.speakers,
     totalApproved,
     attendedCount: stats.attended,
     noShowCount: stats.noShow,

@@ -15,6 +15,7 @@ import {
 import { defaultTriggerFor } from '../lib/stepTrigger';
 import { STEP_DEFAULTS } from '../lib/stepSchedule';
 import { normalizeChannel, DEFAULT_ENABLED_CHANNELS } from '../lib/channels';
+import { parseLegacyWebinarDate } from '../lib/campaignDate';
 
 /** A per-campaign registration slug, so every webinar links to its own landing page. */
 function registrationSlug(name: string): string {
@@ -30,9 +31,12 @@ function registrationSlug(name: string): string {
 
 async function main() {
   for (const c of demoCampaigns) {
+    const scheduledAt = parseLegacyWebinarDate(c.date);
     await db.campaign.upsert({
       where: { id: c.id },
-      update: {},
+      update: {
+        scheduledAt,
+      },
       create: {
         id: c.id,
         name: c.name,
@@ -44,7 +48,7 @@ async function main() {
         attendance: c.attendance,
         demoRequests: c.demoRequests,
         registrationLink: registrationSlug(c.name),
-        scheduledAt: c.id === 'c1' ? new Date('2026-08-28T09:30:00.000Z') : null,
+        scheduledAt,
       },
     });
   }

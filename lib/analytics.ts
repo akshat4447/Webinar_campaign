@@ -1,7 +1,10 @@
 import { db } from '@/lib/db';
 import { getPersonaLearning, type PersonaLearningRow } from '@/lib/personaLearning';
+import { parseLegacyWebinarDate } from '@/lib/campaignDate';
+import { formatAttendanceRate } from '@/lib/attendanceRate';
+import { INVITE_STEP_KEYS } from '@/lib/cadenceStepKinds';
 import {
-  bucketDates,
+  bucketDatedCounts,
   campaignRangeWhere,
   countDelta,
   fmtPct,
@@ -10,6 +13,7 @@ import {
   windowsFor,
   DASH,
   type DashboardRange,
+  type DatedCount,
   type TrendPoint,
 } from '@/lib/analyticsMath';
 
@@ -30,8 +34,6 @@ export interface DashboardKpi {
   deltaKind: 'points' | 'relative';
 }
 
-const INVITE_STEP_KEYS = ['invite', 'smsInvite', 'waInvite'];
-
 export async function getDashboardKpis(range: DashboardRange, now = new Date()): Promise<DashboardKpi[]> {
   const { start, prevStart, prevEnd } = windowsFor(range, now);
 
@@ -42,67 +44,65 @@ export async function getDashboardKpis(range: DashboardRange, now = new Date()):
     const invitedWhere = { ...sentWhere, stepKey: { in: INVITE_STEP_KEYS } };
     const campaignWhere = campaignRangeWhere(from, to);
 
-    const [registrations, delivered, invited, scoredContacts, approvedContacts, attendedContacts, webinars, demoAgg] = await Promise.all([
+    const [registrations, delivered, invited, scoredContacts, approvedContacts, attendedContacts, campaigns, demoAgg] = await Promise.all([
       db.contact.count({ where: registeredWhere }),
       db.cadenceSend.count({ where: sentWhere }),
-      db.cadenceSend.count({ where: invitedWhere }),
+      db.cadenceSend.groupBy({ by: ['contactId'], where: invitedWhere }).then(rows => rows.length),
       db.contact.count({ where: { ...contactWhere, score: { not: null } } }),
-      db.contact.count({ where: { ...contactWhere, approved: true } }),
-      db.contact.count({ where: { ...contactWhere, attended: true } }),
+      db.contact.count({ where: { ...contactWhere, score: { not: null }, approved: true } }),
+      db.contact.count({ where: { ...registeredWhere, attended: true } }),
       db.campaign.count({ where: campaignWhere }),
       db.campaign.aggregate({ where: campaignWhere, _sum: { demoRequests: true } }),
     ]);
-
-    return {
-      registrations,
-      delivered,
-      invited,
-      approvalRate: pct(approvedContacts, scoredContacts),
-      attendanceRate: pct(attendedContacts, registrations),
-      regRate: pct(registrations, invited),
-      webinars,
-      // Neither Zoom nor the CRM carries a "requested a demo" signal (see
-      // lib/postEvent.ts) — demoRequests is a manually-set per-campaign
-      // number, so this is a sum of whatever's on record, not a live count.
-      demoRequests: demoAgg._sum.demoRequests ?? 0,
-    };
+    return { registrations, delivered, invited, approvalRate: pct(approvedContacts, scoredContacts), attendanceRate: pct(attendedContacts, registrations), regRate: pct(registrations, invited), webinars: campaigns, demoRequests: demoAgg._sum.demoRequests ?? 0 };
   }
 
-  const current = await periodStats(start, now);
-  const previous = prevStart ? await periodStats(prevStart, prevEnd) : null;
+  // Independent windows — no reason to wait for one before starting the other.
+  const [current, previous] = await Promise.all([
+    periodStats(start, now),
+    prevStart ? periodStats(prevStart, prevEnd) : Promise.resolve(null),
+  ]);
 
   return [
     { label: 'Webinars in range', value: current.webinars.toLocaleString(), delta: countDelta(current.webinars, previous?.webinars ?? null), deltaKind: 'relative' },
     { label: 'Invites sent', value: current.invited.toLocaleString(), delta: countDelta(current.invited, previous?.invited ?? null), deltaKind: 'relative' },
     { label: 'Registrations', value: current.registrations.toLocaleString(), delta: countDelta(current.registrations, previous?.registrations ?? null), deltaKind: 'relative' },
     { label: 'Avg. reg. rate', value: fmtPct(current.regRate), delta: ratioDelta(current.regRate, previous?.regRate ?? null), deltaKind: 'points' },
-    { label: 'Messages delivered', value: current.delivered.toLocaleString(), delta: countDelta(current.delivered, previous?.delivered ?? null), deltaKind: 'relative' },
+    { label: 'Messages dispatched', value: current.delivered.toLocaleString(), delta: countDelta(current.delivered, previous?.delivered ?? null), deltaKind: 'relative' },
     { label: 'Approval rate', value: fmtPct(current.approvalRate), delta: ratioDelta(current.approvalRate, previous?.approvalRate ?? null), deltaKind: 'points' },
     { label: 'Attendance rate', value: fmtPct(current.attendanceRate), delta: ratioDelta(current.attendanceRate, previous?.attendanceRate ?? null), deltaKind: 'points' },
     { label: 'Demo requests', value: current.demoRequests.toLocaleString(), delta: countDelta(current.demoRequests, previous?.demoRequests ?? null), deltaKind: 'relative' },
   ];
 }
 
-/** Buckets registrations into a chart-friendly series — daily for 30d (finer
- *  detail matters at that scale), weekly for 90d, monthly for 6m/all (daily
- *  buckets over 6 months would be an unreadable 180 bars). */
+/**
+ * Strictly month-wise bucketing across every dashboard range as requested.
+ * For '30d', '90d', and '6m', displays the trailing 6 calendar months (pinned to 1st of month UTC)
+ * so operators see a continuous, meaningful month-over-month trajectory with full monthly data.
+ * For 'all', displays all calendar months across history (minimum 6 months).
+ */
 export async function getRegistrationsTrend(range: DashboardRange, now = new Date()): Promise<TrendPoint[]> {
-  const { start } = windowsFor(range, now);
-  const unit: 'day' | 'week' | 'month' = range === '30d' ? 'day' : range === '90d' ? 'week' : 'month';
+  const unit: 'day' | 'week' | 'month' = 'month';
 
-  const earliest = start ?? (await db.contact.findFirst({ where: { registeredAt: { not: null } }, orderBy: { registeredAt: 'asc' }, select: { registeredAt: true } }))?.registeredAt ?? now;
+  let start: Date | null = null;
+  if (range !== 'all') {
+    // Trailing 6 calendar months pinned to 1st of month UTC
+    start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1, 0, 0, 0, 0));
+  }
 
-  const rows = await db.contact.findMany({
-    where: { registeredAt: { gte: earliest } },
-    select: { registeredAt: true },
-  });
+  const rows = await db.$queryRaw<{ date: Date; count: bigint }[]>`SELECT date_trunc('month', "registeredAt") AS date, count(*) AS count FROM "Contact" WHERE "registeredAt" IS NOT NULL AND (${start}::timestamp IS NULL OR "registeredAt" >= ${start}) AND "registeredAt" < ${now} GROUP BY 1 ORDER BY 1`;
+  const items: DatedCount[] = rows.map(r => ({ date: r.date, count: Number(r.count) }));
 
-  return bucketDates(
-    rows.map((r) => r.registeredAt!),
-    earliest,
-    now,
-    unit
-  );
+  let earliest = start;
+  if (!earliest) {
+    if (items.length > 0) {
+      earliest = items.reduce((min, cur) => (cur.date < min ? cur.date : min), items[0].date);
+    } else {
+      earliest = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1, 0, 0, 0, 0));
+    }
+  }
+
+  return bucketDatedCounts(items, earliest, now, unit);
 }
 
 export interface ChannelRow {
@@ -114,165 +114,95 @@ export interface ChannelRow {
 const SOURCE_LABEL: Record<string, string> = {
   one_click: 'One-click link',
   linkedin: 'LinkedIn',
+  leadsquared: 'LeadSquared CRM',
+  netcore: 'Netcore Cloud',
+  netcore_click: 'Netcore Cloud',
   manual: 'Manual',
   import: 'Import',
 };
 
 export async function getRegistrationsByChannel(range: DashboardRange, now = new Date()): Promise<ChannelRow[]> {
   const { start } = windowsFor(range, now);
-  const rows = await db.contact.groupBy({
-    by: ['registrationSource'],
-    where: { registeredAt: start ? { gte: start } : { not: null } },
-    _count: true,
-  });
+  const rows = await db.contact.groupBy({ by: ['registrationSource'], where: { registeredAt: start ? { gte: start, lt: now } : { not: null } }, _count: { _all: true } });
+  const total = rows.reduce((n, r) => n + r._count._all, 0);
+  return rows.map(r => ({ label: SOURCE_LABEL[r.registrationSource || ''] || r.registrationSource || 'Unknown source', count: r._count._all, pct: total ? Math.round(r._count._all / total * 100) : 0 })).sort((a,b) => b.count - a.count);
 
-  const total = rows.reduce((sum, r) => sum + r._count, 0);
-  return rows
-    .map((r) => ({
-      label: SOURCE_LABEL[r.registrationSource ?? ''] ?? 'Unknown',
-      count: r._count,
-      pct: pct(r._count, total) ?? 0,
-    }))
-    .sort((a, b) => b.count - a.count);
-}
-
-const INVITE_CHANNEL_LABEL: Record<string, string> = {
-  invite: 'Email',
-  smsInvite: 'SMS',
-  waInvite: 'WhatsApp',
-};
-
-/**
- * A different axis than `getRegistrationsByChannel` above: that one groups by
- * *how* someone registered (one-click link, a LinkedIn form, manual entry,
- * a CSV import) — this groups by *which invite* actually reached them
- * (email/SMS/WhatsApp cadence step, or LinkedIn's own registration form,
- * which never goes through a CadenceSend at all). A contact invited on more
- * than one channel counts under each, same convention as
- * lib/attendeeChannels.ts's attendee breakdown.
- */
-export async function getRegistrationsByInviteChannel(range: DashboardRange, now = new Date()): Promise<ChannelRow[]> {
-  const { start } = windowsFor(range, now);
-  const registered = await db.contact.findMany({
-    where: { registeredAt: start ? { gte: start } : { not: null } },
-    select: { id: true, registrationSource: true },
-  });
-  if (registered.length === 0) return [];
-
-  const total = registered.length;
-  const linkedinCount = registered.filter((c) => c.registrationSource === 'linkedin').length;
-  const otherIds = registered.filter((c) => c.registrationSource !== 'linkedin').map((c) => c.id);
-
-  const sends = otherIds.length
-    ? await db.cadenceSend.findMany({
-        where: { contactId: { in: otherIds }, stepKey: { in: Object.keys(INVITE_CHANNEL_LABEL) }, status: 'sent' },
-        select: { contactId: true, stepKey: true },
-      })
-    : [];
-
-  const byChannel = new Map<string, Set<string>>();
-  for (const s of sends) {
-    const label = INVITE_CHANNEL_LABEL[s.stepKey];
-    const set = byChannel.get(label) ?? new Set<string>();
-    set.add(s.contactId);
-    byChannel.set(label, set);
-  }
-
-  return [...Object.values(INVITE_CHANNEL_LABEL), 'LinkedIn (assisted)']
-    .filter((label, i, arr) => arr.indexOf(label) === i)
-    .map((label) => {
-      const count = label === 'LinkedIn (assisted)' ? linkedinCount : (byChannel.get(label)?.size ?? 0);
-      return { label, count, pct: pct(count, total) ?? 0 };
-    })
-    .filter((c) => c.count > 0)
-    .sort((a, b) => b.count - a.count);
 }
 
 export interface WebinarRow {
   id: string;
   name: string;
   date: string;
+  timestamp?: number;
   status: string;
   registered: number;
   attendanceRate: string;
   demoRequests: number;
 }
 
-export async function getWebinarsInRange(range: DashboardRange, now = new Date(), take = 20): Promise<WebinarRow[]> {
+export interface WebinarsInRangeResult {
+  rows: WebinarRow[];
+  /** True count of webinars matching the range, independent of `take` — lets
+   *  callers show "N of TOTAL" without TOTAL silently meaning "capped at 20". */
+  totalCount: number;
+}
+
+export async function getWebinarsInRange(range: DashboardRange, now = new Date(), take = 20): Promise<WebinarsInRangeResult> {
   const { start } = windowsFor(range, now);
   const where = campaignRangeWhere(start, now);
 
-  const campaigns = await db.campaign.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
-    take,
-    select: { id: true, name: true, date: true, status: true, registrations: true, attendance: true, demoRequests: true },
+  const [campaigns, totalCount] = await Promise.all([
+    db.campaign.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take,
+      select: { id: true, name: true, date: true, scheduledAt: true, createdAt: true, status: true, registrations: true, attendance: true, demoRequests: true },
+    }),
+    db.campaign.count({ where }),
+  ]);
+
+  // Two grouped queries for the whole table rather than two per row — this was
+  // 40 sequential round trips for the default take of 20.
+  const campaignIds = campaigns.map((c) => c.id);
+  const [registeredGroups, attendedGroups] = campaignIds.length
+    ? await Promise.all([
+        db.contact.groupBy({
+          by: ['campaignId'],
+          where: { campaignId: { in: campaignIds }, registeredAt: { not: null } },
+          _count: { _all: true },
+        }),
+        db.contact.groupBy({
+          by: ['campaignId'],
+          where: { campaignId: { in: campaignIds }, attended: true },
+          _count: { _all: true },
+        }),
+      ])
+    : [[], []];
+  const registeredById = new Map(registeredGroups.map((r) => [r.campaignId, r._count._all]));
+  const attendedById = new Map(attendedGroups.map((r) => [r.campaignId, r._count._all]));
+
+  const rows = campaigns.map((c) => {
+    const totalReg = registeredById.get(c.id) ?? 0;
+    const attendedCount = attendedById.get(c.id) ?? 0;
+    const campDate = c.scheduledAt ?? parseLegacyWebinarDate(c.date) ?? c.createdAt;
+    return {
+      id: c.id,
+      name: c.name,
+      date: c.date,
+      timestamp: campDate.getTime(),
+      status: c.status,
+      registered: totalReg,
+      // Shared definition — see lib/attendanceRate.ts.
+      attendanceRate: formatAttendanceRate(attendedCount, totalReg),
+      demoRequests: c.demoRequests ?? 0,
+    };
   });
 
-  return Promise.all(
-    campaigns.map(async (c) => {
-      const [registeredCount, approvedCount, attendedCount] = await Promise.all([
-        db.contact.count({ where: { campaignId: c.id, registeredAt: { not: null } } }),
-        db.contact.count({ where: { campaignId: c.id, approved: true } }),
-        db.contact.count({ where: { campaignId: c.id, attended: true } }),
-      ]);
-      const liveRate = pct(attendedCount, approvedCount);
-      return {
-        id: c.id,
-        name: c.name,
-        date: c.date,
-        status: c.status,
-        registered: c.registrations ?? registeredCount,
-        attendanceRate: liveRate !== null ? fmtPct(liveRate) : c.attendance ?? DASH,
-        demoRequests: c.demoRequests ?? 0,
-      };
-    })
-  );
+  return { rows, totalCount };
 }
 
 export type { PersonaLearningRow };
 export { getPersonaLearning };
-
-const PERSONA_MIN_SAMPLE = 3;
-const PERSONA_MAX_ROWS = 6;
-
-/**
- * A different question than `getPersonaLearning` (which asks "of scored
- * contacts, which persona approves best"): this asks "of contacts actually
- * invited, which persona registers best" — real computed registration rate
- * by seniority + function, not a narrative claim. "Invited" means received
- * at least one sent invite-step send; a persona with no invited contacts
- * yet just doesn't appear, same honesty rule as every other learning panel.
- */
-export async function getPersonaRegistrationRate(): Promise<PersonaLearningRow[]> {
-  const invitedSends = await db.cadenceSend.findMany({
-    where: { stepKey: { in: INVITE_STEP_KEYS }, status: 'sent' },
-    select: { contactId: true },
-    distinct: ['contactId'],
-  });
-  if (invitedSends.length === 0) return [];
-
-  const invitedIds = invitedSends.map((s) => s.contactId);
-  const contacts = await db.contact.findMany({
-    where: { id: { in: invitedIds } },
-    select: { seniority: true, function: true, registeredAt: true },
-  });
-
-  const byPersona = new Map<string, { registered: number; total: number }>();
-  for (const c of contacts) {
-    const label = `${c.seniority}-level, ${c.function}`;
-    const bucket = byPersona.get(label) ?? { registered: 0, total: 0 };
-    bucket.total++;
-    if (c.registeredAt) bucket.registered++;
-    byPersona.set(label, bucket);
-  }
-
-  return [...byPersona.entries()]
-    .filter(([, v]) => v.total >= PERSONA_MIN_SAMPLE)
-    .map(([label, v]) => ({ label, pct: Math.round((v.registered / v.total) * 100), sampleSize: v.total }))
-    .sort((a, b) => b.pct - a.pct || b.sampleSize - a.sampleSize)
-    .slice(0, PERSONA_MAX_ROWS);
-}
 
 export interface LearningRow {
   dimension: 'Vertical' | 'Source';
@@ -290,10 +220,17 @@ const MAX_LEARNING_ROWS = 6;
  * honesty rule: a dimension needs at least `MIN_SAMPLE` scored contacts
  * before its rate is shown, so a one-contact vertical can't look like a
  * 100%-or-0% signal.
+ *
+ * Bounded by the dashboard's own range selector rather than reading every
+ * scored contact ever, the same window `getDashboardKpis` and friends use —
+ * `all` intentionally leaves it unfiltered, matching how `all` behaves
+ * elsewhere on this page.
  */
-export async function getCrossCampaignLearnings(): Promise<LearningRow[]> {
+export async function getCrossCampaignLearnings(range: DashboardRange, now = new Date()): Promise<LearningRow[]> {
+  const { start } = windowsFor(range, now);
+  const contactWhere = start ? { createdAt: { gte: start } } : {};
   const contacts = await db.contact.findMany({
-    where: { score: { not: null } },
+    where: { ...contactWhere, score: { not: null } },
     select: { vertical: true, source: true, approved: true },
   });
 

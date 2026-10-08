@@ -2,9 +2,35 @@
 // matching and title-based function/seniority classification, now shared by
 // both the CSV import path and the LeadSquared list import path.
 
-export function pickCol(headers: string[], keys: string[]): number {
+/**
+ * Finds the column a logical field lives in, by fuzzy header match.
+ *
+ * Exact matches win over substring matches across the whole key list, because
+ * substring matching alone is greedy in a way that silently picks the wrong
+ * column: for the single most common B2B export shape
+ * (`First Name,Last Name,Email,Company`), the key `'name'` substring-matches
+ * `"first name"` and claims it as the full-name column, so every imported
+ * contact ends up named "Priya" instead of "Priya Nair".
+ *
+ * `exclude` lets a caller resolve the more specific fields first and then keep
+ * this from re-claiming them; `reject` blocks headers that must never satisfy
+ * this field regardless of the keys (e.g. an "Email Opt-In" column can never
+ * stand in for WhatsApp consent).
+ */
+export function pickCol(
+  headers: string[],
+  keys: string[],
+  opts: { exclude?: number[]; reject?: RegExp } = {}
+): number {
+  const excluded = new Set(opts.exclude?.filter((i) => i >= 0) ?? []);
+  const eligible = (i: number, h: string) => !excluded.has(i) && !(opts.reject && opts.reject.test(h));
+
   for (const k of keys) {
-    const i = headers.findIndex((h) => h.includes(k));
+    const i = headers.findIndex((h, idx) => h === k && eligible(idx, h));
+    if (i >= 0) return i;
+  }
+  for (const k of keys) {
+    const i = headers.findIndex((h, idx) => h.includes(k) && eligible(idx, h));
     if (i >= 0) return i;
   }
   return -1;
@@ -43,6 +69,7 @@ export interface ImportedContact {
   /** Explicit WhatsApp consent from the source file. Meta requires it and the
    *  send path refuses without it, so it is never inferred — only read. */
   whatsappOptIn?: boolean;
+  smsOptOut?: boolean;
   /** Columns with no first-class field here, kept verbatim so nothing is lost. */
   extras?: Record<string, string>;
   missingInfo: boolean;

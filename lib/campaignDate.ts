@@ -2,18 +2,23 @@
 // fields) but the Setup picker needs a machine value. These convert between the
 // two so `date` (display) and `scheduledAt` (real) never drift apart.
 
+import { dateToWallClock, safeTimeZone, timeZoneLabel } from './dateFormat';
+
 const TZ_LABEL = 'IST';
 
 /** "2026-08-28T15:00" (datetime-local value) -> "Aug 28, 2026 · 3:00 PM IST" */
-export function formatWebinarDate(value: Date): string {
-  const datePart = value.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const timePart = value.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-  return `${datePart} · ${timePart} ${TZ_LABEL}`;
+export function formatWebinarDate(value: Date, timeZone?: string | null): string {
+  const tz = safeTimeZone(timeZone);
+  const datePart = value.toLocaleDateString('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric' });
+  const timePart = value.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${datePart} · ${timePart} ${tz === 'Asia/Kolkata' ? TZ_LABEL : timeZoneLabel(value, tz)}`;
 }
 
 /** A Date -> the `value` a <input type="datetime-local"> expects, in local time. */
-export function toDateTimeLocal(value: Date | null): string {
+export function toDateTimeLocal(value: Date | null, timeZone?: string | null): string {
   if (!value) return '';
+  // With a zone, the fields are the webinar's wall-clock time; without one, the viewer's (legacy callers).
+  if (timeZone) return dateToWallClock(value, timeZone);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
 }

@@ -152,9 +152,9 @@ export const integrationsData: Array<{
   { id: 'zoom', name: 'Zoom', role: 'Webinar hosting', initial: 'Z', avatarBg: '#2563EB', statusColor: 'gray', statusLabel: 'Not connected', lastOp: 'Attendance imported automatically, 40 min ago', endpoint: 'User-managed OAuth · meeting sync + participant reports, both automatic' },
   { id: 'claude', name: 'Claude', role: 'Propensity scoring, rewrites & chat', initial: 'C', avatarBg: 'var(--accent-purple)', statusColor: 'success', statusLabel: 'Connected', lastOp: 'Scored 342 contacts, today', endpoint: 'POST /v1/messages' },
   { id: 'apollo', name: 'Apollo', role: 'Real email enrichment via people-match', initial: 'A', avatarBg: '#7C3AED', statusColor: 'gray', statusLabel: 'Not tested yet', lastOp: 'Fills missing contact emails during Setup enrichment', endpoint: 'POST /v1/people/match (reveal_personal_emails)' },
-  { id: 'apify', name: 'Apify', role: 'Live web context for enrichment', initial: 'A', avatarBg: '#F97316', statusColor: 'gray', statusLabel: 'Not tested yet', lastOp: 'Grounds Claude enrichment with a real search result per company', endpoint: 'POST /v2/acts/{actorId}/run-sync-get-dataset-items' },
   { id: 'linkedin', name: 'LinkedIn', role: 'Events — create · publish · Lead Sync', initial: 'in', avatarBg: 'var(--brand-linkedin)', statusColor: 'gray', statusLabel: 'Not connected', lastOp: 'Connect to publish events and stream registrations in', endpoint: 'POST /rest/events · POST /rest/posts · LEAD_ACTION webhook' },
   { id: 'messaging', name: 'SMS & WhatsApp Business', role: 'Two-mode delivery: LSQ Automation & Direct Gateway', initial: 'M', avatarBg: '#0D9488', statusColor: 'success', statusLabel: 'Active', lastOp: 'LSQ Automation (Primary) · Direct REST API (Secondary)', endpoint: 'Activity #302 / Direct Gateway HTTP' },
+  { id: 'netcore', name: 'Netcore Cloud Email', role: 'Direct CPaaS Email & Webhook Delivery', initial: 'N', avatarBg: '#EA580C', statusColor: 'gray', statusLabel: 'Not connected', lastOp: 'High-throughput transactional email & click tracking', endpoint: 'POST https://emailapi.netcorecloud.net/v5/mail/send' },
 ];
 
 export interface Template {
@@ -266,11 +266,10 @@ export interface WorkspaceTab {
 }
 
 export const workspaceTabs: WorkspaceTab[] = [
-  { id: 'setup', label: 'Setup', transitional: true },
   { id: 'overview', label: 'Overview' },
   { id: 'audience', label: 'Audience' },
   { id: 'messaging', label: 'Messaging' },
-  { id: 'cadence', label: 'Cadence planner' },
-  { id: 'agent', label: 'Agent run' },
-  { id: 'post-event', label: 'Post-event' },
+  { id: 'registration', label: 'Registration' },
+  { id: 'cadence', label: 'Cadence' },
+  { id: 'results', label: 'Results' },
 ];

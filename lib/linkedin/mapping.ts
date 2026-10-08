@@ -36,9 +36,7 @@ export interface ContactFieldsForCreate {
  */
 export function buildContactFields(
   registrant: NormalizedRegistrant,
-  campaignVertical: string,
-  /** True when the registrant is a sandbox fixture rather than a real Lead Sync record. */
-  simulated = false
+  campaignVertical: string
 ): ContactFieldsForCreate {
   const title = registrant.title.trim();
   return {
@@ -51,9 +49,6 @@ export function buildContactFields(
     seniority: seniorityFor(title),
     source: LINKEDIN_EVENT_SOURCE,
     missingInfo: !title || !registrant.company.trim(),
-    // A fabricated sandbox address must carry the same "inferred, unverified"
-    // marking as an Apollo-guessed one, or sendGuard would treat a made-up
-    // @example.com as a genuine recipient the moment SEND_MODE flips to live.
-    emailSimulated: simulated,
+    emailSimulated: false,
   };
 }

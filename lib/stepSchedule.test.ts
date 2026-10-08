@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyOffset, resolveStepDate, offsetLabel, STEP_DEFAULTS, FREQUENCY_PRESETS } from './stepSchedule';
+import { applyOffset, resolveStepDate, offsetLabel, STEP_DEFAULTS, FREQUENCY_PRESETS, parseTimingString } from './stepSchedule';
 
 describe('applyOffset', () => {
   it('adds whole days', () => {
@@ -62,5 +62,106 @@ describe('FREQUENCY_PRESETS', () => {
     expect(STEP_DEFAULTS.final.offsetValue).toBe(FREQUENCY_PRESETS.balanced.final);
     expect(FREQUENCY_PRESETS.aggressive).toEqual({ nudge: 2, final: 4 });
     expect(FREQUENCY_PRESETS.relaxed).toEqual({ nudge: 6, final: 10 });
+  });
+});
+
+describe('parseTimingString', () => {
+  const fallback = { offsetValue: 0, offsetUnit: 'days', anchor: 'launch' };
+
+  it('parses T-minus days', () => {
+    expect(parseTimingString('T-5 days', fallback)).toEqual({
+      offsetValue: -5,
+      offsetUnit: 'days',
+      anchor: 'webinar',
+    });
+    expect(parseTimingString('T-3d', fallback)).toEqual({
+      offsetValue: -3,
+      offsetUnit: 'days',
+      anchor: 'webinar',
+    });
+  });
+
+  it('parses T-minus hours and minutes', () => {
+    expect(parseTimingString('T-1 hour', fallback)).toEqual({
+      offsetValue: -1,
+      offsetUnit: 'hours',
+      anchor: 'webinar',
+    });
+    expect(parseTimingString('T-15m', fallback)).toEqual({
+      offsetValue: -15,
+      offsetUnit: 'minutes',
+      anchor: 'webinar',
+    });
+  });
+
+  it('parses Day 0 and Instant / on registration', () => {
+    expect(parseTimingString('Day 0', fallback)).toEqual({
+      offsetValue: 0,
+      offsetUnit: 'days',
+      anchor: 'launch',
+    });
+    expect(parseTimingString('Instant', fallback)).toEqual({
+      offsetValue: 0,
+      offsetUnit: 'hours',
+      anchor: 'event',
+    });
+    expect(parseTimingString('Instant (on launch)', fallback)).toEqual({
+      offsetValue: 0,
+      offsetUnit: 'hours',
+      anchor: 'launch',
+    });
+    expect(parseTimingString('Immediate', fallback)).toEqual({
+      offsetValue: 0,
+      offsetUnit: 'hours',
+      anchor: 'launch',
+    });
+    expect(parseTimingString('On launch', fallback)).toEqual({
+      offsetValue: 0,
+      offsetUnit: 'hours',
+      anchor: 'launch',
+    });
+    expect(parseTimingString('on registration', fallback)).toEqual({
+      offsetValue: 0,
+      offsetUnit: 'hours',
+      anchor: 'event',
+    });
+  });
+
+  it('parses +N days', () => {
+    expect(parseTimingString('+4 days', fallback)).toEqual({
+      offsetValue: 4,
+      offsetUnit: 'days',
+      anchor: 'launch',
+    });
+  });
+
+  it('retains fallback for empty or unrecognizable strings', () => {
+    expect(parseTimingString('', fallback)).toEqual(fallback);
+    expect(parseTimingString('random text', fallback)).toEqual(fallback);
+  });
+});
+
+describe('compareCadenceSteps', () => {
+  it('sorts cadence steps in canonical lifecycle order', async () => {
+    const { compareCadenceSteps } = await import('./stepSchedule');
+    const scrambled = [
+      { key: 'attend' },
+      { key: 't3' },
+      { key: 'final' },
+      { key: 'invite' },
+      { key: 't1d' },
+      { key: 'nudge' },
+      { key: 'confirm' },
+    ];
+    const sorted = [...scrambled].sort(compareCadenceSteps);
+    expect(sorted.map((s) => s.key)).toEqual([
+      'invite',
+      'nudge',
+      'final',
+      'confirm',
+      't3',
+      't1d',
+      'attend',
+    ]);
   });
 });

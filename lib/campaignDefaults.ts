@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { cadenceStepsData } from '@/lib/demo-data';
-import { STEP_DEFAULTS } from '@/lib/stepSchedule';
+import { STEP_DEFAULTS, STEP_DEFAULT_INSTRUCTIONS } from '@/lib/stepSchedule';
 import { defaultTriggerFor } from '@/lib/stepTrigger';
 import { normalizeChannel, DEFAULT_ENABLED_CHANNELS } from '@/lib/channels';
 
@@ -28,31 +28,50 @@ export async function provisionCampaignDefaults(campaignId: string) {
   for (const t of library) if (!byChannel.has(t.channel)) byChannel.set(t.channel, t.id);
 
   await Promise.all(
-    cadenceStepsData.map((s) => {
+    cadenceStepsData.map(async (s) => {
       const routable = normalizeChannel(s.channel);
       const isDefaultEnabled = s.toggleable && DEFAULT_ENABLED_CHANNELS.has(routable);
-      return db.cadenceStep.upsert({
-        where: { campaignId_key: { campaignId, key: s.id } },
-        update: {},
-        create: {
-          campaignId,
-          key: s.id,
-          group: s.group,
-          title: s.title,
-          timing: s.timing,
-          channel: s.channel,
-          desc: s.desc,
-          toggleable: s.toggleable,
-          enabled: isDefaultEnabled,
-          isRoadmap: !!s.isRoadmap,
-          trigger: defaultTriggerFor(s.id),
-          // Prefer the library message for this exact step; fall back to any
-          // library message on the same channel so a step is never left with
-          // nothing to send.
-          templateId: byKey.get(s.id) ?? byChannel.get(routable) ?? null,
-          ...(STEP_DEFAULTS[s.id] ?? {}),
-        },
-      });
+      const createData = {
+        campaignId,
+        key: s.id,
+        group: s.group,
+        title: s.title,
+        timing: s.timing,
+        channel: s.channel,
+        desc: s.desc,
+        toggleable: s.toggleable,
+        enabled: isDefaultEnabled,
+        isRoadmap: !!s.isRoadmap,
+        trigger: defaultTriggerFor(s.id),
+        mode: 'ai',
+        instruction: STEP_DEFAULT_INSTRUCTIONS[s.id] ?? s.desc,
+        // Prefer the library message for this exact step; fall back to any
+        // library message on the same channel so a step is never left with
+        // nothing to send.
+        templateId: byKey.get(s.id) ?? byChannel.get(routable) ?? null,
+        ...(STEP_DEFAULTS[s.id] ?? {}),
+      };
+
+      try {
+        return await db.cadenceStep.upsert({
+          where: { campaignId_key: { campaignId, key: s.id } },
+          update: {},
+          create: createData,
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes("Unknown argument `mode`") || message.includes("Unknown argument `instruction`")) {
+          const fallbackData: Record<string, unknown> = { ...createData };
+          delete fallbackData.mode;
+          delete fallbackData.instruction;
+          return await db.cadenceStep.upsert({
+            where: { campaignId_key: { campaignId, key: s.id } },
+            update: {},
+            create: fallbackData as unknown as Parameters<typeof db.cadenceStep.upsert>[0]['create'],
+          });
+        }
+        throw err;
+      }
     })
   );
 }

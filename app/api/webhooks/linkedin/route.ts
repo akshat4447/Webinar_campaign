@@ -77,7 +77,12 @@ export async function POST(request: Request) {
     },
     update:
       existing && existing.leadAction !== parsed.leadAction
-        ? { leadAction: parsed.leadAction, processedAt: null, error: null }
+        // Requeue for reprocessing. Also release any existing claim — a row
+        // claimed by a runner before this state change arrived would
+        // otherwise sit invisible to a fresh claim query (processedAt: null,
+        // claimedAt: not null) until the 5-minute stale-claim recovery in
+        // processPendingLinkedinRegistrations happens to sweep it.
+        ? { leadAction: parsed.leadAction, processedAt: null, claimedAt: null, error: null }
         : { leadAction: parsed.leadAction },
   });
 

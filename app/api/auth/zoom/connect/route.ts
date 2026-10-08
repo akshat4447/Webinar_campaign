@@ -1,14 +1,13 @@
 import { randomUUID } from 'crypto';
 import { resolveIntegrationField } from '@/lib/integrationConfig';
 import { buildAuthorizationUrl } from '@/lib/zoom/auth';
-import { db } from '@/lib/db';
+import { storeOAuthState } from '@/lib/zoom/oauthState';
+import { requestOrigin } from '@/lib/requestOrigin';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: Request) {
-  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || new URL(request.url).host;
-  const proto = request.headers.get('x-forwarded-proto') || (request.url.startsWith('https') ? 'https' : 'http');
-  const origin = `${proto}://${host}`;
+  const origin = requestOrigin(request);
   const fail = (detail: string) => Response.redirect(new URL(`/integrations?connected=error&detail=${encodeURIComponent(detail)}`, origin).toString(), 302);
 
   const clientId = (await resolveIntegrationField('zoom', 'clientId')) || process.env.ZOOM_CLIENT_ID;
@@ -18,21 +17,18 @@ export async function GET(request: Request) {
   }
 
   const configuredRedirectUri = (await resolveIntegrationField('zoom', 'redirectUri')) || process.env.ZOOM_REDIRECT_URI;
-  const redirectUri = configuredRedirectUri || `${origin}/api/auth/zoom/callback`;
+  let redirectUri = configuredRedirectUri || `${origin}/api/auth/zoom/callback`;
+  if (!redirectUri || redirectUri.includes('zoom.us')) {
+    redirectUri = `${origin}/api/auth/zoom/callback`;
+  }
 
   const state = randomUUID();
 
-  // Store state in AppSetting with a 10-minute expiry to bridge across cross-origin/tunnel proxies
+  // Server-side copy with a 10-minute expiry, for setups where the cookie is lost between redirects.
   try {
-    const key = `zoom.oauth_state.${state}`;
-    const expiry = String(Date.now() + 10 * 60 * 1000);
-    await db.appSetting.upsert({
-      where: { key },
-      create: { key, value: expiry },
-      update: { value: expiry },
-    });
+    await storeOAuthState(state);
   } catch {
-    // Non-critical: cookie remains primary CSRF check
+    // Non-critical: the cookie remains the primary CSRF check
   }
 
   // CSRF state is bound to THIS browser via a short-lived HttpOnly cookie

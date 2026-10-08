@@ -12,7 +12,7 @@ export async function createCampaignAction(): Promise<string> {
       vertical: 'Unassigned',
       date: 'Not scheduled yet',
       status: 'draft',
-      registrationLink: 'lsq.co/w/untitled',
+      registrationLink: null,
     },
   });
   await provisionCampaignDefaults(campaign.id);
@@ -33,6 +33,14 @@ export async function archiveCampaignAction(id: string, archived: boolean) {
  * complete; nothing is left orphaned.
  */
 export async function deleteCampaignAction(id: string) {
-  await db.campaign.delete({ where: { id } });
+  await db.$transaction(async tx => {
+    await tx.$queryRaw`SELECT "id" FROM "Campaign" WHERE "id" = ${id} FOR UPDATE`;
+    await tx.operationJob.deleteMany({where:{campaignId:id}});
+    await tx.deliveryAttempt.deleteMany({where:{campaignId:id}});
+    await tx.sendQuotaReservation.deleteMany({where:{campaignId:id}});
+    await tx.dailySendBudget.deleteMany({where:{campaignId:id}});
+    await tx.appSetting.deleteMany({where:{key:{in:[`exclusion.snapshot.${id}`,`zoom.ended.${id}`]}}});
+    await tx.campaign.delete({ where: { id } });
+  });
   revalidateCampaign(id);
 }

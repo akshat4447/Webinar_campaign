@@ -8,70 +8,113 @@ datasource db {
 }
 
 model Campaign {
-  id             String   @id @default(cuid())
-  name           String
-  vertical       String
+  id                    String    @id @default(cuid())
+  name                  String
+  vertical              String
   // `date` is the human-readable display string shown across the app; `scheduledAt`
   // is the real timestamp the picker writes and reminder offsets are computed from.
-  date           String
-  scheduledAt    DateTime?
-  status         String   @default("draft") // draft | live | completed
+  date                  String
+  scheduledAt           DateTime?
+  status                String    @default("draft") // draft | live | completed
   // Independent of status: hides a campaign from the main landing grid without
   // deleting it. A live or completed campaign can be archived and unarchived
   // freely; its status is untouched either way.
-  archived       Boolean  @default(false)
-  description    String?
-  zoomLink       String?
-  registrationLink String?
-  invites        Int?
-  registrations  Int?
-  attendance     String?
-  demoRequests   Int?
-  frequency      String   @default("balanced")
-  scheduleWindow String   @default("9:00 AM – 6:00 PM IST")
-  dailyLimit     Int      @default(500)
-  scoringPrompt    String @default("Score each contact 0–100 on how relevant they are to this webinar's topic, weighting title seniority, functional fit, and account vertical match.")
-  scoringCriteria  String @default("VP/Director+ in Marketing, Ops, or Admissions; account vertical matches webinar topic; verified email available.")
-  scoringThreshold Int    @default(70)
+  archived              Boolean   @default(false)
+  description           String?
+  zoomLink              String?
+  registrationLink      String?
+  invites               Int?
+  registrations         Int?
+  attendance            String?
+  demoRequests          Int?
+  frequency             String    @default("balanced")
+  scheduleWindow        String    @default("9:00 AM – 6:00 PM IST")
+  dailyLimit            Int       @default(500)
+  scoringPrompt         String    @default("Score each contact 0–100 on how relevant they are to this webinar's topic, weighting title seniority, functional fit, and account vertical match.")
+  scoringCriteria       String    @default("VP/Director+ in Marketing, Ops, or Admissions; account vertical matches webinar topic; verified email available.")
+  scoringThreshold      Int       @default(70)
   // Tone/emphasis instructions for per-recipient personalization — editable from the
   // Personalize tab. Correctness guardrails (keep the link, no invented facts, no
   // leftover merge tokens, channel format limits) live in code and are never overridden
   // by this field. Keep the default text in sync with DEFAULT_PERSONALIZATION_PROMPT
   // in lib/personalization.ts.
-  personalizationPrompt String @default("Lead with the operational problem their role actually owns — don't open by praising the company or telling the reader how impressive their work is. Vary the angle by seniority: executives care about outcome and risk, directors and heads about process and their team's throughput, managers and individual contributors about the day-to-day mechanics. Vary by function too — a marketing lead and an operations lead should not receive the same framing.")
+  personalizationPrompt String    @default("Lead with the operational problem their role actually owns — don't open by praising the company or telling the reader how impressive their work is. Vary the angle by seniority: executives care about outcome and risk, directors and heads about process and their team's throughput, managers and individual contributors about the day-to-day mechanics. Vary by function too — a marketing lead and an operations lead should not receive the same framing.")
   // --- Set by the creation wizard ---
-  speakerName    String?
-  speakerTitle   String?
+  speakerName           String?
+  speakerTitle          String?
   /// Seats available. Drives the "capacity filled" figure on a live campaign.
-  capacity       Int?
+  capacity              Int?
 
   /// How outreach is written for this campaign.
   ///   ai           Claude writes a unique message per contact from `brief`
   ///   templatized  one fixed message per step, same for everyone
-  msgMode        String   @default("ai") // ai | templatized
-  tone           String?
-  msgLength      String?
+  msgMode               String  @default("ai") // ai | templatized
+  tone                  String?
+  msgLength             String?
   /// Tone/emphasis guidance for the model. Correctness guardrails (keep the
   /// link, no invented facts, no leftover merge tokens) live in code and are
   /// never overridden from here.
-  aiInstructions String?
+  aiInstructions        String?
   /// What the message should say, before personalization reshapes the framing.
-  brief          String?
+  brief                 String?
+  /// Comma-separated list of contact fields to ground personalization:
+  /// e.g. "firstName,title,seniority,function,account,vertical,score"
+  /// This is a DIFFERENT vocabulary and a different concern from
+  /// lsqFieldMappingTokens below — do not let a save on one path write here.
+  personalizationFields String? @default("firstName,title,seniority,function,account,vertical,score")
+  /// Comma-separated wizard Step 2 selection of which LeadSquared merge-token
+  /// fields (firstName, lastName, company, title, email, link) sync to the
+  /// CRM — unrelated to personalizationFields above, which is Step 4's AI
+  /// grounding-field selection. Kept in its own column because the two once
+  /// shared personalizationFields and silently clobbered each other.
+  lsqFieldMappingTokens String?
   /// Messages carry a pre-filled registration link so a click registers the
   /// contact outright, with no landing-page form.
-  oneClickSignup Boolean  @default(true)
+  oneClickSignup        Boolean @default(true)
+
+  /// Automation rules for cadence progression and pre-flight controls
+  stopOnRegistration   Boolean @default(true)
+  stopOnDecline        Boolean @default(true)
+  suppressionPreflight Boolean @default(true)
 
   /// Which Zoom meeting backs this webinar, if any — existing (linked) or new
   /// (created from the wizard). Null means no Zoom meeting is linked yet, or
   /// the operator only pasted a join link by hand.
-  zoomMode       String?  // existing | new
-  zoomMeetingId  String?
+  zoomMode      String? // existing | new
+  zoomMeetingId String?
+  /// Which Zoom API family zoomMeetingId belongs to: 'meeting' | 'webinar'.
+  zoomEventType String?
+  /// Zoom's own hosted registration page (registration_url), when registration is enabled.
+  zoomRegistrationUrl String?
 
-  cadenceStatus  String   @default("not_started") // not_started | running | paused | stopped
-  linkedinMode   String   @default("assisted") // assisted (manual) | automated (simulated bot)
-  simulatedNow   DateTime?
+  /// 'zoom'     Studio-hosted registration (one-click links + hosted form) backed by a Zoom registrant
+  /// 'external' the operator's own landing page (registrationLink) registers people via the submit endpoint
+  /// Zoom sync is independent: it applies in both modes whenever a meeting is linked.
+  registrationMode String @default("zoom")
+  /// External landing page links carry name/email/phone as URL params (for forms that pre-fill from the query string).
+  landingPrefill   Boolean @default(false)
+
+  /// IANA timezone the webinar's wall-clock time is expressed in (display + Zoom).
+  timezone        String @default("Asia/Kolkata")
+  /// Planned length in minutes (sent to Zoom, used for the "ended" estimate).
+  durationMinutes Int    @default(60)
+
+  /// Email delivery gateway for this campaign: 'leadsquared' | 'netcore'
+  emailProvider String @default("leadsquared")
+
+  /// Comma-separated list of active registration channels:
+  /// e.g. "email_campaign,whatsapp,linkedin,sdr_sales,third_parties,linkedin_event,website"
+  selectedChannels String? @default("email_campaign,whatsapp,linkedin,sdr_sales,third_parties,linkedin_event,website")
+
+  cadenceStatus        String    @default("not_started") // not_started | running | paused | stopped
+  linkedinMode         String    @default("assisted") // assisted (manual) | automated (simulated bot)
+  launchedAt           DateTime?
   attendanceImportedAt DateTime?
-  lsqListId      String?
+  attendanceFingerprint String?
+  attendanceVersion Int @default(0)
+  lsqListId            String?
+  lsqSuppressionListId String?
+  lsqExclusionListIds  String?
 
   // --- LinkedIn Event integration (lib/linkedin/) ---
   // lifecycle: form_pending_review → creating → created_unpublished → published
@@ -83,25 +126,27 @@ model Campaign {
   linkedinEventError  String?
   linkedinInvitedAt   DateTime?
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  contacts       Contact[]
-  templates      Template[]
-  messageTemplates MessageTemplate[]
-  cadenceSteps   CadenceStep[]
-  cadenceSends   CadenceSend[]
-  activityLog    ActivityLogEntry[]
-  attentionItems AttentionItem[]
-  chatMessages   ChatMessage[]
-  personalized   PersonalizedMessage[]
+  contacts              Contact[]
+  templates             Template[]
+  messageTemplates      MessageTemplate[]
+  cadenceSteps          CadenceStep[]
+  cadenceSends          CadenceSend[]
+  activityLog           ActivityLogEntry[]
+  attentionItems        AttentionItem[]
+  chatMessages          ChatMessage[]
+  personalized          PersonalizedMessage[]
   linkedinRegistrations LinkedinRegistration[]
+  speakers              Speaker[]
+  campaignSuppressions  CampaignSuppression[]
 }
 
 model Contact {
-  id          String  @id @default(cuid())
-  campaignId  String
-  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   name        String
   email       String?
@@ -118,20 +163,20 @@ model Contact {
   // WhatsApp channel entirely (Meta requires explicit opt-in for template
   // messages), smsOptOut records a DND/STOP signal. Both flow in from imports,
   // LeadSquared sync, or the registration form's custom questions.
-  phone          String?
-  smsOptOut      Boolean @default(false)
-  whatsappOptIn  Boolean @default(false)
+  phone         String?
+  smsOptOut     Boolean @default(false)
+  whatsappOptIn Boolean @default(false)
 
-  score       Int?
-  explanation String?
-  source      String  @default("Apollo") // LinkedIn | LinkedIn+Apollo | Apollo
-  approved    Boolean @default(false)
+  score            Int?
+  explanation      String?
+  source           String  @default("Apollo") // LinkedIn | LinkedIn+Apollo | Apollo
+  approved         Boolean @default(false)
   // Set the moment a human toggles approval directly (Scoring tab checkbox or bulk
   // action) — re-scoring then leaves this contact's approval alone instead of
   // silently overwriting a human decision with the AI's threshold verdict.
   approvedManually Boolean @default(false)
 
-  lsqLeadId   String?
+  lsqLeadId String?
 
   // Enrichment. `emailSimulated` marks an address that was *inferred* (Apollo-style
   // pattern guess) rather than supplied by the source data — it may belong to a real
@@ -143,17 +188,20 @@ model Contact {
   // Every CSV column that has no first-class field above, kept as JSON so an
   // import never silently discards data the operator supplied.
   extraFieldsJson  String?
-  emailSimulated   Boolean @default(false)
-  emailVerified    Boolean @default(false)
+  emailSimulated   Boolean   @default(false)
+  emailVerified    Boolean   @default(false)
 
   /// When this contact registered, and how it reached us. Registration used to
   /// exist only as a LinkedIn Lead Sync side-effect; making it a contact state
   /// is what lets the funnel talk about registrations at all.
   registeredAt       DateTime?
-  registrationSource String?   // one_click | linkedin | manual | import
+  registrationSource String? // one_click | linkedin | manual | import
+  zoomJoinUrl        String?
+  zoomRegistrantId   String?
 
-  attended     Boolean @default(false)
-  watchMinutes Int?
+  attended       Boolean   @default(false)
+  watchMinutes   Int?
+  unsubscribedAt DateTime?
 
   // --- LinkedIn outreach pre-flight (lib/apolloVerify.ts) ---
   // Apollo people-match verdict taken BEFORE this contact enters the LinkedIn
@@ -165,15 +213,24 @@ model Contact {
   linkedinCheckedAt   DateTime?
   linkedinCheckNote   String?
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   cadenceSends CadenceSend[]
   personalized PersonalizedMessage[]
+  registrationJobs RegistrationJob[]
 
   @@index([campaignId, approved])
   @@index([campaignId, attended])
   @@index([campaignId, registeredAt])
   @@index([campaignId, email])
+  @@unique([campaignId, email])
+  // The cross-campaign dashboard filters on these WITHOUT a campaignId, so a
+  // campaignId-prefixed index can't serve it and Postgres falls back to a seq
+  // scan over the whole Contact table on every dashboard load.
+  @@index([registeredAt])
+  @@index([createdAt])
+  // Audience tab default ordering + its per-band counts.
+  @@index([campaignId, score])
 }
 
 model AppSetting {
@@ -202,8 +259,8 @@ model PersonalizedMessage {
   // campaign's link later can be repaired exactly, without a regeneration.
   linkUsed String?
 
-  status      String   @default("draft") // draft | edited | reviewed
-  generatedAt DateTime @default(now())
+  status      String    @default("draft") // draft | edited | reviewed
+  generatedAt DateTime  @default(now())
   editedAt    DateTime?
   reviewedAt  DateTime?
 
@@ -232,7 +289,7 @@ model Template {
   // matching cadence step is disabled so Schedule/Sends reflect the choice.
   hidden Boolean @default(false)
 
-  updatedAt  DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 
   @@unique([campaignId, key])
 }
@@ -262,20 +319,27 @@ model MessageTemplate {
   campaignId String?
   campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
-  channel    String    // email | whatsapp | sms | linkedin
+  channel      String // email | whatsapp | sms | linkedin
   /// Cadence step key this is the default copy for. Null for a template that
   /// exists in the library without being any step's default.
-  key        String?
-  name       String
-  hasSubject Boolean   @default(true)
-  subject    String?
-  body       String
+  key          String?
+  /// For a keyless template only: the id of the template it was forked/copied
+  /// from (always a root id, never another fork's — chains are flattened on
+  /// create). Lets "Duplicate" / "Copy into campaigns" re-detect an existing
+  /// copy by lineage instead of by `name`, which is never unique (every new
+  /// template starts as "Untitled email" etc). Irrelevant when `key` is set,
+  /// since key already identifies the copy.
+  forkedFromId String?
+  name         String
+  hasSubject   Boolean @default(true)
+  subject      String?
+  body         String
 
   // --- WhatsApp (Meta Cloud API template requirements) ---
-  category   String?   // Marketing | Utility
-  language   String?
-  footer     String?
-  buttons    String?
+  category String? // Marketing | Utility
+  language String?
+  footer   String?
+  buttons  String?
 
   // --- SMS (India DLT registration) ---
   dltTemplateId String?
@@ -284,7 +348,7 @@ model MessageTemplate {
   /// draft | pending | approved | ready | assisted.
   /// `pending`/`approved` are Meta's states for WhatsApp; `assisted` is
   /// LinkedIn, which has no approval because nothing is sent automatically.
-  status     String    @default("ready")
+  status String @default("ready")
 
   // Revert-to-saved, carried over from Template.
   savedSubject String?
@@ -293,10 +357,10 @@ model MessageTemplate {
 
   /// Hidden templates stay editable but drop out of Messaging, and their
   /// matching cadence step stops sending.
-  hidden     Boolean   @default(false)
+  hidden Boolean @default(false)
 
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   cadenceSteps CadenceStep[]
 
@@ -309,15 +373,15 @@ model CadenceStep {
   campaignId String
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
-  key         String
-  group       String
-  title       String
-  timing      String
-  channel     String
-  desc        String
-  toggleable  Boolean @default(true)
-  enabled     Boolean @default(true)
-  isRoadmap   Boolean @default(false)
+  key        String
+  group      String
+  title      String
+  timing     String
+  channel    String
+  desc       String
+  toggleable Boolean @default(true)
+  enabled    Boolean @default(true)
+  isRoadmap  Boolean @default(false)
 
   // What causes this step's sends to be queued — distinct from `anchor`, which
   // only says what its due *date* is measured from. The two are genuinely
@@ -332,31 +396,38 @@ model CadenceStep {
   // This replaced a hardcoded list of step keys in lib/cadence.ts. That list
   // could not describe a step the user invented, so a step added in the planner
   // rendered correctly and then silently never sent.
-  trigger     String  @default("launch") // launch | registration | attendance
+  audience String @default("all") // all | attended | noshow
+  trigger String @default("launch") // launch | registration | attendance
 
   /// Which message this step sends. Null falls back to the campaign's legacy
   /// Template row, then to the library default for this key — see
   /// resolveStepTemplate in lib/messageTemplates.ts.
-  templateId  String?
-  template    MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  templateId String?
+  template   MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
   /// Added by hand in the planner rather than provisioned from the defaults.
   /// Distinguishes "the operator invented this" from "this is a built-in the
   /// operator removed", which reset-to-defaults has to treat differently.
-  createdByUser Boolean  @default(false)
+  createdByUser Boolean @default(false)
 
   /// Soft delete. A built-in step is removed rather than deleted so that
   /// reset-to-defaults can bring it back, and so the unique key stays taken —
   /// re-adding it must restore the original, not create a second one.
-  removedAt   DateTime?
+  removedAt DateTime?
 
   // Editable schedule. The offset is signed and resolved against `anchor`:
   //   launch  — relative to when the cadence is launched (pre-registration steps)
   //   webinar — relative to campaign.scheduledAt (reminders, post-event follow-ups)
   //   event   — fired by something happening (a registration), not a clock
-  offsetValue Int     @default(0)
-  offsetUnit  String  @default("days") // days | hours
-  anchor      String  @default("launch") // launch | webinar | event
+  offsetValue Int    @default(0)
+  offsetUnit  String @default("days") // days | hours
+  anchor      String @default("launch") // launch | webinar | event
+
+  /// Mode for this step: 'ai' uses AI personalization, 'template' uses fixed MessageTemplate
+  mode String? @default("ai")
+
+  /// Operator prompt guidance or angle instruction for Claude
+  instruction String?
 
   @@unique([campaignId, key])
   @@index([templateId])
@@ -369,14 +440,20 @@ model CadenceSend {
   contactId  String
   contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
-  stepKey    String
-  dueAt      DateTime
-  status     String   @default("queued") // queued | sent | failed | skipped
-  sentAt     DateTime?
-  claimedAt  DateTime?
-  error      String?
+  stepKey   String
+  dueAt     DateTime
+  status    String    @default("queued") // queued | sent | failed | skipped
+  sentAt    DateTime?
+  claimedAt DateTime?
+  error     String?
+  recipient String?
+  renderedSubject String?
+  renderedBody String?
+  templateVersion String?
+  providerMessageId String?
+  deliveryOutcome String?
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 
   // Prevents double-queuing the same step for the same contact if launch (or the
   // attendance import) runs twice — the app-level dedupe check was a read-then-write
@@ -386,6 +463,78 @@ model CadenceSend {
   @@index([campaignId, status, claimedAt])
   @@index([campaignId, status, sentAt])
   @@index([contactId])
+  // Same reason as Contact above: the dashboard's "messages sent in range" and
+  // "invites sent in range" both aggregate across every campaign, so neither
+  // can use a campaignId-prefixed index. CadenceSend is the largest table in
+  // the schema (contacts x steps), which makes the seq scan the most expensive
+  // one in the app.
+  @@index([status, sentAt])
+  @@index([stepKey, status, sentAt])
+}
+
+/// Durable registration side effects, committed alongside the attendee registration.
+model RegistrationJob {
+  id String @id @default(cuid())
+  campaignId String
+  contactId String
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  kind String
+  status String @default("pending")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  claimedAt DateTime?
+  completedAt DateTime?
+  error String?
+  createdAt DateTime @default(now())
+  @@unique([contactId, kind])
+  @@index([status, nextAttemptAt])
+  @@index([campaignId, status])
+}
+
+/// A claim is never proof of delivery. Unknown attempts require reconciliation.
+model DeliveryAttempt {
+  key String @id
+  campaignId String?
+  sendId String?
+  provider String
+  status String @default("dispatching")
+  payloadJson String?
+  receiptJson String?
+  error String?
+  startedAt DateTime @default(now())
+  finishedAt DateTime?
+  @@index([campaignId, status, startedAt])
+}
+
+model DailySendBudget {
+  campaignId String
+  day String
+  used Int @default(0)
+  @@id([campaignId, day])
+}
+
+model WorkerLease {
+  name String @id
+  owner String
+  expiresAt DateTime
+}
+
+/// Resumable operator jobs; payloads refer to stored campaign/contact IDs.
+model OperationJob {
+  id String @id @default(cuid())
+  campaignId String
+  kind String
+  status String @default("pending")
+  payloadJson String
+  resultJson String @default("{}")
+  cursor Int @default(0)
+  total Int @default(0)
+  claimedAt DateTime?
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, createdAt])
+  @@index([campaignId, createdAt])
 }
 
 model ActivityLogEntry {
@@ -393,9 +542,9 @@ model ActivityLogEntry {
   campaignId String
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
-  text       String
-  dot        String   @default("var(--accent-500)")
-  createdAt  DateTime @default(now())
+  text      String
+  dot       String   @default("var(--accent-500)")
+  createdAt DateTime @default(now())
 
   @@index([campaignId, createdAt(sort: Desc)])
 }
@@ -411,7 +560,7 @@ model AttentionItem {
   detail     String
   actionsCsv String // comma-separated: retry,skip,fix,view
   resolvedAt DateTime?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   @@index([campaignId, resolvedAt, createdAt])
 }
@@ -421,9 +570,9 @@ model ChatMessage {
   campaignId String
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
-  from       String // agent | user
-  text       String
-  createdAt  DateTime @default(now())
+  from      String // agent | user
+  text      String
+  createdAt DateTime @default(now())
 
   @@index([campaignId, createdAt])
 }
@@ -438,9 +587,9 @@ model ChatMessage {
 /// app didn't publish (created manually on LinkedIn) — such rows are stored,
 /// marked processed with an explanatory error, and never silently dropped.
 model LinkedinRegistration {
-  id              String    @id @default(cuid())
-  campaignId      String?
-  campaign        Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id         String    @id @default(cuid())
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   responseUrn     String    @unique // urn:li:leadGenFormResponse:… — LinkedIn's own idempotency key
   eventUrn        String
@@ -457,11 +606,69 @@ model LinkedinRegistration {
   // Claim stamp for concurrent ingestion runners (webhook after(), CLI drain):
   // a runner atomically flips this from null before working a row, so overlaps
   // can't double-create contacts. Reset to null on retryable failure.
-  claimedAt DateTime?
+  claimedAt   DateTime?
   error       String?
   createdAt   DateTime  @default(now())
 
   @@index([processedAt])
   @@index([claimedAt])
   @@index([campaignId])
+}
+
+model Speaker {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  name        String
+  title       String?
+  company     String?
+  bio         String?
+  avatarUrl   String?
+  linkedinUrl String?
+  isPrimary   Boolean @default(false)
+  order       Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([campaignId])
+  @@index([campaignId, order])
+}
+
+model EmailSuppression {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  reason    String // bounce | unsubscribe | spam | manual
+  provider  String   @default("netcore") // netcore | leadsquared | all
+  detail    String? // diagnostic or bounce code (e.g. '550 5.1.1 User unknown')
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reason])
+}
+
+model CampaignSuppression {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  email      String   // email address or domain pattern (e.g. "alex@company.com" or "@competitor.com")
+  reason     String   @default("manual") // manual | competitor | existing_client | external_registrant | csv_import
+  source     String   @default("manual") // manual | csv_upload | imported_list
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([campaignId, email])
+  @@index([campaignId])
+  @@index([campaignId, email])
+  @@index([email])
+}
+
+model SendQuotaReservation {
+  key String @id
+  campaignId String
+  day String
+  status String @default("reserved")
+  @@index([campaignId, day])
 }

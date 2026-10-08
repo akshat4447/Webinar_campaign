@@ -21,18 +21,14 @@ export interface PublishValidationFields {
   organizationUrn?: string | null;
 }
 
-/**
- * Everything that must be true before we dare call POST /rest/events.
- * Runs identically in sandbox and live mode — sandbox should refuse the same
- * inputs live would refuse, so the dry-run actually predicts the real result.
- */
+
 export function validateCampaignForPublish(
   fields: PublishValidationFields,
   now: Date,
   opts: { requireOrganizer: boolean }
 ): { ok: true } | { ok: false; error: string } {
   const name = (fields.name ?? '').trim();
-  if (!name) return { ok: false, error: 'The webinar has no name yet — set it on the Setup tab.' };
+  if (!name) return { ok: false, error: 'The webinar has no name yet — set it in webinar setup.' };
   if (name.length > LINKEDIN_EVENT_NAME_MAX) {
     return { ok: false, error: `Event name is ${name.length} chars; LinkedIn allows at most ${LINKEDIN_EVENT_NAME_MAX}.` };
   }

@@ -8,6 +8,7 @@ export interface IntegrationField {
   secret: boolean;
   placeholder: string;
   optional?: boolean;
+  internal?: boolean;
 }
 
 // Connectors with an empty array have no real API in this build (Zoom is
@@ -19,41 +20,34 @@ export const INTEGRATION_FIELDS: Record<string, IntegrationField[]> = {
     { key: 'secretKey', label: 'Secret Key', secret: true, placeholder: 'Paste your LeadSquared Secret Key' },
     { key: 'host', label: 'API Host', secret: false, placeholder: 'e.g. api-in21.leadsquared.com' },
     { key: 'senderEmail', label: 'Sender email', secret: false, optional: true, placeholder: 'Exact email of an ACTIVE LSQ user — becomes the verified From address' },
+    { key: 'webhookSecret', label: 'Inbound webhook secret', secret: true, optional: true, placeholder: 'Auto-generated — required in production to accept inbound registration webhooks' },
   ],
   claude: [{ key: 'apiKey', label: 'API Key', secret: true, placeholder: 'Paste your Anthropic API key' }],
   apollo: [{ key: 'apiKey', label: 'API Key', secret: true, placeholder: 'Paste your Apollo API key' }],
-  apify: [
-    { key: 'apiToken', label: 'API Token', secret: true, placeholder: 'Paste your Apify API token' },
-    {
-      key: 'actorId',
-      label: 'Actor ID',
-      secret: false,
-      optional: true,
-      placeholder: 'apify/google-search-scraper (default) — or your own Actor, e.g. username/actor-name',
-    },
-  ],
   // User-managed OAuth, same shape as the linkedin entry below — the
   // operator's own Zoom Marketplace app credentials, then Connect does the
   // real three-legged OAuth to a specific Zoom account.
   zoom: [
-    { key: 'clientId', label: 'Client ID', secret: false, placeholder: 'Zoom OAuth app Client ID' },
-    { key: 'clientSecret', label: 'Client Secret', secret: true, placeholder: 'Zoom OAuth app Client Secret' },
-    { key: 'mode', label: 'Mode (live | sandbox)', secret: false, optional: true, placeholder: 'live (default when connected) or sandbox' },
-    { key: 'redirectUri', label: 'Redirect URI (HTTPS)', secret: false, optional: true, placeholder: 'https://.../api/auth/zoom/callback' },
-    { key: 'accessToken', label: 'Access Token', secret: true, optional: true, placeholder: 'Auto-filled by Connect' },
-    { key: 'refreshToken', label: 'Refresh Token', secret: true, optional: true, placeholder: 'Auto-filled by Connect' },
-    { key: 'connectedEmail', label: 'Connected account', secret: false, optional: true, placeholder: 'Auto-detected on Connect' },
-    { key: 'tokenExpiresAt', label: 'Token expiry', secret: false, optional: true, placeholder: 'Managed automatically' },
+    { key: 'accountId', label: 'Account ID (for Server-to-Server OAuth)', secret: false, optional: true, placeholder: 'Zoom Account ID (Server-to-Server app — avoids all redirect URLs & tunnels)' },
+    { key: 'clientId', label: 'Client ID', secret: false, placeholder: 'Zoom app Client ID' },
+    { key: 'clientSecret', label: 'Client Secret', secret: true, placeholder: 'Zoom app Client Secret' },
+    { key: 'redirectUri', label: 'Redirect URI (for User OAuth)', secret: false, optional: true, placeholder: 'https://lsq-webinar-campaign.loca.lt/api/auth/zoom/callback' },
+    { key: 'hostEmail', label: 'Host email (Server-to-Server only)', secret: false, optional: true, placeholder: 'Zoom user that owns the webinars, e.g. events@yourcompany.com — required for Server-to-Server apps' },
+    { key: 'webhookSecret', label: 'Webhook secret token', secret: true, optional: true, placeholder: 'Zoom app → Feature → Event Subscriptions → Secret Token (required to accept Zoom webhooks)' },
+    { key: 'accessToken', label: 'Access Token', secret: true, optional: true, internal: true, placeholder: 'Auto-filled by Connect or Test' },
+    { key: 'refreshToken', label: 'Refresh Token', secret: true, optional: true, internal: true, placeholder: 'Auto-filled by Connect' },
+    { key: 'connectedEmail', label: 'Connected account', secret: false, optional: true, internal: true, placeholder: 'Auto-detected on Connect' },
+    { key: 'tokenExpiresAt', label: 'Token expiry', secret: false, optional: true, internal: true, placeholder: 'Managed automatically' },
   ],
   linkedin: [
     { key: 'clientId', label: 'Client ID', secret: false, placeholder: 'LinkedIn app Client ID' },
     { key: 'clientSecret', label: 'Client Secret', secret: true, placeholder: 'Paste your LinkedIn app Client Secret' },
-    { key: 'mode', label: 'Mode (live | sandbox)', secret: false, optional: true, placeholder: 'live (default when connected) or sandbox' },
-    { key: 'accessToken', label: 'Access Token', secret: true, optional: true, placeholder: 'Auto-filled by Connect (paste manually to skip OAuth)' },
-    { key: 'refreshToken', label: 'Refresh Token', secret: true, optional: true, placeholder: 'Auto-filled by Connect' },
-    { key: 'organizationUrn', label: 'Page URN', secret: false, optional: true, placeholder: 'urn:li:organization:1234567 (auto-detected on Connect)' },
-    { key: 'tokenExpiresAt', label: 'Token expiry', secret: false, optional: true, placeholder: 'Managed automatically' },
-    { key: 'organizationName', label: 'Page name', secret: false, optional: true, placeholder: 'Auto-detected on Connect' },
+    { key: 'redirectUri', label: 'Redirect URI (HTTPS)', secret: false, optional: true, internal: true, placeholder: 'https://.../api/auth/linkedin/callback' },
+    { key: 'accessToken', label: 'Access Token', secret: true, optional: true, internal: true, placeholder: 'Auto-filled by Connect (paste manually to skip OAuth)' },
+    { key: 'refreshToken', label: 'Refresh Token', secret: true, optional: true, internal: true, placeholder: 'Auto-filled by Connect' },
+    { key: 'organizationUrn', label: 'Page URN', secret: false, optional: true, internal: true, placeholder: 'urn:li:organization:1234567 (auto-detected on Connect)' },
+    { key: 'tokenExpiresAt', label: 'Token expiry', secret: false, optional: true, internal: true, placeholder: 'Managed automatically' },
+    { key: 'organizationName', label: 'Page name', secret: false, optional: true, internal: true, placeholder: 'Auto-detected on Connect' },
   ],
   messaging: [
     { key: 'dltEntityId', label: 'DLT Entity ID', secret: false, optional: true, placeholder: 'Your registered TRAI DLT Entity ID' },
@@ -62,6 +56,13 @@ export const INTEGRATION_FIELDS: Record<string, IntegrationField[]> = {
     { key: 'wabaId', label: 'WhatsApp Business Account ID', secret: false, optional: true, placeholder: 'Meta WABA ID' },
     { key: 'wabaPhoneNumberId', label: 'WhatsApp Phone Number ID', secret: false, optional: true, placeholder: 'Meta phone number ID sends come from' },
     { key: 'wabaTemplateNamespace', label: 'Message template namespace', secret: false, optional: true, placeholder: 'WABA template namespace' },
+  ],
+  netcore: [
+    { key: 'apiKey', label: 'Netcore Email API Key', secret: true, placeholder: 'Paste your Netcore / Pepipost API key' },
+    { key: 'fromEmail', label: 'From email address', secret: false, placeholder: 'e.g. events@updates.yourcompany.com' },
+    { key: 'fromName', label: 'Sender display name', secret: false, placeholder: 'e.g. Acme Webinar Team' },
+    { key: 'domain', label: 'Verified sending domain', secret: false, optional: true, placeholder: 'e.g. updates.yourcompany.com' },
+    { key: 'webhookSecret', label: 'Webhook secret / Token', secret: true, optional: true, placeholder: 'Optional secret token to authenticate Netcore webhooks' },
   ],
 };
 

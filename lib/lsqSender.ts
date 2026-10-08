@@ -12,6 +12,7 @@
 
 import { listUsers, probeSenderIdentity, type LsqUser } from '@/lib/leadsquared';
 import { rankSenderCandidates } from '@/lib/claude';
+import { resolveIntegrationField } from '@/lib/integrationConfig';
 
 /** Probing stops at the first valid sender; this caps the worst case. */
 const MAX_PROBES = 15;
@@ -46,13 +47,41 @@ export async function discoverSender(operatorEmail: string): Promise<DiscoverSen
   const active = users.filter((u) => u.active);
 
   if (active.length === 0) {
+    // If listUsers() is unauthorized or empty, probe well-known candidate addresses
+    const zoomEmail = await resolveIntegrationField('zoom', 'connectedEmail');
+    const allowlistEmail = process.env.SEND_ALLOWLIST_LEAD_EMAIL;
+    const envOperator = process.env.OPERATOR_EMAIL;
+    const candidates = [
+      operatorEmail,
+      zoomEmail,
+      allowlistEmail,
+      envOperator,
+    ].filter((e): e is string => Boolean(e && e.includes('@') && !e.includes('78101')));
+    const uniqueCandidates = Array.from(new Set(candidates.map((c) => c.toLowerCase())));
+
+    const attempts: SenderAttempt[] = [];
+    for (const email of uniqueCandidates) {
+      const probe = await probeSenderIdentity(email);
+      attempts.push({ email, verdict: probe.verdict, detail: probe.detail, reason: 'Candidate identity verification' });
+      if (probe.verdict === 'valid') {
+        return {
+          sender: email,
+          attempts,
+          totalUsers: uniqueCandidates.length,
+          activeUsers: 1,
+          ranked: false,
+          note: `LeadSquared accepted "${email}" as a sending identity from candidate verification. No email was sent during discovery.`,
+        };
+      }
+    }
+
     return {
       sender: null,
-      attempts: [],
+      attempts,
       totalUsers: users.length,
       activeUsers: 0,
       ranked: false,
-      note: 'No active users came back from LeadSquared, so there is no address that could be used as a sender.',
+      note: 'No active users could be listed from LeadSquared (User Management API might be restricted), and candidate addresses were rejected. Please enter an active user email manually.',
     };
   }
 

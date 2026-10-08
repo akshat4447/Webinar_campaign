@@ -1,11 +1,43 @@
 'use server';
 
 import { db } from '@/lib/db';
-import { runEnrichment, verifyInferredEmails, type EnrichmentResult } from '@/lib/enrichment';
+import {
+  runEnrichmentSample,
+  getEnrichmentPreflight,
+  verifyInferredEmails,
+  type EnrichmentResult,
+  type EnrichmentScopeConfig,
+  type EnrichmentFieldSelection,
+  type EnrichmentPreflightEstimate,
+  type SampleEnrichmentPreview,
+} from '@/lib/enrichment';
 import { revalidateCampaign } from '@/lib/revalidate';
+import { assertSetupEditable } from '@/lib/setupLock';
 
-export async function runEnrichmentAction(campaignId: string): Promise<EnrichmentResult> {
-  const result = await runEnrichment(campaignId);
+export async function runEnrichmentAction(
+  campaignId: string,
+  config?: EnrichmentScopeConfig
+): Promise<EnrichmentResult> {
+  await assertSetupEditable(campaignId);
+  const { queueAudienceJob } = await import('@/lib/audienceJobs');
+  const result = await queueAudienceJob(campaignId, 'enrichment', config);
+  revalidateCampaign(campaignId);
+  return result;
+}
+
+export async function getEnrichmentPreflightAction(
+  campaignId: string,
+  fields?: Partial<EnrichmentFieldSelection>
+): Promise<EnrichmentPreflightEstimate> {
+  return getEnrichmentPreflight(campaignId, fields);
+}
+
+export async function runEnrichmentSampleAction(
+  campaignId: string,
+  sampleSize: number = 3,
+  fields?: Partial<EnrichmentFieldSelection>
+): Promise<{ ok: boolean; error?: string; samples?: SampleEnrichmentPreview[] }> {
+  const result = await runEnrichmentSample(campaignId, sampleSize, fields);
   revalidateCampaign(campaignId);
   return result;
 }

@@ -7,7 +7,6 @@
 //
 // Failures deliberately do NOT mark the row processed (except data-terminal
 // ones like "no email"), so scripts/linkedin-process.ts can retry them.
-import { createHash } from 'crypto';
 import type { LinkedinRegistration, Campaign } from '@/lib/generated/prisma/client';
 import { db } from '@/lib/db';
 import { revalidateCampaign } from '@/lib/revalidate';
@@ -15,22 +14,12 @@ import { registerContact } from '@/lib/registerContact';
 import { upsertAttentionItem } from '@/lib/attentionItems';
 import { scoreContacts } from '@/lib/claude';
 import { syncContactsToLeadSquared } from '@/lib/leadSync';
-import { getLinkedinMode, restRequest } from './client';
+import { restRequest } from './client';
 import { normalizeRegistrant } from './webhook';
 import { buildContactFields } from './mapping';
 
-/** Live mode reads LinkedIn's lead-form response record; sandbox fabricates a stable fixture. */
+
 async function fetchRegistrantRaw(row: LinkedinRegistration): Promise<unknown> {
-  if ((await getLinkedinMode()) !== 'live') {
-    const suffix = createHash('sha1').update(row.responseUrn).digest('hex').slice(0, 6);
-    return {
-      firstName: 'Priya',
-      lastName: 'Nair',
-      email: `priya.nair.${suffix}@example.com`,
-      jobTitle: 'VP Marketing',
-      company: 'Acme Financial',
-    };
-  }
   const res = await restRequest(`/leadFormResponses/${encodeURIComponent(row.responseUrn)}`);
   return res.json;
 }
@@ -148,7 +137,7 @@ async function processOne(
     // --- DELETED: member withdrew their registration -------------------------
     if (row.leadAction === 'DELETED') {
       await db.$transaction([
-        db.$executeRaw`UPDATE "Campaign" SET "registrations" = MAX(COALESCE("registrations", 0) - 1, 0) WHERE "id" = ${campaign.id}`,
+        db.$executeRaw`UPDATE "Campaign" SET "registrations" = GREATEST(COALESCE("registrations", 0) - 1, 0) WHERE "id" = ${campaign.id}`,
         db.linkedinRegistration.update({ where: { id: row.id }, data: { processedAt: new Date(), error: null } }),
       ]);
       await db.activityLogEntry.create({
@@ -208,7 +197,7 @@ async function processOne(
       return 'ok';
     }
 
-    const fields = buildContactFields(registrant, campaign.vertical, (await getLinkedinMode()) !== 'live');
+    const fields = buildContactFields(registrant, campaign.vertical);
     const contact = await db.contact.create({ data: { campaignId: campaign.id, ...fields } });
     if (fields.email) {
       emailMap.set(fields.email.toLowerCase(), contact.id);
@@ -217,7 +206,7 @@ async function processOne(
     // Scoring is best-effort: a Claude outage must not lose the lead — it just
     // stays unscored until someone runs the normal Scoring action again.
     try {
-      const [result] = await scoreContacts(campaign.name, campaign.vertical, campaign.scoringPrompt, campaign.scoringCriteria, [
+      const { results: scoreResults } = await scoreContacts(campaign.name, campaign.vertical, campaign.scoringPrompt, campaign.scoringCriteria, [
         {
           id: contact.id,
           name: fields.name,
@@ -229,6 +218,7 @@ async function processOne(
           missingInfo: fields.missingInfo,
         },
       ]);
+      const result = scoreResults[0];
       if (result) {
         await db.contact.update({
           where: { id: contact.id },

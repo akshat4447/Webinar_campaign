@@ -1,4 +1,4 @@
-/* Curated semantic palette — derived from the FinFlow/LeadSquared CRM Figma file.
+/* Curated semantic palette — derived from the LeadSquared CRM Figma file.
    Base values quote the file's 1440 (Default)/Light mode; see tokens/fig/fig-tokens.css
    for the full raw Variable export (all modes, all 981 vars). */
 :root{
@@ -11,9 +11,9 @@
   --accent-purple:#6c57d6;--accent-purple-stroke:#303db1;
 
   /* Semantic status */
-  --success-100:#e6f9ee;--success-500:#46ca7b;--success-700:#1a8f4c;
+  --success-100:#e6f9ee;--success-500:#46ca7b;--success-700:#087443;
   --danger-100:#fde8e8;--danger-500:#dc2625;--danger-700:#b91c1c;
-  --warning-100:#fbebb4;--warning-700:#8a6a10;
+  --warning-100:#fbebb4;--warning-700:#72560d;
   --info-100:#f3f4fc;--info-500:#4659ea;
 
   /* Channel brand — the one place a third-party's own colour is authoritative.

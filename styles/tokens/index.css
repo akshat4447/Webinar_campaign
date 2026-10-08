@@ -1,4 +1,8 @@
+/* Order matters: the raw Figma variable export first (all modes: light, dark, high contrast,
+   mobile…), then the curated semantic layer on top so its values win where names collide
+   (e.g. the export's unitless `--8` vs spacing.css's `--8:8px`). */
 @import './fonts.css';
+@import './fig/fig-tokens.css';
 @import './colors.css';
 @import './typography.css';
 @import './spacing.css';

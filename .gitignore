@@ -60,3 +60,14 @@ next-env.d.ts
 # manages for itself, not part of the application.
 /.claude/
 skills-lock.json
+.next-*
+scripts/ui-audit/out/
+
+# Local verification output and system caches
+coverage/
+playwright-report/
+test-results/
+*.log
+
+# Reports can include provider identifiers and recipient data.
+/artifacts/

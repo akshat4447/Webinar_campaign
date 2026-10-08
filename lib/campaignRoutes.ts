@@ -8,26 +8,33 @@ import type { Campaign } from '@/lib/generated/prisma/client';
 
 /** Where a card, a redirect or a breadcrumb should land for this campaign. */
 export function campaignLandingHref(campaign: Pick<Campaign, 'id' | 'status'>): string {
-  // A finished campaign opens on its results; anything still in flight opens
-  // where the operator has work to do.
   return campaign.status === 'completed'
-    ? `/campaigns/${campaign.id}/overview`
-    : `/campaigns/${campaign.id}/setup`;
+    ? `/campaigns/${campaign.id}/results`
+    : `/campaigns/${campaign.id}/overview`;
 }
 
 export function campaignCadenceHref(campaignId: string): string {
   return `/campaigns/${campaignId}/cadence`;
 }
 
+export function campaignMessagingHref(campaignId: string): string {
+  return `/campaigns/${campaignId}/messaging`;
+}
+
+export function campaignResultsHref(campaignId: string): string {
+  return `/campaigns/${campaignId}/results`;
+}
+
 /** Straight to a campaign's overview tab, regardless of status — the landing
- *  href above only goes there for a completed campaign. */
+ *  href above only goes there for a non-completed campaign (completed goes
+ *  to /results instead). */
 export function campaignOverviewHref(campaignId: string): string {
   return `/campaigns/${campaignId}/overview`;
 }
 
 /** Label for the card's primary action, which differs by what the campaign needs next. */
 export function campaignPrimaryCta(status: string): string {
-  if (status === 'draft') return 'Finish setup';
-  if (status === 'completed') return 'View report';
+  if (status === 'draft') return 'Open workspace';
+  if (status === 'completed') return 'View results';
   return 'Open';
 }

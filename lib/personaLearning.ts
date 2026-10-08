@@ -20,18 +20,14 @@ const MAX_ROWS = 6;
  * getPersonaLearningInsights() below, consumed by scoreContacts().
  */
 export async function getPersonaLearning(): Promise<PersonaLearningRow[]> {
-  const contacts = await db.contact.findMany({
-    where: { score: { not: null } },
-    select: { seniority: true, function: true, approved: true },
-  });
-
+  const groups = await db.contact.groupBy({by:['seniority','function','approved'],where:{score:{not:null}},_count:{_all:true}});
   const byPersona = new Map<string, { approved: number; total: number }>();
-  for (const c of contacts) {
-    const label = `${c.seniority}-level, ${c.function}`;
-    const bucket = byPersona.get(label) ?? { approved: 0, total: 0 };
-    bucket.total++;
-    if (c.approved) bucket.approved++;
-    byPersona.set(label, bucket);
+  for (const group of groups) {
+    const label = `${group.seniority}-level, ${group.function}`;
+    const bucket = byPersona.get(label) ?? {approved:0,total:0};
+    bucket.total += group._count._all;
+    if (group.approved) bucket.approved += group._count._all;
+    byPersona.set(label,bucket);
   }
 
   return [...byPersona.entries()]
@@ -52,7 +48,7 @@ export async function getPersonaLearningInsights(): Promise<string | null> {
     if (rows.length === 0) return null;
 
     const lines = rows.map((r) => `• ${r.label}: ${r.pct}% approval rate (sample: ${r.sampleSize} scored)`);
-    return `HISTORICAL WEBINAR CAMPAIGN TRACK RECORD (PRIOR LEARNING):\n${lines.join('\n')}\nCalibrate your scores based on which personas have historically converted in past webinars.`;
+    return `HISTORICAL WEBINAR CAMPAIGN TRACK RECORD (PRIOR LEARNING):\n${lines.join('\n')}\nThese are operator/model approval rates, not registration or conversion outcomes. Do not infer conversion performance from them.`;
   } catch {
     return null;
   }

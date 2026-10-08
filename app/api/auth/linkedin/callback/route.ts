@@ -4,13 +4,12 @@
 import { resolveIntegrationField, saveIntegrationConfig } from '@/lib/integrationConfig';
 import { exchangeCodeForToken, fetchAdministeredOrganizations } from '@/lib/linkedin/auth';
 import { db } from '@/lib/db';
+import { requestOrigin } from '@/lib/requestOrigin';
 
 export const runtime = 'nodejs';
 
 function back(request: Request, params: Record<string, string>) {
-  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || new URL(request.url).host;
-  const proto = request.headers.get('x-forwarded-proto') || (request.url.startsWith('https') ? 'https' : 'http');
-  const url = new URL('/integrations', `${proto}://${host}`);
+  const url = new URL('/integrations', requestOrigin(request));
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   return Response.redirect(url.toString(), 302);
 }
@@ -54,10 +53,13 @@ export async function GET(request: Request) {
   try {
     const clientId = (await resolveIntegrationField('linkedin', 'clientId')) || process.env.LINKEDIN_CLIENT_ID!;
     const clientSecret = (await resolveIntegrationField('linkedin', 'clientSecret')) || process.env.LINKEDIN_CLIENT_SECRET!;
+    // Must byte-for-byte match what /connect sent LinkedIn in the authorize
+    // step, or the token exchange is rejected — request.url's raw origin
+    // isn't that, behind any proxy or tunnel that rewrites Host.
     const redirectUri =
       (await resolveIntegrationField('linkedin', 'redirectUri')) ||
       process.env.LINKEDIN_REDIRECT_URI ||
-      `${new URL(request.url).origin}/api/auth/linkedin/callback`;
+      `${requestOrigin(request)}/api/auth/linkedin/callback`;
 
     const token = await exchangeCodeForToken({ clientId, clientSecret, code, redirectUri });
     await saveIntegrationConfig('linkedin', {

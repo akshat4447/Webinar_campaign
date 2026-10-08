@@ -14,21 +14,14 @@
 import { db } from '@/lib/db';
 import { revalidateCampaign } from '@/lib/revalidate';
 import { upsertAttentionItem } from '@/lib/attentionItems';
-import { createHash } from 'crypto';
-import { getLinkedinMode, resolveOrganizationUrn } from './client';
+import { resolveOrganizationUrn } from './client';
 import { validateCampaignForPublish, buildEventPayload, buildAnnouncementPostPayload, eventPublicUrl } from './events';
 import { ensureApprovedRegistrationForm } from './registrationForms';
 import { createEvent, deleteEvent, listEventsByOrganizer, publishAnnouncementPost } from './eventsApi';
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function log(campaignId: string, text: string, dot = 'var(--accent-500)') {
   await db.activityLogEntry.create({ data: { campaignId, text, dot } });
-}
-
-function sandboxUrns(seed: string): { eventUrn: string; postUrn: string } {
-  const h = createHash('sha1').update(seed).digest('hex');
-  return { eventUrn: `urn:li:event:sbx${h.slice(0, 10)}`, postUrn: `urn:li:share:sbx${h.slice(10, 20)}` };
 }
 
 export interface PublishOutcome {
@@ -44,16 +37,16 @@ export async function publishWebinarToLinkedIn(campaignId: string): Promise<Publ
     return { ok: true, status: 'published', detail: `Already live: ${eventPublicUrl(campaign.linkedinEventUrn)}` };
   }
 
-  const mode = await getLinkedinMode();
   const validation = validateCampaignForPublish(
     {
       name: campaign.name,
       description: campaign.description,
       scheduledAt: campaign.scheduledAt,
       zoomLink: campaign.zoomLink,
+      organizationUrn: await resolveOrganizationUrn(),
     },
-    campaign.simulatedNow ?? new Date(),
-    { requireOrganizer: mode === 'live' }
+    new Date(),
+    { requireOrganizer: true }
   );
   if (!validation.ok) {
     await upsertAttentionItem(campaignId, {
@@ -78,7 +71,7 @@ export async function publishWebinarToLinkedIn(campaignId: string): Promise<Publ
     if (!eventUrn) {
       // Stage 0: approved registration form (attachable at creation ONLY).
       let organizationUrn: string | undefined;
-      if (mode === 'live') {
+      {
         organizationUrn = await resolveOrganizationUrn();
         if (!organizationUrn || !/^urn:li:organization:\d+$/.test(organizationUrn)) {
           throw new Error('No connected LinkedIn Page — connect the integration and authorize a Page you administer.');
@@ -110,13 +103,11 @@ export async function publishWebinarToLinkedIn(campaignId: string): Promise<Publ
           await revalidateCampaign(campaignId);
           return { ok: false, status: 'form_pending_review', detail };
         }
-      } else {
-        regFormUrn = sandboxUrns(`${campaignId}:form`).eventUrn.replace('urn:li:event:', 'urn:li:registrationForm:');
       }
 
       // Duplicate-adoption guard: someone may have hand-created this same
       // event before wiring the integration — adopt rather than double-post.
-      if (mode === 'live' && organizationUrn) {
+      if (organizationUrn) {
         try {
           const existing = await listEventsByOrganizer(organizationUrn);
           const match = existing.find(
@@ -133,7 +124,7 @@ export async function publishWebinarToLinkedIn(campaignId: string): Promise<Publ
 
       // Stage 1: create the event.
       if (!eventUrn) {
-        if (mode === 'live') {
+        {
           eventUrn = await createEvent(
             buildEventPayload({
               name: campaign.name,
@@ -144,9 +135,6 @@ export async function publishWebinarToLinkedIn(campaignId: string): Promise<Publ
               registrationFormUrn: regFormUrn!,
             })
           );
-        } else {
-          await sleep(400); // make the staged progress visible in the UI
-          eventUrn = sandboxUrns(`${campaignId}:event`).eventUrn;
         }
         // Persist BEFORE announcing — resume point if the next call dies.
         await db.campaign.update({
@@ -158,7 +146,7 @@ export async function publishWebinarToLinkedIn(campaignId: string): Promise<Publ
             linkedinEventError: null,
           },
         });
-        await log(campaignId, `Created LinkedIn Event ${eventPublicUrl(eventUrn)}${mode === 'sandbox' ? ' (sandbox — no live API call)' : ''}`);
+        await log(campaignId, `Created LinkedIn Event ${eventPublicUrl(eventUrn)}${''}`);
       }
     }
 
@@ -166,8 +154,7 @@ export async function publishWebinarToLinkedIn(campaignId: string): Promise<Publ
     // be fetched or updated, so publishing it is part of "create", not polish.
     if (!(campaign.linkedinPostUrn && campaign.linkedinEventStatus === 'published')) {
       const postUrn =
-        mode === 'live'
-          ? await publishAnnouncementPost(
+        await publishAnnouncementPost(
               buildAnnouncementPostPayload({
                 organizationUrn: (await resolveOrganizationUrn())!,
                 eventName: campaign.name,
@@ -175,8 +162,7 @@ export async function publishWebinarToLinkedIn(campaignId: string): Promise<Publ
                 dateDisplay: campaign.date,
                 description: campaign.description ?? '',
               })
-            )
-          : sandboxUrns(`${campaignId}:post`).postUrn;
+            );
 
       await db.campaign.update({
         where: { id: campaignId },
@@ -184,7 +170,7 @@ export async function publishWebinarToLinkedIn(campaignId: string): Promise<Publ
       });
       await log(
         campaignId,
-        `Published "${campaign.name}" to LinkedIn${mode === 'sandbox' ? ' (sandbox — no live API call)' : ''} — next human step: click “Invite connections” on the event page`,
+        `Published "${campaign.name}" to LinkedIn${''} — next human step: click “Invite connections” on the event page`,
         'var(--success-500)'
       );
     }
@@ -217,7 +203,7 @@ export async function publishWebinarToLinkedIn(campaignId: string): Promise<Publ
 /** Cancels/deletes the remote event (best-effort in live mode) and clears all local linkage. */
 export async function cancelLinkedInEvent(campaignId: string): Promise<PublishOutcome> {
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { name: true, linkedinEventUrn: true } });
-  if ((await getLinkedinMode()) === 'live' && campaign.linkedinEventUrn) {
+  if (campaign.linkedinEventUrn) {
     try {
       await deleteEvent(campaign.linkedinEventUrn);
     } catch (err) {

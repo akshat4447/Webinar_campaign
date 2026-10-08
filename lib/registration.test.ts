@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   TOKEN_TTL_DAYS,
@@ -21,26 +22,51 @@ describe('registration tokens', () => {
     }
   });
 
-  it('rejects a token whose payload was edited', () => {
+  it('rejects a token whose contact was swapped', () => {
     // The whole point: a link is a bearer credential, so swapping the contact
     // id in the URL must not let you register somebody else.
     const t = mintRegistrationToken(CAMPAIGN, CONTACT);
-    const [v, body, sig] = t.split('.');
-    const tampered = Buffer.from(
-      JSON.stringify({ campaignId: CAMPAIGN, contactId: 'someone_else', iat: Math.floor(Date.now() / 1000) })
-    ).toString('base64url');
-    expect(body).not.toBe(tampered);
-    expect(verifyRegistrationToken([v, tampered, sig].join('.'))).toEqual({ ok: false, reason: 'bad-signature' });
+    const [v, camp, , iat, sig] = t.split('.');
+    expect(verifyRegistrationToken([v, camp, 'someone_else', iat, sig].join('.'))).toEqual({ ok: false, reason: 'bad-signature' });
+  });
+
+  it('rejects a token whose campaign or issue time was edited', () => {
+    const t = mintRegistrationToken(CAMPAIGN, CONTACT);
+    const [v, , contact, iat, sig] = t.split('.');
+    expect(verifyRegistrationToken([v, 'other_campaign', contact, iat, sig].join('.'))).toEqual({ ok: false, reason: 'bad-signature' });
+    expect(verifyRegistrationToken([v, CAMPAIGN, contact, (parseInt(iat, 36) + 999999).toString(36), sig].join('.'))).toEqual({ ok: false, reason: 'bad-signature' });
   });
 
   it('rejects a token whose signature was edited', () => {
     const t = mintRegistrationToken(CAMPAIGN, CONTACT);
-    const [v, body] = t.split('.');
-    expect(verifyRegistrationToken(`${v}.${body}.not-a-real-signature`)).toEqual({ ok: false, reason: 'bad-signature' });
+    const head = t.split('.').slice(0, 4).join('.');
+    expect(verifyRegistrationToken(`${head}.not-a-real-signature`)).toEqual({ ok: false, reason: 'bad-signature' });
+  });
+
+  it('is compact enough for a LinkedIn note: ids of real length stay under 90 characters', () => {
+    const t = mintRegistrationToken('cmuxqggsl0030l5uf0g7f8khp', 'cmuxqggsl0031l5uf0g7f8abc');
+    expect(t.length).toBeLessThan(90);
+  });
+
+  it('still accepts a v1 token that was already sent in a message', () => {
+    // Shape of a v1 token minted before the compact format existed: v1.<base64url json>.<hmac>.
+    const body = Buffer.from(JSON.stringify({ campaignId: CAMPAIGN, contactId: CONTACT, iat: Math.floor(Date.now() / 1000) })).toString('base64url');
+    const secret = process.env.REGISTRATION_SECRET || process.env.LINKEDIN_CLIENT_SECRET || 'dev-only-insecure-secret';
+    const sig = createHmac('sha256', secret).update(`v1.${body}`).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const r = verifyRegistrationToken(`v1.${body}.${sig}`);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.payload.contactId).toBe(CONTACT);
+  });
+
+  it('falls back to v1 for ids that contain the separator', () => {
+    const t = mintRegistrationToken('camp.1', 'cont.2');
+    expect(t.startsWith('v1.')).toBe(true);
+    const r = verifyRegistrationToken(t);
+    expect(r.ok && r.payload.contactId).toBe('cont.2');
   });
 
   it('rejects malformed input rather than throwing', () => {
-    for (const bad of ['', 'nonsense', 'a.b', 'v2.body.sig', 'v1..', 'v1.!!!not-base64!!!.sig']) {
+    for (const bad of ['', 'nonsense', 'a.b', 'v2.body.sig', 'v2.a.b.c', 'v2.a.b.c.d.e', 'v1..', 'v1.!!!not-base64!!!.sig']) {
       const r = verifyRegistrationToken(bad);
       expect(r.ok).toBe(false);
     }
@@ -73,6 +99,16 @@ describe('registration tokens', () => {
     const url = registrationUrl('https://example.com', CAMPAIGN, CONTACT);
     const token = url.split('/r/')[1];
     expect(verifyRegistrationToken(token).ok).toBe(true);
+  });
+
+  it('appends source query parameter when channel is provided', () => {
+    const url = registrationUrl('https://example.com', CAMPAIGN, CONTACT, 'linkedin');
+    expect(url).toContain('?source=linkedin');
+    const [pathPart, queryPart] = url.split('?');
+    const token = pathPart.split('/r/')[1];
+    expect(verifyRegistrationToken(token).ok).toBe(true);
+    const params = new URLSearchParams(queryPart);
+    expect(params.get('source')).toBe('linkedin');
   });
 });
 

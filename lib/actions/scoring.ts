@@ -1,9 +1,9 @@
 'use server';
 
 import { db } from '@/lib/db';
-import { scoreContacts } from '@/lib/claude';
-import { upsertAttentionItem, resolveAttentionItems } from '@/lib/attentionItems';
 import { revalidateCampaign } from '@/lib/revalidate';
+import { findScoreBand } from '@/lib/scoreBands';
+import { assertSetupEditable } from '@/lib/setupLock';
 import { z } from 'zod';
 
 const campaignIdSchema = z.string().min(1);
@@ -16,74 +16,14 @@ const scoringConfigSchema = z.object({
 
 export async function runScoringAction(campaignId: string) {
   const validCampaignId = campaignIdSchema.parse(campaignId);
-  const campaign = await db.campaign.findUniqueOrThrow({ where: { id: validCampaignId } });
-  const contacts = await db.contact.findMany({ where: { campaignId: validCampaignId } });
-  if (contacts.length === 0) return { ok: false, error: 'No contacts imported yet — go to Setup first.' };
-
-  try {
-    const results = await scoreContacts(
-      campaign.name,
-      campaign.vertical,
-      campaign.scoringPrompt,
-      campaign.scoringCriteria,
-      contacts.map((c) => ({
-        id: c.id,
-        name: c.name,
-        title: c.title,
-        function: c.function,
-        seniority: c.seniority,
-        account: c.account,
-        vertical: c.vertical,
-        missingInfo: c.missingInfo,
-      }))
-    );
-
-    // Contacts a human has explicitly approved/unapproved (approvedManually, set
-    // by setApprovalAction / bulkSetApprovalAction) keep their approval as-is —
-    // a re-score used to silently overwrite that decision with the threshold
-    // verdict on every run. The score and explanation still refresh either way.
-    const validIds = new Set(contacts.map((c) => c.id));
-    const validResults = results.filter((r) => validIds.has(r.id));
-    const manuallySet = new Set(contacts.filter((c) => c.approvedManually).map((c) => c.id));
-    await db.$transaction(
-      validResults.map((r) =>
-        db.contact.update({
-          where: { id: r.id },
-          data: {
-            score: r.score,
-            explanation: r.explanation,
-            ...(manuallySet.has(r.id) ? {} : { approved: r.score >= campaign.scoringThreshold }),
-          },
-        })
-      )
-    );
-    const preserved = validResults.filter((r) => manuallySet.has(r.id)).length;
-
-    await db.activityLogEntry.create({
-      data: {
-        campaignId,
-        text: `Claude scored ${validResults.length} contacts against "${campaign.name}"${preserved > 0 ? ` — kept ${preserved} manually-set approval${preserved === 1 ? '' : 's'} as-is` : ''}`,
-        dot: 'var(--accent-500)',
-      },
-    });
-
-    await resolveAttentionItems(campaignId, ['Audience scoring failed']);
-    revalidateCampaign(campaignId);
-    return { ok: true, scoredCount: validResults.length, preservedManualApprovals: preserved };
-  } catch (err) {
-    await upsertAttentionItem(campaignId, {
-      icon: 'ErrorProperty1Outline',
-      color: 'error',
-      title: 'Audience scoring failed',
-      detail: String(err).slice(0, 300),
-      actionsCsv: 'retry',
-    });
-    return { ok: false, error: String(err) };
-  }
+  await assertSetupEditable(validCampaignId);
+  const { queueAudienceJob } = await import('@/lib/audienceJobs');
+  return queueAudienceJob(validCampaignId, 'scoring');
 }
 
 export async function updateScoringConfigAction(campaignId: string, data: { prompt?: string; criteria?: string; threshold?: number }) {
   const validCampaignId = campaignIdSchema.parse(campaignId);
+  await assertSetupEditable(validCampaignId);
   const parsedData = scoringConfigSchema.parse(data);
 
   // The Scoring tab's slider already clamps to 0–100 client-side, but the
@@ -99,20 +39,60 @@ export async function updateScoringConfigAction(campaignId: string, data: { prom
       ...(threshold !== undefined ? { scoringThreshold: threshold } : {}),
     },
   });
+
+  if (threshold !== undefined) {
+    await db.$transaction([
+      db.contact.updateMany({
+        where: {
+          campaignId: validCampaignId,
+          approvedManually: false,
+          score: { not: null, gte: threshold },
+        },
+        data: { approved: true },
+      }),
+      db.contact.updateMany({
+        where: {
+          campaignId: validCampaignId,
+          approvedManually: false,
+          score: { not: null, lt: threshold },
+        },
+        data: { approved: false },
+      }),
+    ]);
+  }
+
   revalidateCampaign(validCampaignId);
 }
 
 // approvedManually marks this contact's approval as a human decision — a
 // later re-score (runScoringAction above) leaves it alone instead of
 // overwriting it with the AI's threshold verdict.
-export async function setApprovalAction(contactId: string, approved: boolean) {
+export async function setApprovalAction(contactId: string, approved: boolean, campaignId?: string) {
   const validContactId = contactIdSchema.parse(contactId);
-  await db.contact.update({ where: { id: validContactId }, data: { approved: !!approved, approvedManually: true } });
+  const owner = await db.contact.findUnique({ where: { id: validContactId }, select: { campaignId: true } });
+  if (campaignId && owner?.campaignId !== campaignId) throw new Error('Contact does not belong to this campaign.');
+  if (owner?.campaignId) await assertSetupEditable(owner.campaignId);
+  const updated = await db.contact.update({
+    where: { id: validContactId },
+    data: { approved: !!approved, approvedManually: true },
+    select: { campaignId: true },
+  });
+  const cid = campaignId || updated.campaignId;
+  if (cid) revalidateCampaign(cid);
 }
 
-export async function bulkSetApprovalAction(contactIds: string[], approved: boolean) {
+export async function bulkSetApprovalAction(contactIds: string[], approved: boolean, campaignId?: string) {
   const validIds = z.array(contactIdSchema).parse(contactIds);
+  const owners = await db.contact.findMany({ where: { id: { in: validIds } }, select: { id: true, campaignId: true } });
+  if (owners.length !== validIds.length || (campaignId && owners.some(c => c.campaignId !== campaignId))) throw new Error('Contact selection does not belong to this campaign.');
+  for (const cid of new Set(owners.map(c => c.campaignId))) await assertSetupEditable(cid);
   await db.contact.updateMany({ where: { id: { in: validIds } }, data: { approved: !!approved, approvedManually: true } });
+  if (campaignId) {
+    revalidateCampaign(campaignId);
+  } else if (validIds.length > 0) {
+    const contact = await db.contact.findUnique({ where: { id: validIds[0] }, select: { campaignId: true } });
+    if (contact?.campaignId) revalidateCampaign(contact.campaignId);
+  }
 }
 
 /**
@@ -120,13 +100,15 @@ export async function bulkSetApprovalAction(contactIds: string[], approved: bool
  * value clears it. Normalizes nothing else — the channel send path strips
  * formatting at delivery time.
  */
-export async function updateContactPhoneAction(contactId: string, phone: string): Promise<{ ok: boolean; error?: string }> {
+export async function updateContactPhoneAction(contactId: string, phone: string, campaignId?: string): Promise<{ ok: boolean; error?: string }> {
   const validContactId = contactIdSchema.parse(contactId);
   const clean = (phone ?? '').trim();
   if (clean && !/^\+?[\d\s()-]{6,20}$/.test(clean)) {
     return { ok: false, error: "That doesn't look like a valid mobile number." };
   }
-  await db.contact.update({ where: { id: validContactId }, data: { phone: clean || null } });
+  const updated = await db.contact.update({ where: { id: validContactId }, data: { phone: clean || null }, select: { campaignId: true } });
+  const cid = campaignId || updated.campaignId;
+  if (cid) revalidateCampaign(cid);
   return { ok: true };
 }
 
@@ -139,6 +121,7 @@ export async function updateContactPhoneAction(contactId: string, phone: string)
  */
 export async function approveAboveThresholdAction(campaignId: string) {
   const validCampaignId = campaignIdSchema.parse(campaignId);
+  await assertSetupEditable(validCampaignId);
   const campaign = await db.campaign.findUniqueOrThrow({
     where: { id: validCampaignId },
     select: { scoringThreshold: true },
@@ -154,4 +137,54 @@ export async function approveAboveThresholdAction(campaignId: string) {
   });
   revalidateCampaign(validCampaignId);
   return { approved: result.count, threshold: campaign.scoringThreshold };
+}
+
+/**
+ * Every contact matching the Audience tab's current search/band filter, for the
+ * "Export all matching" button.
+ *
+ * The table is server-paginated at 50, and the export used to serialize just
+ * the rows the client happened to be holding — so an operator on a 5,000-contact
+ * campaign handed sales a 50-row file believing it was the whole list. The
+ * filter is reproduced here rather than passed as a Prisma `where` so the
+ * client can't ask for rows outside its campaign.
+ */
+export async function exportScoredContactsAction(
+  campaignId: string,
+  filter: { q?: string; band?: string } = {}
+) {
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const q = (filter.q ?? '').trim();
+  const selectedBand = findScoreBand(filter.band);
+
+  const rows = await db.contact.findMany({
+    where: {
+      campaignId: validCampaignId,
+      ...(selectedBand ? { score: { gte: selectedBand.min, lt: selectedBand.max } } : {}),
+      ...(q
+        ? {
+            OR: [
+              { name: { contains: q, mode: 'insensitive' as const } },
+              { title: { contains: q, mode: 'insensitive' as const } },
+              { account: { contains: q, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [{ score: 'desc' }, { name: 'asc' }],
+    select: {
+      name: true,
+      account: true,
+      title: true,
+      function: true,
+      seniority: true,
+      vertical: true,
+      email: true,
+      source: true,
+      score: true,
+      approved: true,
+    },
+  });
+
+  return { ok: true as const, rows };
 }

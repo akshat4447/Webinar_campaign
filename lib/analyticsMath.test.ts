@@ -1,5 +1,29 @@
 import { describe, it, expect } from 'vitest';
-import { bucketDates, campaignRangeWhere, countDelta, daysFor, ratioDelta, windowsFor } from './analyticsMath';
+import { bucketDatedCounts, bucketDates, campaignRangeWhere, countDelta, daysFor, fmtPct, pct, ratioDelta, windowsFor, type DatedCount } from './analyticsMath';
+
+describe('pct / fmtPct', () => {
+  it('rounds a normal ratio to the nearest percent', () => {
+    expect(pct(1, 3)).toBe(33);
+    expect(pct(2, 3)).toBe(67);
+    expect(pct(50, 200)).toBe(25);
+  });
+
+  it('returns null — not NaN or Infinity — when whole is zero or negative', () => {
+    expect(pct(5, 0)).toBeNull();
+    expect(pct(0, 0)).toBeNull();
+    expect(pct(5, -1)).toBeNull();
+  });
+
+  it('handles part being zero without special-casing it', () => {
+    expect(pct(0, 10)).toBe(0);
+  });
+
+  it('fmtPct renders a dash for null and a percent string otherwise', () => {
+    expect(fmtPct(null)).toBe('—');
+    expect(fmtPct(0)).toBe('0%');
+    expect(fmtPct(33)).toBe('33%');
+  });
+});
 
 describe('daysFor / windowsFor', () => {
   it('maps each named range to its day count, and all to no bound', () => {
@@ -102,5 +126,28 @@ describe('bucketDates', () => {
     // Must include Jan, Feb, and Mar — Feb must NOT be skipped due to 31-day overflow
     expect(buckets).toHaveLength(3);
     expect(buckets.map((b) => b.label)).toEqual(['Jan 26', 'Feb 26', 'Mar 26']);
+  });
+
+  it('aggregates weighted counts correctly via bucketDatedCounts', () => {
+    const from = new Date('2026-03-01T00:00:00Z');
+    const to = new Date('2026-05-31T00:00:00Z');
+    const items: DatedCount[] = [
+      { date: new Date('2026-03-15T00:00:00Z'), count: 250 },
+      { date: new Date('2026-03-20T00:00:00Z'), count: 50 },
+      { date: new Date('2026-05-10T00:00:00Z'), count: 120 },
+    ];
+    const buckets = bucketDatedCounts(items, from, to, 'month');
+    expect(buckets).toHaveLength(3);
+    expect(buckets.map((b) => b.label)).toEqual(['Mar 26', 'Apr 26', 'May 26']);
+    expect(buckets.map((b) => b.count)).toEqual([300, 0, 120]);
+  });
+
+  it('includes the trailing week bucket containing to date', () => {
+    const from = new Date('2026-09-01T00:00:00Z');
+    const to = new Date('2026-09-16T12:00:00Z'); // Wednesday
+    const items: DatedCount[] = [{ date: new Date('2026-09-14T00:00:00Z'), count: 5 }]; // Monday of that week
+    const buckets = bucketDatedCounts(items, from, to, 'week');
+    const lastBucket = buckets[buckets.length - 1];
+    expect(lastBucket.count).toBe(5);
   });
 });

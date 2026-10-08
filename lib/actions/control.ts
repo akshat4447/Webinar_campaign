@@ -1,21 +1,17 @@
 'use server';
 
 import { db } from '@/lib/db';
-import { processDueSends, advanceSimulatedClock } from '@/lib/cadence';
+import { processDueSends } from '@/lib/cadence';
 import { diagnoseAttentionItem, type DiagnoseResult } from '@/lib/claude';
 import { revalidateCampaign } from '@/lib/revalidate';
 import { z } from 'zod';
 
 const campaignIdSchema = z.string().min(1);
 const attentionIdSchema = z.string().min(1);
-const advanceClockSchema = z.object({
-  campaignId: z.string().min(1),
-  days: z.number().min(0).max(365),
-});
-
 export async function togglePauseResumeAction(campaignId: string) {
   const validId = campaignIdSchema.parse(campaignId);
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: validId } });
+  if (campaign.status === 'completed' || campaign.archived || !['running', 'paused'].includes(campaign.cadenceStatus)) throw new Error('Only a running or paused cadence can be resumed.');
   const next = campaign.cadenceStatus === 'running' ? 'paused' : 'running';
   await db.campaign.update({ where: { id: validId }, data: { cadenceStatus: next } });
   revalidateCampaign(validId);
@@ -29,7 +25,7 @@ export async function stopCadenceAction(campaignId: string) {
 
 export async function retryFailedSendsAction(campaignId: string) {
   const validId = campaignIdSchema.parse(campaignId);
-  const campaign = await db.campaign.findUniqueOrThrow({ where: { id: validId }, select: { simulatedNow: true, cadenceStatus: true } });
+  const campaign = await db.campaign.findUniqueOrThrow({ where: { id: validId }, select: { cadenceStatus: true } });
 
   // A stopped cadence is a deliberate, one-way-door decision (see stopCadenceAction) —
   // resurrecting its failed sends back to "queued" would contradict that and let a
@@ -40,10 +36,43 @@ export async function retryFailedSendsAction(campaignId: string) {
     return { processed: 0, sent: 0, failed: 0, remaining: 0, dailyLimitReached: false, outsideSendWindow: false, blocked: true as const };
   }
 
-  await db.cadenceSend.updateMany({
-    where: { campaignId: validId, status: 'failed' },
-    data: { status: 'queued', error: null, dueAt: campaign.simulatedNow ?? new Date() },
+  // Safeguard: do not re-queue pre-registration outreach for contacts who are now registered
+  const registeredContacts = await db.contact.findMany({
+    where: { campaignId: validId, registeredAt: { not: null } },
+    select: { id: true },
   });
+  const registeredContactIds = registeredContacts.map((c) => c.id);
+
+  const preRegSteps = await db.cadenceStep.findMany({
+    where: {
+      campaignId: validId,
+      OR: [
+        { group: 'Pre-registration' },
+        { key: { in: ['invite', 'smsInvite', 'waInvite', 'linkedin', 'nudge', 'final'] } },
+      ],
+    },
+    select: { key: true },
+  });
+  const outreachKeys = Array.from(new Set(preRegSteps.map((s) => s.key).concat(['invite', 'smsInvite', 'waInvite', 'linkedin', 'nudge', 'final'])));
+
+  if (registeredContactIds.length > 0 && outreachKeys.length > 0) {
+    await db.cadenceSend.updateMany({
+      where: {
+        campaignId: validId,
+        status: 'failed',
+        NOT: {
+          contactId: { in: registeredContactIds },
+          stepKey: { in: outreachKeys },
+        },
+      },
+      data: { status: 'queued', error: null, dueAt: new Date() },
+    });
+  } else {
+    await db.cadenceSend.updateMany({
+      where: { campaignId: validId, status: 'failed' },
+      data: { status: 'queued', error: null, dueAt: new Date() },
+    });
+  }
   const result = await processDueSends(validId);
   revalidateCampaign(validId);
   return { ...result, blocked: false as const };
@@ -52,7 +81,7 @@ export async function retryFailedSendsAction(campaignId: string) {
 export async function resolveAttentionAction(attentionId: string, campaignId: string) {
   const validAttentionId = attentionIdSchema.parse(attentionId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
-  await db.attentionItem.update({ where: { id: validAttentionId }, data: { resolvedAt: new Date() } });
+  await db.attentionItem.update({ where: { id: validAttentionId, campaignId: validCampaignId }, data: { resolvedAt: new Date() } });
   revalidateCampaign(validCampaignId);
 }
 
@@ -90,12 +119,4 @@ export async function diagnoseAttentionItemAction(attentionId: string): Promise<
   } catch (err) {
     return { ok: false, error: String(err).slice(0, 300) };
   }
-}
-
-export async function advanceSimulatedClockAction(campaignId: string, days: number) {
-  const parsed = advanceClockSchema.parse({ campaignId, days });
-  const next = await advanceSimulatedClock(parsed.campaignId, parsed.days);
-  const result = await processDueSends(parsed.campaignId);
-  revalidateCampaign(parsed.campaignId);
-  return { simulatedNow: next.toISOString(), ...result };
 }

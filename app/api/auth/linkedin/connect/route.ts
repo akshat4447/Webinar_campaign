@@ -4,17 +4,12 @@ import { randomUUID } from 'crypto';
 import { resolveIntegrationField } from '@/lib/integrationConfig';
 import { buildAuthorizationUrl } from '@/lib/linkedin/auth';
 import { db } from '@/lib/db';
+import { requestOrigin } from '@/lib/requestOrigin';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: Request) {
-  // Derived from forwarded headers, not request.url directly — behind a
-  // reverse-proxying tunnel (Cloudflare/ngrok), request.url can reflect the
-  // internal origin rather than the public one the browser actually sees.
-  // Same fix as app/api/auth/zoom/connect/route.ts.
-  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || new URL(request.url).host;
-  const proto = request.headers.get('x-forwarded-proto') || (request.url.startsWith('https') ? 'https' : 'http');
-  const origin = `${proto}://${host}`;
+  const origin = requestOrigin(request);
   const fail = (detail: string) => Response.redirect(new URL(`/integrations?connected=error&detail=${encodeURIComponent(detail)}`, origin).toString(), 302);
 
   const clientId = (await resolveIntegrationField('linkedin', 'clientId')) || process.env.LINKEDIN_CLIENT_ID;

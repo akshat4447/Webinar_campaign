@@ -65,7 +65,7 @@ async function main() {
 
   await db.campaign.update({
     where: { id: campaignId },
-    data: { cadenceStatus: 'not_started', status: 'draft', simulatedNow: null, attendanceImportedAt: null, scoringThreshold: 70 },
+    data: { cadenceStatus: 'not_started', status: 'draft', launchedAt: null, attendanceImportedAt: null, scoringThreshold: 70 },
   });
 
   await provisionCampaignDefaults(campaignId);

@@ -1,0 +1,116 @@
+/* Screen-specific styles for the results area. Built only from tokens (styles/tokens) and the primitives in styles/components.css. */
+
+/* ---------- campaign workspace shell (header, tabs, banner, error) ---------- */
+
+.lsq-res-shell {
+  flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--space-8) var(--space-16); padding: var(--space-12) var(--space-16);
+  background: var(--surface-card); border-bottom: 1px solid var(--border-subtle);
+}
+.lsq-res-shell__text { min-width: 0; flex: 1 1 240px; }
+.lsq-res-shell__name { margin: 0; font-size: var(--fs-heading-4); line-height: var(--lh-tight); font-weight: var(--fw-bold); color: var(--text-primary); overflow-wrap: anywhere; }
+.lsq-res-shell__status { display: flex; align-items: center; gap: var(--space-8); flex-shrink: 0; }
+.lsq-res-shell__statuslabel { font-size: var(--fs-label-2); color: var(--text-secondary); }
+.lsq-res-back {
+  display: inline-flex; align-items: center; gap: var(--space-4); min-height: 24px; margin-bottom: var(--space-2);
+  font-size: var(--fs-label-1); color: var(--text-secondary); text-decoration: none; border-radius: var(--radius-sm);
+}
+.lsq-res-back:hover { color: var(--text-primary); text-decoration: underline; }
+.lsq-res-back:focus-visible { outline: 2px solid var(--accent-500); outline-offset: 2px; }
+
+.lsq-res-tabbar { flex-shrink: 0; background: var(--surface-card); padding: 0 var(--space-16); min-width: 0; }
+.lsq-res-tabbar .lsq-tab { min-height: 40px; }
+.lsq-tab__dot--warn { background: var(--warning-700); }
+.lsq-res-overdue { margin: var(--space-12) var(--space-16) 0; }
+.lsq-res-errmsg { overflow-wrap: anywhere; }
+
+@media (max-width: 720px) {
+  .lsq-res-shell { padding: var(--space-8) var(--space-12); }
+  .lsq-res-shell__statuslabel { display: none; }
+  .lsq-res-tabbar { padding: 0 var(--space-8); }
+  .lsq-res-overdue { margin: var(--space-8) var(--space-12) 0; }
+}
+
+/* ---------- results page: stats, cadence control, needs attention, log ---------- */
+
+.lsq-stat__value[data-tone='warn'] { color: var(--text-danger); }
+.lsq-res-prose { margin: 0; font-size: var(--fs-label-1); line-height: var(--lh-relaxed); color: var(--text-primary); overflow-wrap: anywhere; }
+.lsq-res-clear { display: flex; align-items: center; gap: var(--space-8); font-size: var(--fs-label-1); color: var(--text-secondary); }
+.lsq-res-clear svg { color: var(--success-500); flex: none; }
+
+.lsq-res-attn {
+  display: flex; gap: var(--space-12); align-items: flex-start; padding: var(--space-12);
+  border-radius: var(--radius-md); background: var(--surface-subtle);
+}
+.lsq-res-attn__icon { flex: none; margin-top: 1px; display: inline-flex; color: var(--warning-700); }
+.lsq-res-attn[data-tone='error'] .lsq-res-attn__icon { color: var(--danger-500); }
+.lsq-res-attn__main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--space-8); }
+.lsq-res-attn__title { margin: 0; font-size: var(--fs-label-1); font-weight: var(--fw-semibold); color: var(--text-primary); overflow-wrap: anywhere; }
+.lsq-res-attn__detail { margin: 0; font-size: var(--fs-label-1); line-height: var(--lh-normal); color: var(--text-secondary); overflow-wrap: anywhere; }
+
+.lsq-res-log { list-style: none; margin: 0; padding: var(--space-8) var(--space-16) var(--space-16); }
+.lsq-res-log__item { display: flex; align-items: flex-start; gap: var(--space-12); padding: var(--space-12) 0; border-top: 1px solid var(--border-subtle); }
+.lsq-res-log__item:first-child { border-top: 0; }
+.lsq-res-log__n {
+  width: 24px; height: 24px; flex: none; border-radius: var(--radius-full); display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--fs-label-2); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums;
+  background: var(--accent-50); color: var(--accent-700);
+}
+.lsq-res-log__n[data-tone='success'] { background: var(--success-100); color: var(--success-700); }
+.lsq-res-log__n[data-tone='warning'] { background: var(--warning-100); color: var(--warning-700); }
+.lsq-res-log__main { flex: 1 1 0; min-width: 0; }
+.lsq-res-log__text { margin: 0; font-size: var(--fs-label-1); line-height: var(--lh-normal); color: var(--text-primary); overflow-wrap: anywhere; }
+.lsq-res-log__time { margin: var(--space-2) 0 0; font-size: var(--fs-label-2); color: var(--text-secondary); }
+
+/* ---------- post-event outcomes ---------- */
+
+.lsq-res-panel { background: var(--surface-subtle); border-radius: var(--radius-md); padding: var(--space-12); min-width: 0; }
+.lsq-res-panel__title { margin: 0 0 var(--space-8); font-size: var(--fs-label-2); font-weight: var(--fw-semibold); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-secondary); }
+.lsq-res-list { margin: 0; padding-left: var(--space-20); font-size: var(--fs-label-1); line-height: var(--lh-normal); color: var(--text-primary); display: flex; flex-direction: column; gap: var(--space-4); }
+.lsq-res-table { min-width: 640px; }
+.lsq-res-num { text-align: right !important; font-variant-numeric: tabular-nums; }
+
+/* ---------- dialogs (broadcast reminder, attendance import, suppression, guided send) ---------- */
+
+.lsq-res-footnote { margin-right: auto; font-size: var(--fs-label-1); color: var(--text-secondary); min-width: 0; flex: 1 1 200px; }
+.lsq-res-fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-8); min-width: 0; }
+.lsq-res-options { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-16); }
+.lsq-res-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.lsq-res-narrow { width: 96px; }
+.lsq-res-file { cursor: pointer; }
+.lsq-res-file:focus-within { outline: 2px solid var(--accent-500); outline-offset: 2px; }
+.lsq-res-tile { background: var(--surface-subtle); border-radius: var(--radius-md); padding: var(--space-12); min-width: 0; }
+.lsq-res-subform { display: flex; flex-direction: column; gap: var(--space-12); background: var(--surface-subtle); border-radius: var(--radius-md); padding: var(--space-16); }
+.lsq-res-subform__title { margin: 0; font-size: var(--fs-label-1); font-weight: var(--fw-bold); color: var(--text-primary); }
+.lsq-res-cell-end { display: flex; justify-content: flex-end; }
+
+/* Guided LinkedIn send */
+.lsq-res-runner-progress { display: flex; flex-direction: column; gap: var(--space-8); }
+.lsq-res-runner-counts { margin: 0; font-size: var(--fs-label-1); color: var(--text-secondary); }
+.lsq-res-runner-pct { font-size: var(--fs-label-1); color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.lsq-res-recipient { background: var(--surface-subtle); border-radius: var(--radius-md); padding: var(--space-12) var(--space-16); }
+.lsq-res-recipient__who { min-width: 0; }
+.lsq-res-recipient__name { font-size: var(--fs-subheading); font-weight: var(--fw-bold); color: var(--text-primary); overflow-wrap: anywhere; }
+.lsq-res-recipient__role { margin: var(--space-2) 0 0; font-size: var(--fs-label-1); color: var(--text-secondary); overflow-wrap: anywhere; }
+.lsq-res-draft { min-height: 96px; transition: var(--transition-colors); }
+.lsq-res-draft[data-copied='true'] { box-shadow: inset 0 0 0 2px var(--success-500); }
+.lsq-res-action {
+  display: flex; flex-direction: column; gap: var(--space-12); padding: var(--space-16); border-radius: var(--radius-md);
+  background: var(--accent-50); transition: var(--transition-colors);
+}
+.lsq-res-action[data-state='done'] { background: var(--component-colors-utility-success-utility-success-50); }
+.lsq-res-action__hint { margin: 0; flex: 1 1 260px; min-width: 0; font-size: var(--fs-label-1); line-height: var(--lh-normal); color: var(--text-primary); }
+.lsq-res-action__mode { font-size: var(--fs-label-1); color: var(--text-secondary); }
+.lsq-res-kbds { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-8) var(--space-16); margin: 0; font-size: var(--fs-label-2); color: var(--text-secondary); }
+.lsq-res-kbd { font-family: inherit; font-size: var(--fs-label-2); padding: var(--space-2) var(--space-6); border-radius: var(--radius-sm); background: var(--surface-subtle); box-shadow: inset 0 0 0 1px var(--border-default); color: var(--text-primary); }
+
+/* ---------- completed-cadence history rows ---------- */
+
+.lsq-res-hist-row { grid-template-columns: 36px minmax(0, 1fr) auto; }
+@media (max-width: 800px) {
+  .lsq-res-hist-row { grid-template-columns: 36px minmax(0, 1fr); }
+  .lsq-res-hist-row > :first-child { grid-column: auto; }
+}
+
+/* A card whose header is its only content still needs bottom padding. */
+.lsq-res-headonly { padding-bottom: var(--space-16); }

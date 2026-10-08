@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual, randomBytes } from 'node:crypto';
 
 /**
  * One-click sign-up links.
@@ -16,29 +16,42 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 const SEP = '.';
 const VERSION = 'v1';
+/**
+ * v2 is the compact form: `v2.<campaignId>.<contactId>.<iat base36>.<signature>` (about 85 characters
+ * instead of about 150). It exists because these links go into LinkedIn notes (300 characters) and SMS.
+ * v1 tokens already sent in messages stay valid.
+ */
+const VERSION_COMPACT = 'v2';
+const SIG_BYTES_COMPACT = 16;
 
 /** Days a link stays valid. Long enough for a webinar cycle, not forever. */
 export const TOKEN_TTL_DAYS = 120;
 
+// Development gets a process-random key, never a public constant. Production requires a stable key.
+const developmentSecret = randomBytes(32).toString('hex');
 function secret(): string {
-  // Reuses the LinkedIn client secret when present so a deployment that
-  // already has one does not need a second. Falls back to a build-local value
-  // so development works; production without either is caught by
-  // `registrationSecretIsWeak` below rather than failing silently.
-  return process.env.REGISTRATION_SECRET || process.env.LINKEDIN_CLIENT_SECRET || 'dev-only-insecure-secret';
+  if (process.env.REGISTRATION_SECRET?.length && process.env.REGISTRATION_SECRET.length >= 32) return process.env.REGISTRATION_SECRET;
+  if (process.env.NODE_ENV === 'production') throw new Error('REGISTRATION_SECRET must contain at least 32 characters.');
+  return developmentSecret;
 }
-
-/** True when the signing key is the built-in development fallback. */
 export function registrationSecretIsWeak(): boolean {
-  return !process.env.REGISTRATION_SECRET && !process.env.LINKEDIN_CLIENT_SECRET;
+  return !process.env.REGISTRATION_SECRET || process.env.REGISTRATION_SECRET.length < 32;
 }
 
 function b64url(input: Buffer | string): string {
-  return Buffer.from(input).toString('base64url');
+  const buf = typeof input === 'string' ? Buffer.from(input, 'utf8') : input;
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fromB64url(str: string): Buffer {
+  const pad = str.length % 4 === 0 ? '' : '='.repeat(4 - (str.length % 4));
+  const base64 = (str + pad).replace(/-/g, '+').replace(/_/g, '/');
+  return Buffer.from(base64, 'base64');
 }
 
 function sign(payload: string): string {
-  return createHmac('sha256', secret()).update(payload).digest('base64url');
+  const digest = createHmac('sha256', secret()).update(payload).digest('base64');
+  return digest.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 export interface TokenPayload {
@@ -51,8 +64,18 @@ export interface TokenPayload {
 /** Mint a signed link token for one contact on one campaign. */
 export function mintRegistrationToken(campaignId: string, contactId: string, now = new Date()): string {
   const iat = Math.floor(now.getTime() / 1000);
-  const body = b64url(JSON.stringify({ campaignId, contactId, iat }));
-  return [VERSION, body, sign(`${VERSION}${SEP}${body}`)].join(SEP);
+  // Ids containing the separator cannot be encoded compactly; fall back to the self-describing v1 form.
+  if (campaignId.includes(SEP) || contactId.includes(SEP)) {
+    const body = b64url(JSON.stringify({ campaignId, contactId, iat }));
+    return [VERSION, body, sign(`${VERSION}${SEP}${body}`)].join(SEP);
+  }
+  const head = [VERSION_COMPACT, campaignId, contactId, iat.toString(36)].join(SEP);
+  return `${head}${SEP}${signCompact(head)}`;
+}
+
+function signCompact(head: string): string {
+  const digest = createHmac('sha256', secret()).update(head).digest().subarray(0, SIG_BYTES_COMPACT);
+  return b64url(digest);
 }
 
 export type VerifyResult =
@@ -65,22 +88,34 @@ export type VerifyResult =
  */
 export function verifyRegistrationToken(token: string, now = new Date()): VerifyResult {
   const parts = token.split(SEP);
-  if (parts.length !== 3 || parts[0] !== VERSION) return { ok: false, reason: 'malformed' };
-
-  const [, body, provided] = parts;
-  const expected = sign(`${VERSION}${SEP}${body}`);
-
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  // timingSafeEqual throws on length mismatch, which is itself a leak of
-  // information — compare lengths first and fail the same way.
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return { ok: false, reason: 'bad-signature' };
-
   let payload: TokenPayload;
-  try {
-    payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as TokenPayload;
-  } catch {
-    return { ok: false, reason: 'malformed' };
+
+  if (parts[0] === VERSION_COMPACT && parts.length === 5) {
+    const [, campaignId, contactId, iat36, provided] = parts;
+    const expected = signCompact([VERSION_COMPACT, campaignId, contactId, iat36].join(SEP));
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return { ok: false, reason: 'bad-signature' };
+    const iat = parseInt(iat36, 36);
+    if (!campaignId || !contactId || !Number.isFinite(iat)) return { ok: false, reason: 'malformed' };
+    payload = { campaignId, contactId, iat };
+  } else {
+    if (parts.length !== 3 || parts[0] !== VERSION) return { ok: false, reason: 'malformed' };
+
+    const [, body, provided] = parts;
+    const expected = sign(`${VERSION}${SEP}${body}`);
+
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    // timingSafeEqual throws on length mismatch, which is itself a leak of
+    // information — compare lengths first and fail the same way.
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return { ok: false, reason: 'bad-signature' };
+
+    try {
+      payload = JSON.parse(fromB64url(body).toString('utf8')) as TokenPayload;
+    } catch {
+      return { ok: false, reason: 'malformed' };
+    }
   }
   if (!payload?.campaignId || !payload?.contactId || typeof payload.iat !== 'number' || !Number.isFinite(payload.iat)) {
     return { ok: false, reason: 'malformed' };
@@ -93,8 +128,9 @@ export function verifyRegistrationToken(token: string, now = new Date()): Verify
 }
 
 /** The link that goes into a message. */
-export function registrationUrl(origin: string, campaignId: string, contactId: string): string {
-  return `${origin.replace(/\/$/, '')}/r/${mintRegistrationToken(campaignId, contactId)}`;
+export function registrationUrl(origin: string, campaignId: string, contactId: string, channel?: string): string {
+  const base = `${origin.replace(/\/$/, '')}/r/${mintRegistrationToken(campaignId, contactId)}`;
+  return channel ? `${base}?source=${encodeURIComponent(channel)}` : base;
 }
 
 /**

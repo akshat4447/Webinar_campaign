@@ -1,5 +1,16 @@
 import { db } from '@/lib/db';
 
+const DETAIL_MAX = 600;
+
+/** Clips at a word boundary with an ellipsis, so a long provider error never ends mid-word. */
+export function clipDetail(text: string, max = DETAIL_MAX): string {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[\s,;:.\-]+$/, '')}…`;
+}
+
 // Upsert-by-title so repeated failures of the same underlying thing (a retry
 // against a still-broken send, a still-misconfigured LSQ list, etc.) update
 // one card instead of piling up a new one on every attempt.
@@ -7,6 +18,7 @@ export async function upsertAttentionItem(
   campaignId: string,
   item: { icon: string; color: string; title: string; detail: string; actionsCsv: string }
 ) {
+  item = { ...item, detail: clipDetail(item.detail) };
   const existing = await db.attentionItem.findFirst({ where: { campaignId, title: item.title, resolvedAt: null } });
   if (existing) {
     await db.attentionItem.update({ where: { id: existing.id }, data: { detail: item.detail, createdAt: new Date() } });

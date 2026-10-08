@@ -1,5 +1,13 @@
 import { db } from '@/lib/db';
 import type { Campaign } from '@/lib/generated/prisma/client';
+import { formatAttendanceRate } from '@/lib/attendanceRate';
+import { INVITE_STEP_KEYS } from '@/lib/cadenceStepKinds';
+
+/** Only the scalar fields these card/KPI helpers actually read — callers
+ *  (the webinar list) fetch campaigns with a `select` for exactly this
+ *  reason, so this must stay a subset rather than the full `Campaign` type. */
+type CardStatsCampaign = Pick<Campaign, 'status' | 'invites' | 'registrations' | 'attendance' | 'demoRequests'>;
+type ListKpiCampaign = Pick<Campaign, 'id' | 'status' | 'registrations' | 'attendance'> & { scheduledAt?: Date | null };
 
 export interface CardStat {
   label: string;
@@ -12,9 +20,64 @@ export type CardStats = [CardStat, CardStat, CardStat];
 
 const DASH = '—';
 
-function pct(part: number, whole: number): string {
-  if (whole <= 0) return DASH;
-  return `${Math.round((part / whole) * 100)}%`;
+export interface CampaignCardCounts {
+  contacts: number;
+  /** Sent cadence steps whose stepKey is one of INVITE_STEP_KEYS — matches
+   *  the dashboard's "Invites sent" KPI (lib/analytics.ts). This used to
+   *  count every sent step (invites + reminders + follow-ups), so a campaign
+   *  with reminder steps configured showed a higher "Invites sent" on its own
+   *  card than the same campaign contributed to the dashboard total. */
+  invitesSent: number;
+  scored: number;
+  approved: number;
+  attended: number;
+  registered: number;
+}
+
+const EMPTY_COUNTS: CampaignCardCounts = { contacts: 0, invitesSent: 0, scored: 0, approved: 0, attended: 0, registered: 0 };
+
+/**
+ * Every card figure for a whole page of campaigns, in a fixed six queries
+ * regardless of how many campaigns there are.
+ *
+ * This replaced six per-campaign `count()` calls — 50 campaigns on the webinar
+ * list meant 301 round trips before the grid could render, and it grew
+ * linearly with the number of campaigns an account accumulated.
+ */
+export async function getCampaignCardCounts(campaignIds: string[]): Promise<Map<string, CampaignCardCounts>> {
+  const byId = new Map<string, CampaignCardCounts>();
+  if (campaignIds.length === 0) return byId;
+
+  const scope = { campaignId: { in: campaignIds } };
+  const [contacts, invitesSent, scored, approved, attended, registered] = await Promise.all([
+    db.contact.groupBy({ by: ['campaignId'], where: scope, _count: { _all: true } }),
+    db.cadenceSend.groupBy({
+      by: ['campaignId', 'contactId'],
+      where: { ...scope, status: 'sent', stepKey: { in: INVITE_STEP_KEYS } },
+      _count: { _all: true },
+    }),
+    db.contact.groupBy({ by: ['campaignId'], where: { ...scope, score: { not: null } }, _count: { _all: true } }),
+    db.contact.groupBy({ by: ['campaignId'], where: { ...scope, approved: true }, _count: { _all: true } }),
+    db.contact.groupBy({ by: ['campaignId'], where: { ...scope, attended: true }, _count: { _all: true } }),
+    db.contact.groupBy({ by: ['campaignId'], where: { ...scope, registeredAt: { not: null } }, _count: { _all: true } }),
+  ]);
+
+  const ensure = (id: string) => {
+    const existing = byId.get(id);
+    if (existing) return existing;
+    const fresh = { ...EMPTY_COUNTS };
+    byId.set(id, fresh);
+    return fresh;
+  };
+
+  for (const r of contacts) ensure(r.campaignId).contacts = r._count._all;
+  for (const r of invitesSent) ensure(r.campaignId).invitesSent += 1;
+  for (const r of scored) ensure(r.campaignId).scored = r._count._all;
+  for (const r of approved) ensure(r.campaignId).approved = r._count._all;
+  for (const r of attended) ensure(r.campaignId).attended = r._count._all;
+  for (const r of registered) ensure(r.campaignId).registered = r._count._all;
+
+  return byId;
 }
 
 /**
@@ -26,40 +89,12 @@ function pct(part: number, whole: number): string {
  * fresh draft) falls back to its stored summary fields. Once real contacts
  * exist, everything here is computed live.
  */
-export async function getCampaignCardStats(campaign: Campaign): Promise<CardStats> {
-  const contactCount = await db.contact.count({ where: { campaignId: campaign.id } });
+export function getCampaignCardStats(campaign: CardStatsCampaign, counts: CampaignCardCounts = EMPTY_COUNTS): CardStats {
+  const contactCount = counts.contacts;
 
-  if (contactCount === 0) {
-    if (campaign.status === 'draft') {
-      return [
-        { label: 'Contacts', value: 0 },
-        { label: 'Approved', value: DASH },
-        { label: 'Status', value: 'Not started' },
-      ];
-    }
-    if (campaign.status === 'live') {
-      return [
-        { label: 'Invites sent', value: campaign.invites ?? DASH },
-        { label: 'Registered', value: campaign.registrations ?? DASH },
-        { label: 'Capacity', value: DASH },
-      ];
-    }
-    return [
-      { label: 'Registered', value: campaign.registrations ?? DASH },
-      { label: 'Attendance', value: campaign.attendance ?? DASH },
-      { label: 'Demo reqs', value: campaign.demoRequests ?? DASH },
-    ];
-  }
+  const { invitesSent: sentCount, scored: scoredCount, approved: approvedCount, attended: attendedCount, registered: registeredCount } = counts;
 
-  const [sentCount, scoredCount, approvedCount, attendedCount, registeredCount] = await Promise.all([
-    db.cadenceSend.count({ where: { campaignId: campaign.id, status: 'sent' } }),
-    db.contact.count({ where: { campaignId: campaign.id, score: { not: null } } }),
-    db.contact.count({ where: { campaignId: campaign.id, approved: true } }),
-    db.contact.count({ where: { campaignId: campaign.id, attended: true } }),
-    db.contact.count({ where: { campaignId: campaign.id, registeredAt: { not: null } } }),
-  ]);
-
-  const registered = campaign.registrations ?? registeredCount;
+  const registered = registeredCount;
 
   if (campaign.status === 'draft') {
     return [
@@ -73,14 +108,17 @@ export async function getCampaignCardStats(campaign: Campaign): Promise<CardStat
     return [
       { label: 'Invites sent', value: sentCount },
       { label: 'Approved', value: approvedCount },
-      { label: 'Registered', value: registered || DASH },
+      { label: 'Registered', value: registered },
     ];
   }
 
   return [
-    { label: 'Registered', value: registered || DASH },
+    { label: 'Registered', value: registered },
     { label: 'Attended', value: attendedCount },
-    { label: 'Attendance', value: attendedCount > 0 ? pct(attendedCount, approvedCount) : (campaign.attendance ?? DASH) },
+    // Shared definition (attended / registered) — this used to divide by
+    // approved, so the same campaign read a different attendance rate here
+    // than on the dashboard and its own Overview tab.
+    { label: 'Attendance', value: formatAttendanceRate(attendedCount, registered) },
   ];
 }
 
@@ -96,30 +134,20 @@ export interface ListKpi {
  * the grid below hides them is the kind of mismatch nobody reports but
  * everybody distrusts.
  */
-export function getListKpis(campaigns: Campaign[], attendedByCampaign: Map<string, { attended: number; approved: number }>): ListKpi[] {
-  const upcoming = campaigns.filter((c) => c.status === 'live' || c.status === 'draft').length;
-
-  const totalRegistered = campaigns.reduce((sum, c) => sum + (c.registrations ?? 0), 0);
-
-  // Averaged over campaigns that actually have an attendance figure, not over
-  // every campaign — dividing by campaigns that never ran would drag the mean
-  // towards zero and make a healthy programme look broken.
-  const rates: number[] = [];
-  for (const c of campaigns) {
-    const live = attendedByCampaign.get(c.id);
-    if (live && live.approved > 0 && live.attended > 0) {
-      rates.push((live.attended / live.approved) * 100);
-      continue;
-    }
-    const stored = c.attendance ? Number.parseFloat(c.attendance) : NaN;
-    if (Number.isFinite(stored)) rates.push(stored);
-  }
-  const avgAttendance = rates.length > 0 ? `${Math.round(rates.reduce((a, b) => a + b, 0) / rates.length)}%` : DASH;
+export function getListKpis(
+  campaigns: ListKpiCampaign[],
+  attendedByCampaign: Map<string, { attended: number; registered: number }>
+): ListKpi[] {
+  const upcoming = campaigns.filter(c => (c.status === 'live' || c.status === 'draft') && c.scheduledAt && c.scheduledAt > new Date()).length;
+  const totalRegistered = campaigns.reduce((sum, c) => sum + (attendedByCampaign.get(c.id)?.registered ?? 0), 0);
+  const rates = campaigns.filter(c => c.status === 'completed').map(c => attendedByCampaign.get(c.id)).filter((c): c is {attended:number;registered:number} => !!c && c.registered > 0);
+  const denominator = rates.reduce((sum,c) => sum + c.registered, 0);
+  const avgAttendance = denominator ? `${Math.round(rates.reduce((sum,c) => sum + c.attended, 0) / denominator * 100)}%` : DASH;
 
   return [
     { label: 'Webinars', value: String(campaigns.length) },
     { label: 'Upcoming', value: String(upcoming) },
-    { label: 'Total registered', value: totalRegistered > 0 ? totalRegistered.toLocaleString() : DASH },
+    { label: 'Total registered', value: totalRegistered.toLocaleString() },
     { label: 'Avg. attendance', value: avgAttendance },
   ];
 }

@@ -19,12 +19,12 @@ export async function register() {
   // separate modules the edge bundle never reaches.
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
-  if (process.env.CADENCE_AUTOTICK) {
+  if (['1', 'true'].includes(process.env.CADENCE_AUTOTICK ?? '')) {
     const { startCadenceAutotick } = await import('./lib/cadenceAutotick');
     startCadenceAutotick();
   }
 
-  if (process.env.ZOOM_AUTOSYNC) {
+  if (['1', 'true'].includes(process.env.ZOOM_AUTOSYNC ?? '')) {
     const { startZoomAutosync } = await import('./lib/zoomAutosync');
     startZoomAutosync();
   }

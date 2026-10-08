@@ -1,0 +1,172 @@
+/* Screen-specific styles for the overview area. Built only from tokens (styles/tokens) and the primitives in styles/components.css. */
+
+/* ---------- scroll container (overview + audience tabs) ---------------------------------------------------- */
+
+.lsq-ov-main { flex: 1; overflow-y: auto; min-width: 0; }
+
+/* ---------- page header ------------------------------------------------------------------------------------- */
+
+.lsq-ov-titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); }
+
+/* ---------- two-up and key/value layouts ----------------------------------------------------------------------- */
+
+.lsq-ov-split { display: grid; gap: var(--space-12); grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.lsq-ov-split--wide { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+@media (max-width: 900px) {
+  .lsq-ov-split, .lsq-ov-split--wide { grid-template-columns: minmax(0, 1fr); }
+}
+.lsq-ov-desc { margin: 0 0 var(--space-12); font-size: var(--fs-label-1); line-height: var(--lh-relaxed); color: var(--text-secondary); }
+.lsq-ov-list { margin: 0; padding-left: var(--space-20); display: flex; flex-direction: column; gap: var(--space-8); font-size: var(--fs-label-1); line-height: var(--lh-normal); color: var(--text-primary); }
+.lsq-ov-muted { margin: 0; font-size: var(--fs-label-1); color: var(--text-secondary); line-height: var(--lh-normal); }
+
+/* ---------- KPI stats ------------------------------------------------------------------------------------------- */
+
+.lsq-ov-stat[data-tone='accent'] .lsq-stat__value { color: var(--accent-500); }
+.lsq-ov-stat[data-tone='good'] .lsq-stat__value { color: var(--text-success); }
+.lsq-ov-stat[data-tone='warn'] .lsq-stat__value { color: var(--warning-700); }
+.lsq-ov-stat[data-tone='warn'] .lsq-stat__note { color: var(--warning-700); }
+
+/* ---------- funnel + horizontal bar lists --------------------------------------------------------------------- */
+
+.lsq-ov-bars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-8); }
+.lsq-ov-bar {
+  display: grid; align-items: center; gap: var(--space-12); width: 100%;
+  grid-template-columns: minmax(96px, 190px) minmax(0, 1fr) minmax(40px, auto) minmax(48px, auto);
+  font-size: var(--fs-label-1); color: var(--text-primary);
+}
+.lsq-ov-bar--3 { grid-template-columns: minmax(96px, 190px) minmax(0, 1fr) minmax(40px, auto); }
+.lsq-ov-bar__label { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; text-align: left; }
+.lsq-ov-bar__value { font-weight: var(--fw-bold); color: var(--text-primary); text-align: right; font-variant-numeric: tabular-nums; }
+.lsq-ov-bar__aux { font-size: var(--fs-label-2); font-weight: var(--fw-semibold); text-align: right; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.lsq-ov-bar__aux[data-tone='good'] { color: var(--text-success); }
+.lsq-ov-bar__aux[data-tone='warn'] { color: var(--warning-700); }
+.lsq-ov-bar__aux[data-tone='bad'] { color: var(--text-danger); }
+
+/* A funnel row that opens the records drawer: a real button, laid out like the static rows. */
+button.lsq-ov-bar {
+  appearance: none; border: 0; background: transparent; font-family: inherit; cursor: pointer;
+  padding: var(--space-6) var(--space-8); margin: 0 calc(var(--space-8) * -1); width: calc(100% + var(--space-16));
+  border-radius: var(--radius-md); min-height: 32px; transition: var(--transition-colors);
+}
+button.lsq-ov-bar:hover { background: var(--surface-hover); }
+button.lsq-ov-bar:focus-visible { outline: 2px solid var(--accent-500); outline-offset: 1px; }
+
+/* Inside a button the bar is built from spans. */
+.lsq-ov-bar .lsq-progress, .lsq-ov-bar .lsq-progress__bar { display: block; }
+
+@media (max-width: 720px) {
+  .lsq-ov-bar, .lsq-ov-bar--3 { grid-template-columns: minmax(0, 1fr) auto auto; row-gap: var(--space-4); }
+  .lsq-ov-bar__label { grid-column: 1 / -1; }
+  .lsq-ov-bar .lsq-progress { grid-column: 1; }
+}
+
+/* A progress bar with the percentage next to it (rate columns, channel share). */
+.lsq-ov-rate { display: flex; align-items: center; gap: var(--space-8); min-width: 120px; }
+.lsq-ov-rate .lsq-progress { flex: 1 1 auto; min-width: 48px; }
+.lsq-ov-rate__text { flex: none; min-width: 36px; text-align: right; font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
+
+/* Tall progress bar used for the attended / no-show split. */
+.lsq-progress--lg { height: 12px; }
+
+.lsq-ov-num { text-align: right; font-variant-numeric: tabular-nums; }
+.lsq-table th.lsq-ov-num { text-align: right; }
+.lsq-ov-subtle { color: var(--text-secondary); }
+.lsq-ov-disabled { color: var(--text-disabled); }
+.lsq-ov-danger { color: var(--text-danger); }
+
+/* ---------- small summary tiles (delivery by channel, attendees by channel) --------------------------------- */
+
+.lsq-ov-tiles { display: grid; gap: var(--space-12); grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.lsq-ov-tile { background: var(--surface-subtle); border-radius: var(--radius-md); padding: var(--space-12); min-width: 0; }
+.lsq-ov-tile__label { margin: 0; font-size: var(--fs-label-2); font-weight: var(--fw-semibold); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-secondary); overflow-wrap: anywhere; }
+.lsq-ov-tile__value { margin: var(--space-4) 0 0; font-size: var(--fs-heading-2); font-weight: var(--fw-bold); line-height: var(--lh-tight); color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.lsq-ov-tile__note { margin: var(--space-4) 0 0; font-size: var(--fs-label-1); color: var(--text-secondary); }
+
+/* ---------- attended vs no-show ---------------------------------------------------------------------------------- */
+
+.lsq-ov-split-counts { display: flex; justify-content: space-between; gap: var(--space-12); font-size: var(--fs-label-1); color: var(--text-secondary); }
+.lsq-ov-split-counts strong { font-size: var(--fs-body); color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.lsq-ov-split-counts strong[data-tone='accent'] { color: var(--accent-500); }
+
+/* ---------- registration by channel -------------------------------------------------------------------------------- */
+
+.lsq-ov-reg-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); }
+.lsq-ov-reg-total { display: inline-flex; align-items: baseline; gap: var(--space-6); font-size: var(--fs-label-1); color: var(--text-secondary); }
+.lsq-ov-reg-total strong { font-size: var(--fs-heading-3); font-weight: var(--fw-bold); color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.lsq-ov-chan { display: flex; align-items: center; gap: var(--space-12); min-width: 200px; }
+.lsq-ov-chan__icon { width: 32px; height: 32px; border-radius: var(--radius-full); background: var(--surface-subtle); color: var(--text-secondary); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.lsq-ov-chan__name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4) var(--space-8); }
+.lsq-ov-chan__label { appearance: none; background: none; border: 0; padding: 0; font: inherit; font-weight: var(--fw-semibold); color: var(--text-primary); cursor: pointer; text-align: left; }
+.lsq-ov-chan__label:hover { color: var(--accent-500); text-decoration: underline; }
+.lsq-ov-chan__label:focus-visible { outline: 2px solid var(--accent-500); outline-offset: 2px; border-radius: var(--radius-sm); }
+.lsq-ov-chan__desc { margin: var(--space-2) 0 0; font-size: var(--fs-label-1); color: var(--text-secondary); }
+.lsq-ov-link { display: flex; align-items: center; gap: var(--space-8); min-width: 200px; }
+.lsq-ov-link__url { flex: 1 1 0; min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--fs-label-2); color: var(--text-secondary); }
+.lsq-ov-reg-row[data-empty='true'] .lsq-ov-reg-count { color: var(--text-secondary); }
+.lsq-ov-reg-count { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
+
+/* ---------- modal footer with a left-aligned secondary action ------------------------------------------------------ */
+
+.lsq-ov-foot-start { margin-right: auto; }
+
+/* ---------- audience ------------------------------------------------------------------------------------------------- */
+
+.lsq-ov-aud-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-12); }
+.lsq-ov-aud-head__who { display: flex; align-items: center; gap: var(--space-12); min-width: 0; }
+.lsq-ov-aud-head__title { margin: 0; font-size: var(--fs-label-1); font-weight: var(--fw-bold); color: var(--text-primary); }
+.lsq-ov-aud-head__sub { margin: var(--space-2) 0 0; font-size: var(--fs-label-1); color: var(--text-secondary); overflow-wrap: anywhere; }
+.lsq-ov-aud-config { display: flex; flex-direction: column; gap: var(--space-12); padding-top: var(--space-16); border-top: 1px solid var(--border-subtle); }
+.lsq-ov-range { width: 100%; accent-color: var(--accent-500); }
+
+/* Score distribution: a segmented bar with a legend. Segment widths and colours come from data. */
+.lsq-ov-dist { display: flex; height: 12px; border-radius: var(--radius-full); overflow: hidden; background: var(--n20); }
+.lsq-ov-legend { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-16); margin: 0; padding: 0; list-style: none; font-size: var(--fs-label-1); }
+.lsq-ov-legend li { display: inline-flex; align-items: center; gap: var(--space-6); }
+.lsq-ov-legend__dot { width: 8px; height: 8px; border-radius: var(--radius-full); flex: none; }
+.lsq-ov-legend strong { font-variant-numeric: tabular-nums; }
+
+.lsq-ov-filter-form { display: flex; flex: 1 1 260px; gap: var(--space-8); min-width: 0; }
+.lsq-ov-filter-form .lsq-search { flex: 1 1 200px; max-width: 360px; }
+.lsq-ov-bands { flex-wrap: wrap; }
+
+.lsq-ov-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-8); }
+
+.lsq-ov-contact { display: flex; align-items: center; gap: var(--space-12); min-width: 0; }
+.lsq-ov-contact__name { font-weight: var(--fw-semibold); color: var(--text-primary); overflow-wrap: anywhere; }
+.lsq-ov-contact__meta { font-size: var(--fs-label-2); color: var(--text-secondary); }
+.lsq-ov-contact__meta[data-warn='true'] { color: var(--warning-700); }
+.lsq-ov-sub { display: block; font-size: var(--fs-label-2); color: var(--text-secondary); }
+.lsq-ov-table--aud { min-width: 900px; }
+.lsq-ov-table--aud th:first-child, .lsq-ov-table--aud td:first-child { width: 48px; }
+.lsq-ov-table--aud tr[data-approved='false'] > td:not(:first-child):not(.lsq-ov-score) { opacity: 0.6; }
+.lsq-ov-score { min-width: 190px; }
+.lsq-ov-score__line { display: flex; align-items: center; gap: var(--space-8); }
+.lsq-ov-score__line .lsq-progress { width: 64px; flex: none; }
+.lsq-ov-score__why { margin-top: var(--space-4); }
+.lsq-ov-why { margin: 0; padding: var(--space-8) var(--space-12); background: var(--surface-subtle); border-radius: var(--radius-md); font-size: var(--fs-label-1); line-height: var(--lh-normal); color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 520px; }
+.lsq-ov-why + .lsq-ov-why { margin-top: var(--space-4); }
+.lsq-ov-phone { display: flex; flex-direction: column; gap: var(--space-2); }
+.lsq-ov-phone input.lsq-input { width: 150px; height: 32px; }
+.lsq-ov-phone__state { font-size: var(--fs-label-2); color: var(--text-secondary); }
+.lsq-ov-phone__state[data-tone='good'] { color: var(--text-success); }
+.lsq-ov-phone__state[data-tone='bad'] { color: var(--text-danger); }
+
+.lsq-ov-center { max-width: 640px; margin-inline: auto; width: 100%; }
+.lsq-ov-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-8); }
+.lsq-ov-importing { display: flex; flex-direction: column; gap: var(--space-16); }
+
+/* An <a> styled as a button (next/link): keep the button colours on hover instead of the global link hover. */
+.lsq-ov-linkbtn, .lsq-ov-linkbtn:hover { text-decoration: none; }
+.lsq-ov-linkbtn.lsq-btn--secondary, .lsq-ov-linkbtn.lsq-btn--secondary:hover { color: var(--text-primary); }
+.lsq-ov-linkbtn.lsq-btn--secondary-color, .lsq-ov-linkbtn.lsq-btn--secondary-color:hover { color: var(--accent-500); }
+.lsq-ov-linkbtn.lsq-btn--primary, .lsq-ov-linkbtn.lsq-btn--primary:hover { color: var(--text-inverse); }
+
+/* Row headers inside data tables read as cells, not as column headings. */
+.lsq-table tbody th[scope='row'] {
+  padding: var(--space-12); text-align: left; background: transparent; text-transform: none; letter-spacing: 0;
+  font-size: var(--fs-label-1); font-weight: var(--fw-semibold); color: var(--text-primary); white-space: normal;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.lsq-table tbody tr:last-child th[scope='row'] { border-bottom: 0; }
+
+.lsq-card__header + .lsq-table-wrap { margin-top: var(--space-12); }

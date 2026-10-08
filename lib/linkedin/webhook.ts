@@ -12,7 +12,8 @@ export function verifyLinkedInSignature(rawBody: string, clientSecret: string, s
   if (!rawBody || !clientSecret || !signatureHex) return false;
   const expected = createHmac('sha256', clientSecret).update(rawBody, 'utf8').digest('hex');
   const a = Buffer.from(expected, 'utf8');
-  const b = Buffer.from(signatureHex.trim().toLowerCase(), 'utf8');
+  const cleanSig = signatureHex.replace(/^(hmac)?sha256=/i, '').trim().toLowerCase();
+  const b = Buffer.from(cleanSig, 'utf8');
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
 }

@@ -31,6 +31,13 @@ export function isPreWebinarReminder(stepKey: string): boolean {
   return PRE_WEBINAR_REMINDER_KEYS.has(stepKey);
 }
 
+/** Built-in pre-registration outreach steps that must NEVER be sent to already-registered contacts. */
+export const PRE_REGISTRATION_OUTREACH_KEYS = new Set(['invite', 'smsInvite', 'waInvite', 'linkedin', 'nudge', 'final']);
+
+export function isPreRegistrationOutreach(stepKey: string): boolean {
+  return PRE_REGISTRATION_OUTREACH_KEYS.has(stepKey);
+}
+
 export function isStepTrigger(value: string): value is StepTrigger {
   return (STEP_TRIGGERS as string[]).includes(value);
 }

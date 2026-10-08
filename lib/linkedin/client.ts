@@ -15,20 +15,6 @@ export async function linkedinIsConfigured(): Promise<boolean> {
   return !!(await storedAccessToken());
 }
 
-/**
- * Resolves active LinkedIn mode: checks the DB setting, then the env var,
- * then defaults to live once an account is actually connected — same
- * resolution order as lib/zoom/client.ts's getZoomMode(), so connecting a
- * real account doesn't also require an env-var change plus a server restart
- * just to start using it.
- */
-export async function getLinkedinMode(): Promise<'sandbox' | 'live'> {
-  const configured = await resolveIntegrationField('linkedin', 'mode');
-  if (configured === 'live' || configured === 'sandbox') return configured;
-  if (process.env.LINKEDIN_MODE === 'live') return 'live';
-  return (await linkedinIsConfigured()) ? 'live' : 'sandbox';
-}
-
 export class LinkedInError extends Error {
   constructor(
     public status: number,

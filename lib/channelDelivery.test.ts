@@ -9,6 +9,13 @@ vi.mock('@/lib/db', () => ({
         const val = appSettingsStore.get(where.key);
         return val !== undefined ? { key: where.key, value: val } : null;
       }),
+      findMany: vi.fn(async ({ where }: { where?: { key?: { in?: string[] } } }) => {
+        const keys = where?.key?.in;
+        if (keys) {
+          return keys.map((k) => ({ key: k, value: appSettingsStore.get(k) })).filter((x): x is { key: string; value: string } => x.value !== undefined);
+        }
+        return Array.from(appSettingsStore.entries()).map(([key, value]) => ({ key, value }));
+      }),
       upsert: vi.fn(async ({ where, create, update }: { where: { key: string }; create: { key: string; value: string }; update: { value: string } }) => {
         const val = update?.value ?? create?.value;
         appSettingsStore.set(where.key, val);
@@ -43,7 +50,7 @@ describe('Channel Delivery Two-Mode System', () => {
       executeDirectSend({
         channel: 'sms',
         endpoint: 'invalid-url',
-        phone: '+919123443870',
+        phone: '+12025550123',
         message: 'Hello test',
       })
     ).rejects.toThrow(/must be a valid HTTP\/HTTPS URL/);
@@ -54,7 +61,7 @@ describe('Channel Delivery Two-Mode System', () => {
       executeDirectSend({
         channel: 'whatsapp',
         endpoint: '',
-        phone: '+919123443870',
+        phone: '+12025550123',
         message: 'Hello test',
       })
     ).rejects.toThrow(/must be a valid HTTP\/HTTPS URL/);

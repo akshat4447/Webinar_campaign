@@ -1,121 +1,82 @@
 # Webinar Studio
 
-An agent that runs B2B webinar campaigns end-to-end: import and score an audience with Claude, enrich sparse contacts with real Apollo/Apify calls, personalize multi-channel outreach (Email · LinkedIn · SMS · WhatsApp through LeadSquared), create and sync a **Zoom** meeting, publish an official **LinkedIn Event** with a registration form, ingest every signup back through **Lead Sync**, and sync everything to **LeadSquared** as real leads and activities.
+A webinar operations app: prepare an audience, score and enrich contacts, approve messages, schedule outreach, register attendees, sync Zoom/LeadSquared, and review attendance and delivery history.
 
-## Stack
+The operator app and worker endpoint have no login, role checks, or authorization gates, as requested. Provider OAuth, verified webhooks, and signed attendee links remain part of the integration and attendee workflows. Delivery uses actual configured providers and actual selected recipients; there is no delivery sandbox, allowlist redirection, simulated clock, or fabricated integration success.
 
-- Next.js 16 (App Router, Turbopack) · React 19 · TypeScript strict
-- Prisma 7 (`prisma-client` generator → `lib/generated/prisma`) on **Postgres**, via the `@prisma/adapter-pg` driver adapter
-- Anthropic SDK (scoring, personalization, enrichment, copy angles, post-event debrief, error diagnosis)
-- Vitest · ESLint
+## Setup
 
-## Local setup
+Use Node 24.x and PostgreSQL 16 or newer. Install the dependencies, copy `.env.example` to `.env.local`, and configure `DATABASE_URL`, `APP_ORIGIN`, and two independently generated persistent keys: `REGISTRATION_SECRET` and `CREDENTIALS_ENCRYPTION_KEY` (at least 32 characters each). Keep encrypted database backups together with securely stored copies of the keys.
 
-Needs a real Postgres database — there's no SQLite fallback.
-
-```bash
-npm install
-createdb webinar_studio_dev          # or use any Postgres instance you already have
-cp .env.example .env.local           # fill in real values, at least DATABASE_URL
-npx prisma migrate dev               # applies schema, generates the client
-npm run db:seed                      # optional demo data (5 sample campaigns)
-npm run dev                          # http://localhost:3000
+```sh
+npm ci
+npm run db:migrate:deploy
+npm run dev
 ```
 
-## Environment variables
+Configure the actual providers on Integrations. Email can use LeadSquared or Netcore with a valid sender; phone channels can use a configured public HTTPS gateway or a LeadSquared automation trigger. A trigger accepted by CRM is reported as queued, not confirmed recipient delivery. LinkedIn outreach remains assisted/manual. Missing provider configuration produces a visible blocked/failed result.
 
-See `.env.example` for the full, commented list. Summary:
+The optional seed/reset scripts create demo records; they are not deployment steps. The `emailSimulated` contact field records an inferred, unverified address and prevents sending guesses. It is not a delivery mode.
 
-| Group | Keys | Required? |
-|---|---|---|
-| Database | `DATABASE_URL` | **Yes** — a Postgres connection string |
-| Claude | `ANTHROPIC_API_KEY` | Yes — scoring/personalization/enrichment won't run without it |
-| LeadSquared | `LSQ_ACCESS_KEY` `LSQ_SECRET_KEY` `LSQ_HOST` `LSQ_SENDER_EMAIL` | Yes — all real sends and CRM sync go through LSQ |
-| Send safety | `SEND_MODE=sandbox\|live` · `SEND_ALLOWLIST_LEAD_EMAIL` | Yes — sandbox by default; every send redirects to the allowlisted lead until you flip this |
-| Apollo | `APOLLO_API_KEY` | Optional — real email-match enrichment + LinkedIn pre-send verification; falls back to a clearly-flagged, unverified guess when absent |
-| Apify | *(Integrations page only, no env var)* | Optional — real web-context grounding for enrichment |
-| Zoom | `ZOOM_MODE` `ZOOM_CLIENT_ID/SECRET` `ZOOM_REDIRECT_URI` `ZOOM_AUTOSYNC` | Optional — meeting creation + attendance import |
-| LinkedIn | `LINKEDIN_MODE` `LINKEDIN_CLIENT_ID/SECRET` `LINKEDIN_REDIRECT_URI` `LINKEDIN_VERSION` `LINKEDIN_ORGANIZATION_URN` | Optional — Events publishing + Lead Sync |
-| One-click sign-up | `REGISTRATION_SECRET` `APP_ORIGIN` | Set an explicit `REGISTRATION_SECRET` in any real deployment — the fallback is a well-known dev-only string |
-| Background automation | `CADENCE_AUTOTICK[_SECONDS]` `ZOOM_AUTOSYNC[_SECONDS]` | Optional, off by default — see "Background automation" below before enabling either in production |
+## Workers and recovery
 
-Almost everything above can *also* be set per-field from the **Integrations** page once the app is running — a saved DB value always wins over its env var equivalent, so you can bootstrap with env vars and then rotate credentials live without a redeploy.
+Run `npm run cadence:tick` or schedule `GET /api/cron/cadence` every five minutes. Both call the same database-leased worker for registrations, due sends, broadcasts, attendance, and audience jobs. `ZOOM_AUTOSYNC=true` also enables Zoom synchronization through that worker. On a persistent Node server, `CADENCE_AUTOTICK=true` enables the optional timer. Timers default off; external schedules are needed on serverless deployments. Choose a schedule deliberately: a worker can make actual provider calls.
 
-## Deploying
+Registration, scoring, enrichment, and broadcasts persist their work and cursor. Campaign pages show progress and the latest worker heartbeat. Failed audience batches can retry their remaining work. Provider responses that are lost or ambiguous are held as uncertain and are never automatically resent. Check provider records, then supply receipt/rejection evidence in Background work or Results to confirm the outcome. Confirmed rejection returns the operation to the queue; confirmed acceptance preserves its receipt. Broadcasts preserve per-recipient results across retries. Pause/stop and current consent are checked before dispatch.
 
-The app needs one thing neither platform gives you by default: a **real, network-reachable Postgres database** — never a local file. Both `render.yaml` and `netlify.toml` in this repo are ready to use as-is, and both drive scheduled cadence sends through one real HTTP endpoint, `GET /api/cron/cadence` (`app/api/cron/cadence/route.ts`) — the same one `vercel.json` wires up for Vercel Cron. Protect it in any real deployment by setting `CRON_SECRET`; the route runs unauthenticated if it's left unset.
+Daily dispatch limits are shared across workers and broadcasts using the campaign timezone. LeadSquared exclusion snapshots expire after five minutes; dispatch fails closed when a complete snapshot cannot be fetched. Each configured exclusion list must contain fewer than 10,000 members. Public email registration gives a generic confirmation; personal join/calendar data requires a valid signed attendee link.
 
-### Render (free tier)
+## Verification
 
-1. Push this repo to GitHub, then in Render: **New → Blueprint**, point it at the repo. Render reads `render.yaml` and provisions a free Postgres database plus the web service (build runs `prisma migrate deploy` before `next build`).
-2. After the first deploy, open the **web service → Environment** and fill in the secrets `render.yaml` left blank (`sync: false`): `ANTHROPIC_API_KEY`, LSQ credentials, `CRON_SECRET` (pick any random string), Zoom/LinkedIn OAuth app credentials, etc. — or skip most of these and configure them from the running app's **Integrations** page instead, which always wins over env vars.
-3. For Zoom/LinkedIn OAuth: create each app in its developer portal with the redirect URI `https://<your-service>.onrender.com/api/auth/{zoom,linkedin}/callback`. The app derives its own origin from Render's proxy headers, so `ZOOM_REDIRECT_URI`/`LINKEDIN_REDIRECT_URI` only need setting if you put a custom domain in front and see a mismatch.
-4. Keep `SEND_MODE=sandbox` until you've verified templates and sender identity from the Integrations page — flipping to `live` is a real, deliberate decision, not a default.
-5. Set up the cadence scheduler — see "Background automation" below. Render's Cron Job service type has **no free plan**, so `render.yaml` doesn't include one; use a free external scheduler instead.
-
-A `Dockerfile` is also in the repo (multi-stage, uses `next.config.ts`'s `output: 'standalone'`) if you'd rather deploy as a Render **Docker** web service instead of the native Node runtime above — either works; the Blueprint uses native Node because it's simpler to wire secrets into.
-
-### Netlify
-
-1. **Add a new site → Import an existing project**, point it at this repo. Netlify reads `netlify.toml`, installs the Next.js Runtime plugin, and runs `prisma migrate deploy` before every build.
-2. In **Site configuration → Environment variables**, set `DATABASE_URL` (pointing at a real hosted Postgres — Render's own, Neon, and Supabase all work), `CRON_SECRET`, plus whichever credentials you want to bootstrap with; the rest can be configured later from the Integrations page.
-3. There is no long-lived process on Netlify's serverless functions either, so `CADENCE_AUTOTICK`/`ZOOM_AUTOSYNC` don't run here — same external-scheduler answer as Render, below.
-
-### Background automation (matters on either platform)
-
-`CADENCE_AUTOTICK` and `ZOOM_AUTOSYNC` (see `instrumentation.ts`) are **in-process timers** — convenient for a single, always-on server, but they stop the moment that process restarts, would double-process sends if the service ever scaled to more than one instance, and don't run at all on a serverless platform. Neither Render's free tier nor Netlify give you a free always-on cron primitive, so on either one, leave both env vars unset and instead point a **free external scheduler** at the app's own `GET /api/cron/cadence` endpoint (`app/api/cron/cadence/route.ts` — the same one `vercel.json` wires up for Vercel Cron) every 5 minutes, with header `Authorization: Bearer <CRON_SECRET>`:
-
-- **[cron-job.org](https://cron-job.org)** (free, no code) — simplest option regardless of which platform hosts the app.
-- **A GitHub Actions workflow** on a `schedule:` trigger, `curl`-ing the endpoint — free on a public repo, and lives right next to the code.
-- **A Netlify Scheduled Function**, if the app itself is on Netlify.
-
-`ZOOM_AUTOSYNC` has no equivalent HTTP endpoint yet, so on a serverless/no-persistent-process deployment (Netlify, or Render without an upgraded always-on setup), Zoom meeting creation and attendance import need triggering manually from the app's Setup/Overview pages instead of running automatically.
-
-## Scripts
-
-| Command | Purpose |
-|---|---|
-| `dev` / `build` / `start` / `lint` / `test` | standard |
-| `db:seed` · `demo:reset` · `demo:tidy` | demo data lifecycle |
-| `db:migrate:deploy` | applies pending migrations without prompting (what deploys run) |
-| `cadence:tick` | cron-style drain of due cadence sends (email/SMS/WA) |
-| `linkedin:process` | retry/drain the LinkedIn registration queue |
-| `backfill:templates` · `backfill:channels` | provision missing templates/steps on existing campaigns |
-| `refresh:templates` | push improved default copy to never-edited templates only |
-| `npx tsx scripts/e2e-journey.ts` | live end-to-end journey regression (sandbox-aware) |
-| `npx tsx scripts/deep-audit-db.ts` | per-campaign completeness snapshot |
-| `npx tsx scripts/cleanup-autocreated-lists.ts` | empties/unlinks LeadSquared lists this app auto-created |
-| `npx tsx scripts/verify-channel-dispatcher.ts` | exercises the SMS/WhatsApp trigger-vs-direct dispatcher live |
-
-## Integrations & delivery modes
-
-| Integration | Mode switch | Notes |
-|---|---|---|
-| LeadSquared | always live | leads, lists, email, custom activities, SMS/WA strategies |
-| Claude | key required | scoring, personalization, enrichment, copy angles, post-event debrief |
-| Apollo | key optional | real email-match enrichment + pre-flight verification before any LinkedIn touch; falls back to a flagged, unverified guess when absent |
-| Apify | token optional (Integrations page) | grounds enrichment in a real web-search result per company |
-| Zoom | `ZOOM_MODE=sandbox\|live` | user-managed OAuth; meeting creation and attendance import both run automatically once connected |
-| LinkedIn Events | `LINKEDIN_MODE=sandbox\|live` | sandbox simulates every call; webhook still processes fixtures |
-| SMS / WhatsApp | per-channel `trigger` (via LeadSquared Automation) or `direct` (your own HTTP gateway) | configured on the Integrations page's SMS & WhatsApp Business card |
-
-## LinkedIn Event wiring (live mode)
-
-1. Developer portal → create app, request **Events** product access + **Lead Sync**.
-2. Integrations → LinkedIn → save Client ID/Secret → **Connect with LinkedIn**.
-3. Point your Lead Sync webhook at `POST {origin}/api/webhooks/linkedin` and set `LINKEDIN_CLIENT_SECRET` — payloads are HMAC-verified (`X-LI-Signature`) and production fails closed without a secret.
-4. Publish from a campaign's Setup tab; registrations stream back automatically into Scoring → LeadSquared.
-
-## Project layout
-
+```sh
+npm test
+npm run test:integration
+npm run typecheck
+npm run lint
+npm run build
+npm audit
 ```
-app/                    routes (pages + api/auth/{zoom,linkedin}/*, api/webhooks/linkedin, api/calendar)
-lib/db.ts               Prisma client singleton (Postgres via @prisma/adapter-pg)
-lib/linkedin/           Events API client, OAuth, forms, webhook contract, orchestrator, ingest
-lib/zoom/               OAuth, meetings, attendance
-lib/channels.ts         pure channel routing + SMS segment math
-lib/channelDelivery.ts  trigger/direct strategies for SMS & WhatsApp
-lib/cadenceReadiness.ts green-status validation for Templates/Personalize
-lib/claude.ts           every Anthropic call the app makes
-scripts/                operational CLIs (ticks, drains, backfills, audits) — each loads env via lib/loadEnv
+
+Unit tests cannot use the application database. Integration tests create a uniquely named database, apply migrations, require zero schema drift, exercise real database transactions with mocked/local providers, and drop the database. Set `TEST_DATABASE_ADMIN_URL` to a dedicated PostgreSQL server whose user can create/drop test databases. External provider requests are blocked unless explicitly mocked.
+
+Browser verification uses an installed Chrome browser and a production build:
+
+```sh
+npm run build -- --webpack
+npm run test:ui
+npm run test:load
 ```
+
+`test:ui` creates its own database and local server on port 3100, disables timers and provider credentials, checks desktop/mobile routes, registration, personal calendar links, modal focus, and serious/critical accessibility violations, then removes the test database. Screenshots/results are in `artifacts/verification/browser/`. Existing operational scripts such as channel probes and end-to-end live journeys can call real providers; use the isolated test commands for regression verification.
+
+Campaign messaging and LinkedIn recipient queues use 50-row server pages with search. Overview/channel analytics aggregate in SQL and keep recipient previews bounded. `test:load` creates 10,000 contacts, 10,000 messages and 10,000 send records, verifies pagination/search and page payload budgets, exercises 24 concurrent page requests, and drops its database. It uses a local production server on port 3102 and makes no external provider calls.
+
+The full dependency audit includes development tools. The small `tooling/next-glob-compat` package preserves the Next ESLint plugin's synchronous directory-glob interface with `tinyglobby`, including absolute paths and brace patterns, to remove its vulnerable `braces` dependency chain. It is covered by compatibility tests and an install-time Next version/API guard, and installed from the lockfile with `npm ci`. Next packages are pinned; upgrades deliberately require review of this adapter.
+
+For a read-only recovery rehearsal against the configured application database:
+
+```sh
+npm run test:recovery
+```
+
+This requires `pg_dump` and `pg_restore`, creates a protected temporary backup, restores it into a disposable database, compares every public table's counts and content hashes, verifies encrypted credential recovery and migration parity, then removes the restore database and temporary dump. Keep persistent encryption/registration keys backed up separately.
+
+Read-only live connection checks and activity inspection are available separately:
+
+```sh
+npm run verify:providers
+npx tsx scripts/inspect-activities.ts designated-recipient@example.com
+```
+
+Adding `-- --email EMAIL --phone E164_PHONE` to `verify:providers` sends real, idempotent tests to those recipients after checking known-contact eligibility. Configure both phone channels to LeadSquared Automation on Integrations when using CRM delivery. The app validates the selected activity type and required Channel, Cadence Step and Message fields. A CRM activity receipt proves the handoff; verify downstream delivery in LeadSquared automation/gateway logs. WhatsApp requires recorded opt-in.
+
+## Deployment
+
+Render, Netlify, Vercel, and the Docker image require persistent PostgreSQL, Node 24, the two persistent keys, and the correct public origin. Build with `npm ci && npm run build`. Apply migrations in a separate release step using `npm run db:migrate:deploy` against the intended database before serving the new version; preview builds must use their own database. The Docker runner expects the database to be migrated externally.
+
+For an existing installation, back up the database and keys, deploy migrations, and run `npm run credentials:encrypt` once to encrypt legacy stored provider secrets. The command is idempotent and never prints secret values. Do not change `CREDENTIALS_ENCRYPTION_KEY` without decrypting/re-encrypting existing credentials or reconnecting the providers. Changing `REGISTRATION_SECRET` invalidates previously issued attendee links; retain its value across restarts and deployments.
+
+Provider callback URLs are `/api/auth/zoom/callback` and `/api/auth/linkedin/callback`. Webhook routes verify the provider signatures with configured provider secrets. This is separate from operator authentication. Keep webhook tokens out of proxy/access-log query strings. Contact exports and database backups contain personal data; retain them only as needed for the campaign and recovery process.
+
+
+The latest audit and release checks are in [docs/PRODUCTION_AUDIT.md](docs/PRODUCTION_AUDIT.md). Deployment instructions for both providers are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

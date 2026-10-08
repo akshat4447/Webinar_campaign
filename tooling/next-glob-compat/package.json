@@ -1,0 +1,8 @@
+{
+  "name": "@webinar/next-glob-compat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The bounded globSync API used by Next's lint plugin, backed by tinyglobby",
+  "main": "index.cjs",
+  "dependencies": { "tinyglobby": "0.2.17" }
+}

@@ -2,7 +2,7 @@
 
 import { db } from '@/lib/db';
 import { getLists, getLeadsInList, type RawLsqLead } from '@/lib/leadsquared';
-import { classifyContact, pickCol } from '@/lib/importHeuristics';
+import { classifyContact, pickCol, functionFor, seniorityFor } from '@/lib/importHeuristics';
 import { syncContactsToLeadSquared } from '@/lib/leadSync';
 import { upsertAttentionItem, resolveAttentionItems } from '@/lib/attentionItems';
 import { formatWebinarDate } from '@/lib/campaignDate';
@@ -10,11 +10,54 @@ import { revalidateCampaign } from '@/lib/revalidate';
 import { parseCsvText } from '@/lib/csv';
 import { applyOffset } from '@/lib/stepSchedule';
 import { normalizeE164 } from '@/lib/csvPreflight';
+import { syncSpeakersForCampaign } from '@/lib/speakersServer';
+import type { SpeakerInput } from '@/lib/speakers';
+import { resolveIntegrationField } from '@/lib/integrationConfig';
+import type { LsqList } from '@/lib/leadsquared';
+import {
+  serializeSelectedChannels,
+  type RegistrationChannelKey,
+} from '@/lib/registrationChannels';
+import { assertSetupEditable, setupLockError } from '@/lib/setupLock';
+import { wallClockToDate, DEFAULT_TIMEZONE } from '@/lib/dateFormat';
 import { z } from 'zod';
+
 
 const campaignIdSchema = z.string().min(1);
 
+// A malformed shape (wrong types, not an array) used to reach syncSpeakersForCampaign
+// unchecked and throw an uncaught TypeError from inside its transaction. Length caps
+// exist because the bio gets re-embedded into every AI personalization batch (see
+// lib/claude.ts's webinarGuidance and its per-batch campaign JSON) — an unbounded
+// paste there multiplies into a real token-cost and context-window risk across an
+// entire campaign's worth of batches, not just one contact.
+const speakerInputSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().trim().min(1).max(200),
+  title: z.string().trim().max(200).nullable().optional(),
+  company: z.string().trim().max(200).nullable().optional(),
+  bio: z.string().trim().max(600, 'Bio is limited to 600 characters').nullable().optional(),
+  avatarUrl: z.string().trim().max(2000).nullable().optional(),
+  linkedinUrl: z.string().trim().max(2000).nullable().optional(),
+  isPrimary: z.boolean().optional(),
+  order: z.number().int().optional(),
+});
+const speakersSchema = z.array(speakerInputSchema).max(20, 'A campaign supports at most 20 speakers');
+
+export async function updateCampaignSpeakersAction(campaignId: string, speakers: SpeakerInput[]) {
+  await assertSetupEditable(campaignId);
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const validSpeakers = speakersSchema.parse(speakers);
+  await syncSpeakersForCampaign(validCampaignId, validSpeakers);
+  await db.activityLogEntry.create({
+    data: { campaignId: validCampaignId, text: 'Speakers updated', dot: 'var(--accent-500)' },
+  });
+  revalidateCampaign(validCampaignId);
+  return { ok: true as const };
+}
+
 export async function updateCampaignName(campaignId: string, name: string) {
+  await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   await db.campaign.update({ where: { id: validCampaignId }, data: { name } });
   revalidateCampaign(validCampaignId);
@@ -50,18 +93,20 @@ export async function getSetupEditImpactAction(campaignId: string): Promise<Setu
  * a CSV is the expensive step to avoid repeating.
  */
 export async function resetCampaignForEditAction(campaignId: string) {
+  await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   await db.$transaction([
     db.contact.updateMany({ where: { campaignId: validCampaignId }, data: { score: null, explanation: null, approved: false, approvedManually: false } }),
     db.personalizedMessage.deleteMany({ where: { campaignId: validCampaignId } }),
     db.cadenceSend.deleteMany({ where: { campaignId: validCampaignId } }),
-    db.campaign.update({ where: { id: validCampaignId }, data: { cadenceStatus: 'not_started', simulatedNow: null } }),
+    db.campaign.update({ where: { id: validCampaignId }, data: { cadenceStatus: 'not_started', launchedAt: null } }),
   ]);
   revalidateCampaign(validCampaignId);
   return { ok: true as const };
 }
 
 export async function updateCampaignDescription(campaignId: string, description: string) {
+  await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   await db.campaign.update({ where: { id: validCampaignId }, data: { description } });
   revalidateCampaign(validCampaignId);
@@ -75,6 +120,7 @@ const ZOOM_HOSTS = /(^|\.)(zoom\.us|zoomgov\.com)$/i;
  * check reports what it recognised instead of blocking.
  */
 export async function updateCampaignZoomLink(campaignId: string, zoomLink: string) {
+  await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const trimmed = zoomLink.trim();
   if (!trimmed) {
@@ -107,6 +153,7 @@ export async function updateCampaignZoomLink(campaignId: string, zoomLink: strin
  * only rejects empty/whitespace input, not anything that isn't a strict URL.
  */
 export async function updateCampaignRegistrationLink(campaignId: string, link: string) {
+  await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const trimmed = link.trim();
   if (!trimmed) return { ok: false as const, error: 'The registration link cannot be empty — contacts need somewhere to sign up.' };
@@ -115,6 +162,129 @@ export async function updateCampaignRegistrationLink(campaignId: string, link: s
   await db.activityLogEntry.create({
     data: { campaignId: validCampaignId, text: `Registration link updated to ${trimmed}`, dot: 'var(--accent-500)' },
   });
+  revalidateCampaign(validCampaignId);
+  return { ok: true as const };
+}
+
+export async function updateCampaignRegistrationFunnelAction(
+  campaignId: string,
+  params: {
+    registrationLink?: string | null;
+    oneClickSignup?: boolean;
+    zoomMeetingId?: string | null;
+    zoomLink?: string | null;
+  }
+) {
+  await assertSetupEditable(campaignId);
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const trimmed = params.registrationLink ? params.registrationLink.trim() : null;
+  const oneClickSignup = params.oneClickSignup !== undefined ? Boolean(params.oneClickSignup) : true;
+
+  const updateData: {
+    registrationLink: string | null;
+    oneClickSignup: boolean;
+    zoomMeetingId?: string | null;
+    zoomLink?: string | null;
+  } = {
+    registrationLink: trimmed || null,
+    oneClickSignup,
+  };
+
+  if (params.zoomMeetingId !== undefined) {
+    updateData.zoomMeetingId = params.zoomMeetingId ? params.zoomMeetingId.trim() : null;
+  }
+  if (params.zoomLink !== undefined) {
+    updateData.zoomLink = params.zoomLink ? params.zoomLink.trim() : null;
+  }
+
+  await db.campaign.update({
+    where: { id: validCampaignId },
+    data: updateData,
+  });
+
+  const modeText = trimmed ? `External Landing Page: ${trimmed}` : '1-Click Magic Link';
+  const zoomText = params.zoomMeetingId ? ` (Zoom ID #${params.zoomMeetingId})` : '';
+  await db.activityLogEntry.create({
+    data: {
+      campaignId: validCampaignId,
+      text: `Registration funnel updated: ${modeText}${zoomText}`,
+      dot: 'var(--accent-500)',
+    },
+  });
+
+  revalidateCampaign(validCampaignId);
+  return { ok: true as const };
+}
+
+export async function updateCampaignEmailProviderAction(campaignId: string, emailProvider: 'leadsquared' | 'netcore') {
+  await assertSetupEditable(campaignId);
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  if (emailProvider !== 'leadsquared' && emailProvider !== 'netcore') {
+    return { ok: false as const, error: 'Invalid email provider.' };
+  }
+
+  await db.campaign.update({
+    where: { id: validCampaignId },
+    data: { emailProvider },
+  });
+
+  await db.activityLogEntry.create({
+    data: {
+      campaignId: validCampaignId,
+      text: `Email delivery gateway switched to ${emailProvider === 'netcore' ? 'Netcore Cloud' : 'LeadSquared'}`,
+      dot: 'var(--accent-500)',
+    },
+  });
+
+  revalidateCampaign(validCampaignId);
+  return { ok: true as const };
+}
+
+export async function updateCampaignCapacityAction(campaignId: string, capacity: number | null) {
+  await assertSetupEditable(campaignId);
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const validCapacity = capacity === null || capacity === undefined ? null : z.number().int().min(1).max(100000).parse(capacity);
+
+  await db.campaign.update({
+    where: { id: validCampaignId },
+    data: { capacity: validCapacity },
+  });
+
+  await db.activityLogEntry.create({
+    data: {
+      campaignId: validCampaignId,
+      text: validCapacity ? `Webinar capacity set to ${validCapacity} seats` : 'Webinar capacity limit removed',
+      dot: 'var(--accent-500)',
+    },
+  });
+
+  revalidateCampaign(validCampaignId);
+  return { ok: true as const };
+}
+
+export async function updateCampaignSelectedChannelsAction(
+  campaignId: string,
+  channels: RegistrationChannelKey[]
+) {
+  await assertSetupEditable(campaignId);
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  const serialized = serializeSelectedChannels(channels);
+  // Channel attribution is tracked by Studio itself (signed per-channel links + UTMs). Zoom has no
+  // API to create registration tracking sources (POST /webinars/{id}/tracking_sources is a 404), so
+  // there is nothing to push to Zoom here.
+  await db.campaign.update({
+    where: { id: validCampaignId },
+    data: { selectedChannels: serialized },
+  });
+
+  await db.activityLogEntry.create({
+    data: {
+      campaignId: validCampaignId,
+      text: `Active attribution channels updated (${channels.length} channels selected)`,
+      dot: 'var(--accent-500)',
+    },
+  });
+
   revalidateCampaign(validCampaignId);
   return { ok: true as const };
 }
@@ -130,6 +300,7 @@ export async function updateCampaignRegistrationLink(campaignId: string, link: s
  * not drift.
  */
 export async function updateCampaignSchedule(campaignId: string, dateTimeLocal: string) {
+  await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   if (!dateTimeLocal) {
     await db.campaign.update({ where: { id: validCampaignId }, data: { scheduledAt: null, date: 'Not scheduled yet' } });
@@ -137,10 +308,13 @@ export async function updateCampaignSchedule(campaignId: string, dateTimeLocal: 
     return { ok: true as const, display: 'Not scheduled yet' };
   }
 
-  const parsed = new Date(dateTimeLocal);
-  if (Number.isNaN(parsed.getTime())) return { ok: false as const, error: 'That date could not be read.' };
+  const zoneRow = await db.campaign.findUnique({ where: { id: validCampaignId }, select: { timezone: true } });
+  const timezone = zoneRow?.timezone ?? DEFAULT_TIMEZONE;
+  // The picker value is wall-clock time in the webinar's zone, not the server's.
+  const parsed = wallClockToDate(dateTimeLocal, timezone);
+  if (!parsed) return { ok: false as const, error: 'That date could not be read.' };
 
-  const display = formatWebinarDate(parsed);
+  const display = formatWebinarDate(parsed, timezone);
   await db.campaign.update({ where: { id: validCampaignId }, data: { scheduledAt: parsed, date: display } });
 
   // Rescheduling anchor synchronization: update dueAt for all queued sends anchored to the webinar
@@ -187,6 +361,7 @@ async function upsertContacts(campaignId: string, rows: (ReturnType<typeof class
     linkedinId: string | null;
     phone: string | null;
     whatsappOptIn: boolean;
+    smsOptOut: boolean;
     extraFieldsJson: string | null;
     missingInfo: boolean;
     source: string;
@@ -206,6 +381,12 @@ async function upsertContacts(campaignId: string, rows: (ReturnType<typeof class
     const extrasJson = r.extras && Object.keys(r.extras).length > 0 ? JSON.stringify(r.extras) : null;
 
     if (existing) {
+      // A refreshed title has to drag function/seniority with it. They're
+      // derived from the title on create but were left untouched here, so
+      // re-importing a cleaned CSV left "VP Marketing" sitting on the
+      // Other/IC classification from the first import — and those two fields
+      // are exactly what scoring and personalization read.
+      const titleChanged = r.title !== '—' && r.title !== existing.title;
       toUpdate.push({
         id: existing.id,
         data: {
@@ -213,8 +394,15 @@ async function upsertContacts(campaignId: string, rows: (ReturnType<typeof class
           account: r.account,
           vertical: r.vertical !== 'Unassigned' ? r.vertical : existing.vertical,
           title: r.title !== '—' ? r.title : existing.title,
+          ...(titleChanged ? { function: functionFor(r.title), seniority: seniorityFor(r.title) } : {}),
+          // A contact first imported by name+account may have had no email at
+          // all; a later import that carries one should fill it in rather than
+          // silently keep the blank.
+          ...(!existing.email && r.email ? { email: r.email, emailSimulated: false, emailVerified: true } : {}),
           phone: normalizedPhone ?? existing.phone,
-          whatsappOptIn: r.whatsappOptIn || existing.whatsappOptIn,
+          ...(r.linkedinId ? { linkedinId: r.linkedinId } : {}),
+          whatsappOptIn: r.whatsappOptIn ?? existing.whatsappOptIn,
+          smsOptOut: r.smsOptOut ?? existing.smsOptOut,
           extraFieldsJson: extrasJson ?? existing.extraFieldsJson,
           lsqLeadId: r.lsqLeadId ?? existing.lsqLeadId,
         },
@@ -232,6 +420,7 @@ async function upsertContacts(campaignId: string, rows: (ReturnType<typeof class
         linkedinId: r.linkedinId || null,
         phone: normalizedPhone,
         whatsappOptIn: r.whatsappOptIn ?? false,
+        smsOptOut: r.smsOptOut ?? false,
         extraFieldsJson: extrasJson,
         missingInfo: r.missingInfo,
         source: r.source,
@@ -258,18 +447,32 @@ async function upsertContacts(campaignId: string, rows: (ReturnType<typeof class
 }
 
 
+export interface ImportIssue {
+  /** 1-based spreadsheet row number, counting the header as row 1. */
+  row: number;
+  kind: 'invalid_email' | 'missing_name' | 'missing_email';
+  message: string;
+}
+
 export interface CsvImportResult {
   ok: boolean;
   error?: string;
   rowCount?: number;
   dupes?: number;
   withEmail?: number;
+  /** Contacts actually stored: data rows minus blank rows and merged duplicates. */
+  imported?: number;
+  skippedBlank?: number;
+  /** Rows an operator should look at (invalid email, no name). Capped at 50. */
+  issues?: ImportIssue[];
   headers?: string[];
   columnMap?: { role: string; header: string }[];
   logLines?: string[];
 }
 
 export async function importCsvAction(campaignId: string, formData: FormData): Promise<CsvImportResult> {
+  const lockedMessage = await setupLockError(campaignId);
+  if (lockedMessage) return { ok: false, error: lockedMessage };
   const file = formData.get('file') as File | null;
   if (!file) return { ok: false, error: 'No file provided.' };
 
@@ -279,19 +482,36 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
 
   const headersRaw = rows[0].map((h) => String(h).trim());
   const headers = headersRaw.map((h) => h.toLowerCase());
+  // First/last are resolved BEFORE the full-name column and then excluded from
+  // it: otherwise `'name'` substring-matches "First Name" on the most common
+  // export shape (First Name,Last Name,Email,Company) and every contact imports
+  // as "Priya" rather than "Priya Nair" — which then propagates into merge
+  // fields, the CRM sync and Apollo's match confidence.
+  const firstCol = pickCol(headers, ['first name', 'firstname', 'first']);
+  const lastCol = pickCol(headers, ['last name', 'lastname', 'surname', 'last']);
+  const phoneCol = pickCol(headers, ['phone', 'mobile', 'contact number', 'whatsapp number', 'whatsapp']);
   const ci = {
-    name: pickCol(headers, ['full name', 'name', 'contact']),
-    first: pickCol(headers, ['first']),
-    last: pickCol(headers, ['last']),
+    name: pickCol(headers, ['full name', 'fullname', 'contact name', 'name'], { exclude: [firstCol, lastCol] }),
+    first: firstCol,
+    last: lastCol,
     email: pickCol(headers, ['email', 'e-mail']),
     account: pickCol(headers, ['company', 'account', 'organisation', 'organization']),
     title: pickCol(headers, ['title', 'designation', 'role', 'position']),
     vertical: pickCol(headers, ['vertical', 'industry', 'sector']),
     linkedin: pickCol(headers, ['linkedin', 'li url', 'profile']),
-    phone: pickCol(headers, ['phone', 'mobile', 'contact number', 'whatsapp']),
+    phone: phoneCol,
+    smsOptOut: pickCol(headers, ['sms opt-out', 'sms optout', 'sms dnd', 'do not sms']),
     // Consent must come from the source data — the place the person actually
-    // agreed — not from an operator toggling a switch later.
-    waOptIn: pickCol(headers, ['whatsapp opt-in', 'whatsapp optin', 'whatsapp consent', 'wa opt-in', 'wa consent', 'opt-in', 'consent']),
+    // agreed — not from an operator toggling a switch later, and not inferred
+    // from a differently-scoped consent column: a bare "Email Opt-In" used to
+    // satisfy the `'opt-in'` key here and silently granted WhatsApp consent to
+    // people who only ever agreed to email, which is exactly the kind of thing
+    // that gets a business number banned under Meta's policy.
+    waOptIn: pickCol(
+      headers,
+      ['whatsapp opt-in', 'whatsapp optin', 'whatsapp consent', 'wa opt-in', 'wa consent'],
+      { exclude: [phoneCol], reject: /e-?mail|sms|call|phone|number/ }
+    ),
   };
 
   // Any column not claimed by a first-class field above is retained rather than
@@ -301,16 +521,40 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
 
   const seen = new Set<string>();
   let dupes = 0;
+  let skippedBlank = 0;
+  const issues: ImportIssue[] = [];
+  const addIssue = (issue: ImportIssue) => {
+    if (issues.length < 50) issues.push(issue);
+  };
   const classified = [];
-  for (const r of rows.slice(1)) {
+  for (const [idx, r] of rows.slice(1).entries()) {
+    const rowNumber = idx + 2;
+    if (r.every((cell) => String(cell ?? '').trim() === '')) {
+      skippedBlank++;
+      continue;
+    }
     const get = (i: number) => (i >= 0 ? String(r[i] ?? '').trim() : '');
     const extras: Record<string, string> = {};
     for (const c of extraCols) {
       const v = get(c.index);
       if (v) extras[c.header] = v;
     }
-    const name = get(ci.name) || [get(ci.first), get(ci.last)].filter(Boolean).join(' ') || 'Unnamed contact';
-    const email = get(ci.email);
+    const givenName = get(ci.name) || [get(ci.first), get(ci.last)].filter(Boolean).join(' ');
+    const rawEmail = get(ci.email);
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail);
+    // An unusable address is kept out of the email field (it would fail the CRM sync and
+    // be counted as send-ready) but preserved as metadata so nothing the operator typed is lost.
+    const email = emailOk ? rawEmail : '';
+    if (rawEmail && !emailOk) {
+      extras['Original email (invalid)'] = rawEmail;
+      addIssue({ row: rowNumber, kind: 'invalid_email', message: `"${rawEmail}" is not a valid email address, so this contact was kept without an email and queued for enrichment.` });
+    } else if (!rawEmail) {
+      addIssue({ row: rowNumber, kind: 'missing_email', message: 'No email address, so this contact was queued for enrichment.' });
+    }
+    const name = givenName || (emailOk ? rawEmail.split('@')[0] : '') || 'Unnamed contact';
+    if (!givenName) {
+      addIssue({ row: rowNumber, kind: 'missing_name', message: `No name in this row, so it was imported as "${name}".` });
+    }
     const account = get(ci.account) || '—';
     const key = (email || `${name}|${account}`).toLowerCase();
     if (seen.has(key)) {
@@ -327,7 +571,8 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
         vertical: get(ci.vertical) || 'Unassigned',
         linkedinId: get(ci.linkedin),
         phone: get(ci.phone) || null,
-        whatsappOptIn: /^(y|yes|true|1|opted.?in|granted)$/i.test(get(ci.waOptIn)),
+        whatsappOptIn: ci.waOptIn >= 0 ? /^(y|yes|true|1|opted.?in|granted)$/i.test(get(ci.waOptIn)) : undefined,
+        smsOptOut: ci.smsOptOut >= 0 ? /^(y|yes|true|1|dnd|stop|opted.?out)$/i.test(get(ci.smsOptOut)) : undefined,
         extras,
       })
     );
@@ -342,10 +587,10 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
   const mapped = columnMap.map(({ role, header }) => `${role} → ${header}`).join(', ');
 
   const logLines = [
-    `Read ${file.name} — ${headersRaw.length} columns, ${rows.length - 1} data rows`,
+    `Read ${file.name} — ${headersRaw.length} columns, ${rows.length - 1} data rows${skippedBlank ? ` (${skippedBlank} blank skipped)` : ''}`,
     `Mapped columns: ${mapped || 'none matched'}`,
     `${dupes} duplicate rows merged by email/company match`,
-    `${classified.length - withEmail} contacts have no usable email — queued for Apollo/Apify enrichment`,
+    `${classified.length - withEmail} contacts have no usable email — queued for Apollo enrichment`,
   ];
 
   const sync = await syncContactsToLeadSquared(campaignId, { createList: false });
@@ -355,7 +600,7 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
       icon: 'ErrorProperty1Outline',
       color: 'error',
       title: 'LeadSquared lead sync failed',
-      detail: sync.error.slice(0, 300),
+      detail: sync.error.slice(0, 600),
       actionsCsv: 'retry',
     });
   } else {
@@ -369,15 +614,75 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
   });
 
   revalidateCampaign(campaignId);
-  return { ok: true, rowCount: rows.length - 1, dupes, withEmail, headers: headersRaw, columnMap, logLines };
+  return { ok: true, rowCount: rows.length - 1, imported: classified.length, skippedBlank, issues, dupes, withEmail, headers: headersRaw, columnMap, logLines };
 }
 
-export async function fetchLsqListsAction() {
-  return getLists();
+export interface FetchLsqListsResponse {
+  ok: boolean;
+  lists: LsqList[];
+  tenantHost: string;
+  senderEmail: string;
+  error?: string;
+}
+
+export async function fetchLsqListsAction(): Promise<FetchLsqListsResponse> {
+  try {
+    const host = (await resolveIntegrationField('lsq', 'host')) || '';
+    const senderEmail = (await resolveIntegrationField('lsq', 'senderEmail')) || '';
+    const cleanHost = host.replace(/https?:\/\//, '').replace(/\/.*$/, '');
+
+    const rawLists = await getLists();
+
+    // Intelligent list organization:
+    // 1. Priority 1: Lists with active leads (MemberCount > 0), ordered by MemberCount descending.
+    // 2. Priority 2: Custom user lists with MemberCount === 0 (newest first).
+    // 3. Priority 3: System default 0-member lists (Starred Leads, All Contacts) placed at the bottom.
+    const isSystemList = (name: string) => /^(starred leads|all contacts)$/i.test(name.trim());
+
+    const withMembers = rawLists.filter((l) => (l.MemberCount ?? 0) > 0).sort((a, b) => (b.MemberCount ?? 0) - (a.MemberCount ?? 0));
+    const customEmpty = rawLists.filter((l) => (l.MemberCount ?? 0) === 0 && !isSystemList(l.ListName)).reverse();
+    const systemEmpty = rawLists.filter((l) => (l.MemberCount ?? 0) === 0 && isSystemList(l.ListName));
+
+    const sortedLists = [...withMembers, ...customEmpty, ...systemEmpty];
+
+    return {
+      ok: true,
+      lists: sortedLists,
+      tenantHost: cleanHost,
+      senderEmail,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      lists: [],
+      tenantHost: '',
+      senderEmail: '',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 function rawLeadToContact(row: RawLsqLead) {
   const name = [row.FirstName, row.LastName].filter(Boolean).join(' ').trim() || row.EmailAddress || 'Unnamed contact';
+  const standardKeys = new Set(['FirstName', 'LastName', 'EmailAddress', 'Company', 'Designation', 'Phone', 'ProspectID']);
+  const extras: Record<string, string> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (!standardKeys.has(key) && value !== null && value !== undefined) {
+      extras[key] = String(value);
+    }
+  }
+
+  const rawLinkedIn =
+    row.mx_LinkedIn_Profile ||
+    row.mx_Linkedin_Profile ||
+    row.LinkedIn ||
+    row.LinkedInUrl ||
+    row.mx_LinkedIn_Url ||
+    row.mx_Linkedin_Url ||
+    row.mx_LinkedIn ||
+    row.mx_Linkedin ||
+    '';
+
   return {
     ...classifyContact({
       name,
@@ -385,8 +690,9 @@ function rawLeadToContact(row: RawLsqLead) {
       account: row.Company || '—',
       title: row.Designation || '—',
       vertical: 'Unassigned',
-      linkedinId: '',
+      linkedinId: rawLinkedIn.trim(),
       phone: row.Phone || null,
+      extras: Object.keys(extras).length > 0 ? extras : undefined,
     }),
     // Already a real lead — reuse its id instead of creating a duplicate.
     lsqLeadId: row.ProspectID || undefined,
@@ -394,6 +700,8 @@ function rawLeadToContact(row: RawLsqLead) {
 }
 
 export async function importFromLsqListAction(campaignId: string, listId: string, listName: string): Promise<CsvImportResult> {
+  const lockedMessage = await setupLockError(campaignId);
+  if (lockedMessage) return { ok: false, error: lockedMessage };
   try {
     // Explicitly bind campaign to the selected LeadSquared list so no new duplicate list is created.
     await db.campaign.update({
@@ -419,7 +727,7 @@ export async function importFromLsqListAction(campaignId: string, listId: string
         icon: 'ErrorProperty1Outline',
         color: 'error',
         title: 'LeadSquared lead sync failed',
-        detail: sync.error.slice(0, 300),
+        detail: sync.error.slice(0, 600),
         actionsCsv: 'retry',
       });
     } else {
@@ -473,6 +781,7 @@ export async function analyzeCsvMappingAction(headers: string[], sampleRows: Arr
  * Passing null restores the default of auto-creating a per-campaign list.
  */
 export async function setCampaignListAction(campaignId: string, listId: string | null) {
+  await assertSetupEditable(campaignId);
   await db.campaign.update({ where: { id: campaignId }, data: { lsqListId: listId } });
   revalidateCampaign(campaignId);
   return { ok: true as const };
@@ -486,6 +795,7 @@ export async function getStaticListsAction() {
       ok: true as const,
       lists: lists
         .filter((l) => /static/i.test(String(l.ListType)))
+        .sort((a, b) => (b.MemberCount ?? 0) - (a.MemberCount ?? 0))
         .map((l) => ({ id: l.ListId, name: l.ListName, members: l.MemberCount })),
     };
   } catch (err) {

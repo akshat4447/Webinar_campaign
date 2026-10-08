@@ -1,0 +1,47 @@
+name: Verify
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: webinar
+          POSTGRES_PASSWORD: test_only
+          POSTGRES_DB: webinar_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U webinar -d webinar_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://webinar:test_only@localhost:5432/webinar_ci
+      TEST_DATABASE_ADMIN_URL: postgresql://webinar:test_only@localhost:5432/postgres
+      REGISTRATION_SECRET: ci-isolated-registration-key-at-least-32-characters
+      CREDENTIALS_ENCRYPTION_KEY: ci-isolated-encryption-key-at-least-32-characters
+      CADENCE_AUTOTICK: 'false'
+      ZOOM_AUTOSYNC: 'false'
+      APP_ORIGIN: http://localhost:3000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate:deploy
+      - run: npm test
+      - run: npm run test:integration
+      - run: npm run typecheck
+      - run: npm run lint -- --max-warnings=0
+      - run: npm run build -- --webpack
+      - run: npx playwright install --with-deps chrome
+      - run: npm run test:ui
+        env:
+          NEXT_DIST_DIR: .next
+      - run: npm run test:load
+        env:
+          NEXT_DIST_DIR: .next
+      - run: npm audit

@@ -1,9 +1,9 @@
 {
-  "name": "test",
+  "name": "webinar-studio",
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=20.9.0"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev",
@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate && node scripts/check-tooling.cjs",
     "db:seed": "tsx prisma/seed.ts",
     "db:migrate:deploy": "prisma migrate deploy",
     "demo:reset": "tsx scripts/demo-reset.ts",
@@ -20,32 +20,56 @@
     "backfill:channels": "tsx scripts/backfill-channels.ts",
     "refresh:templates": "tsx scripts/refresh-template-copy.ts",
     "backfill:templates": "tsx scripts/backfill-templates.ts",
-    "demo:tidy": "tsx scripts/demo-tidy.ts"
+    "demo:tidy": "tsx scripts/demo-tidy.ts",
+    "test:integration": "tsx scripts/test-integration.ts",
+    "credentials:encrypt": "tsx scripts/encrypt-credentials.ts",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test:ui": "tsx scripts/test-ui.ts",
+    "test:recovery": "tsx scripts/test-recovery.ts",
+    "verify:providers": "tsx scripts/verify-providers.ts",
+    "test:load": "tsx scripts/test-load.ts",
+    "check:tooling": "node scripts/check-tooling.cjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
-    "@next/env": "16.3.1",
+    "@next/env": "16.4.0",
     "@prisma/adapter-pg": "^7.10.0",
-    "@prisma/client": "^7.9.1",
+    "@prisma/client": "^7.10.0",
     "dotenv": "^17.4.2",
-    "next": "16.3.1",
+    "ipaddr.js": "^2.5.0",
+    "next": "16.4.0",
     "papaparse": "^5.6.0",
     "pg": "^8.23.0",
-    "prisma": "^7.9.1",
+    "prisma": "^7.10.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "undici": "^8.11.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^20",
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.19.1",
     "@types/papaparse": "^5.5.2",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.1",
+    "eslint-config-next": "16.4.0",
+    "fast-glob": "file:tooling/next-glob-compat",
     "tsx": "^4.23.12",
     "typescript": "^5",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "brace-expansion": "1.1.21",
+    "deepmerge-ts": "8.0.2",
+    "mysql2": "3.24.5",
+    "source-map-js": "1.2.2",
+    "fast-uri": "4.2.1",
+    "js-yaml": "5.4.3",
+    "@next/eslint-plugin-next": {
+      "fast-glob": "$fast-glob"
+    }
   }
 }

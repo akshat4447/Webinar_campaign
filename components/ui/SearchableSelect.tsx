@@ -147,7 +147,7 @@ export function SearchableSelect({
             left: 0,
             right: 0,
             zIndex: 40,
-            background: 'var(--surface-card, #fff)',
+            background: 'var(--surface-card)',
             border: '1px solid var(--border-default)',
             borderRadius: 'var(--radius-md)',
             boxShadow: 'var(--shadow-panel)',

@@ -15,11 +15,28 @@ export const ZOOM_SCOPES = [
   'meeting:read:meeting',
   'meeting:write:meeting',
   'meeting:read:list_past_participants',
+  'webinar:read:list_webinars',
+  'webinar:read:webinar',
+  'webinar:write:webinar',
+  'webinar:read:list_past_participants',
   'user:read:user',
+  // Registration — without these the add-registrant calls are refused ("does not contain scopes").
+  'meeting:write:registrant',
+  'webinar:write:registrant',
+  'meeting:read:list_registrants',
+  'webinar:read:list_registrants',
+  // Enable registration on an existing meeting/webinar and reschedule.
+  'meeting:update:meeting',
+  'webinar:update:webinar',
 ];
 
-export const ZOOM_AUTHORIZE_URL = 'https://zoom.us/oauth/authorize';
-export const ZOOM_TOKEN_URL = 'https://zoom.us/oauth/token';
+// Base URLs are overridable so the whole Zoom integration can be pointed at the
+// local fake Zoom server (test-support/fakes/zoomFake.ts) for deep / edge-case
+// tests without touching a real account. Unset in every real environment.
+const ZOOM_OAUTH_BASE = (process.env.ZOOM_OAUTH_BASE_URL || 'https://zoom.us').replace(/\/+$/, '');
+export const ZOOM_API_BASE_URL = (process.env.ZOOM_API_BASE_URL || 'https://api.zoom.us/v2').replace(/\/+$/, '');
+export const ZOOM_AUTHORIZE_URL = `${ZOOM_OAUTH_BASE}/oauth/authorize`;
+export const ZOOM_TOKEN_URL = `${ZOOM_OAUTH_BASE}/oauth/token`;
 
 export function buildAuthorizationUrl(args: { clientId: string; redirectUri: string; state: string }): string {
   const url = new URL(ZOOM_AUTHORIZE_URL);
@@ -66,9 +83,18 @@ export function refreshAccessToken(args: { clientId: string; clientSecret: strin
   return tokenRequest(args.clientId, args.clientSecret, new URLSearchParams({ grant_type: 'refresh_token', refresh_token: args.refreshToken }));
 }
 
+/** Server-to-Server OAuth flow — bypasses redirect URLs and user consent screens entirely. */
+export function getServerToServerToken(args: { accountId: string; clientId: string; clientSecret: string }) {
+  return tokenRequest(
+    args.clientId,
+    args.clientSecret,
+    new URLSearchParams({ grant_type: 'account_credentials', account_id: args.accountId })
+  );
+}
+
 /** Who the connected account is, shown on Integrations after Connect. */
 export async function fetchConnectedUser(accessToken: string): Promise<{ email: string | null }> {
-  const res = await fetch('https://api.zoom.us/v2/users/me', {
+  const res = await fetch(`${ZOOM_API_BASE_URL}/users/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
   });

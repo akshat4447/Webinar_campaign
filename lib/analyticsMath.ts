@@ -72,11 +72,16 @@ export interface TrendPoint {
   count: number;
 }
 
+export interface DatedCount {
+  date: Date;
+  count: number;
+}
+
 export function bucketKey(d: Date, unit: 'day' | 'week' | 'month'): string {
-  if (unit === 'month') return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  if (unit === 'month') return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   if (unit === 'week') {
     const weekStart = new Date(d);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setUTCDate(weekStart.getUTCDate() - weekStart.getUTCDay());
     return weekStart.toISOString().slice(0, 10);
   }
   return d.toISOString().slice(0, 10);
@@ -91,28 +96,55 @@ export function bucketLabel(key: string, unit: 'day' | 'week' | 'month'): string
   return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' });
 }
 
-/** Buckets a list of dates into a chart-friendly series. Walks every bucket in
- *  the range, not just the ones with data, so a quiet week reads as zero
+/** Buckets a list of dates or weighted (date, count) entries into a chart-friendly series.
+ *  Walks every bucket in the range, not just the ones with data, so quiet periods read as zero
  *  rather than being silently skipped. */
-export function bucketDates(dates: Date[], from: Date, to: Date, unit: 'day' | 'week' | 'month'): TrendPoint[] {
+export function bucketDatedCounts(
+  items: (Date | DatedCount)[],
+  from: Date,
+  to: Date,
+  unit: 'day' | 'week' | 'month'
+): TrendPoint[] {
   const counts = new Map<string, number>();
-  for (const d of dates) {
+  for (const item of items) {
+    const d = item instanceof Date ? item : item.date;
+    const weight = item instanceof Date ? 1 : item.count;
     const key = bucketKey(d, unit);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    counts.set(key, (counts.get(key) ?? 0) + weight);
   }
 
   const keys: string[] = [];
   const cursor = new Date(from);
+  cursor.setUTCHours(0, 0, 0, 0);
+
   if (unit === 'month') {
-    // Pin to day 1 so advancing months from e.g. Jan 31 does not overflow past Feb into March
-    cursor.setDate(1);
+    // Pin to day 1 UTC so advancing months from e.g. Jan 31 does not overflow past Feb into March
+    cursor.setUTCDate(1);
+  } else if (unit === 'week') {
+    // Pin to start of week (Sunday UTC) so steps align with bucketKey
+    cursor.setUTCDate(cursor.getUTCDate() - cursor.getUTCDay());
   }
-  while (cursor <= to) {
+
+  const toMidnight = new Date(to);
+  toMidnight.setUTCHours(0, 0, 0, 0);
+  const toLimit = new Date(toMidnight);
+  if (unit === 'week') {
+    toLimit.setUTCDate(toLimit.getUTCDate() - toLimit.getUTCDay());
+  } else if (unit === 'month') {
+    toLimit.setUTCDate(1);
+  }
+
+  while (cursor <= toLimit) {
     keys.push(bucketKey(cursor, unit));
-    if (unit === 'month') cursor.setMonth(cursor.getMonth() + 1);
-    else if (unit === 'week') cursor.setDate(cursor.getDate() + 7);
-    else cursor.setDate(cursor.getDate() + 1);
+    if (unit === 'month') cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    else if (unit === 'week') cursor.setUTCDate(cursor.getUTCDate() + 7);
+    else cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
 
   return [...new Set(keys)].map((key) => ({ label: bucketLabel(key, unit), count: counts.get(key) ?? 0 }));
+}
+
+/** Buckets a list of dates into a chart-friendly series. */
+export function bucketDates(dates: Date[], from: Date, to: Date, unit: 'day' | 'week' | 'month'): TrendPoint[] {
+  return bucketDatedCounts(dates, from, to, unit);
 }
