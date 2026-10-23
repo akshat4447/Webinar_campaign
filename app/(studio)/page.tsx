@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { getCampaignCardStats, getCampaignCardCounts, getListKpis } from '@/lib/campaignCardStats';
 import { getAttendeeChannelBreakdownAcrossCampaigns } from '@/lib/attendeeChannels';
+import { getResumeDrafts } from '@/lib/draftResume';
 import { NewCampaignButton } from './NewCampaignButton';
 import { WebinarViewControls } from './WebinarViewControls';
 
@@ -41,7 +42,7 @@ export default async function WebinarsPage(props: PageProps<'/'>) {
     : 'all';
 
   const page = Math.max(1, Math.min(100_000, Math.floor(Number(rawPage)) || 1));
-  const [campaigns, counts] = await Promise.all([
+  const [campaigns, counts, resume] = await Promise.all([
     db.campaign.findMany({
       where: whereFor(view),
       orderBy: { createdAt: 'desc' },
@@ -61,6 +62,10 @@ export default async function WebinarsPage(props: PageProps<'/'>) {
         createdAt: true,
         status: true,
         archived: true,
+        updatedAt: true,
+        wizardStep: true,
+        wizardFurthestStep: true,
+        draftTouchedAt: true,
         speakerName: true,
         registrations: true,
         invites: true,
@@ -70,6 +75,7 @@ export default async function WebinarsPage(props: PageProps<'/'>) {
       },
     }),
     Promise.all(VIEWS.map((v) => db.campaign.count({ where: whereFor(v.id) }))),
+    getResumeDrafts(),
   ]);
 
   // Six grouped queries for the whole page rather than six per card.
@@ -105,7 +111,7 @@ export default async function WebinarsPage(props: PageProps<'/'>) {
             </p>
           </div>
           <div className="lsq-page-header__actions">
-            <NewCampaignButton />
+            <NewCampaignButton recentDraft={resume.latest} />
           </div>
         </header>
 
@@ -152,6 +158,7 @@ export default async function WebinarsPage(props: PageProps<'/'>) {
         <WebinarViewControls
           cards={cards}
           currentView={view}
+          recentDraft={resume.latest}
           statusViews={VIEWS.map((v, i) => ({
             id: v.id,
             label: v.label,

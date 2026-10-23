@@ -93,6 +93,17 @@ export const DEFAULT_SELECTED_CHANNELS: RegistrationChannelKey[] = [
   'website',
 ];
 
+/** Channels where Studio itself puts the link in every message it sends or drafts: always tracked, nothing to choose. */
+export const AUTOMATIC_CHANNELS: RegistrationChannelKey[] = ['email_campaign', 'sms', 'whatsapp', 'linkedin'];
+
+/** Channels Studio never sends to: someone shares the tracking link by hand, so each one is opt-in. */
+export const SHARED_CHANNELS: RegistrationChannelKey[] = ['sdr_sales', 'third_parties', 'linkedin_event', 'website'];
+
+/** A selection always includes the automatic channels, in registry order, then whichever shared ones were turned on. */
+export function withAutomaticChannels(selected: RegistrationChannelKey[]): RegistrationChannelKey[] {
+  return DEFAULT_SELECTED_CHANNELS.filter((k) => AUTOMATIC_CHANNELS.includes(k) || selected.includes(k));
+}
+
 export function parseSelectedChannels(raw?: string | null): RegistrationChannelKey[] {
   if (!raw || !raw.trim()) return [...DEFAULT_SELECTED_CHANNELS];
   const parsed = raw

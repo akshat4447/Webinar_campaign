@@ -49,6 +49,11 @@ describe('allowRequest', () => {
     claimOnce.mockRejectedValueOnce(new Error('db down'));
     expect((await allowRequest(base)).allowed).toBe(true);
   });
+
+  it('fails closed for authentication when the ledger is unavailable', async () => {
+    claimOnce.mockRejectedValueOnce(new Error('db down'));
+    expect((await allowRequest({ ...base, failurePolicy: 'closed' })).allowed).toBe(false);
+  });
 });
 
 describe('clientIp', () => {

@@ -194,7 +194,6 @@ describe('Cadence Automation Rules', () => {
       dailyLimit: 100,
       cadenceStatus: 'running',
       speakerName: 'Dr. Jane',
-      emailProvider: 'leadsquared',
       registrationLink: 'https://example.com/webinar',
       zoomLink: 'https://zoom.us/j/12345',
       oneClickSignup: true,

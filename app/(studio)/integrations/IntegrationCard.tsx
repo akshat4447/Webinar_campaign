@@ -20,7 +20,7 @@ type Integration = (typeof integrationsData)[number];
 
 // One sentence on what each service is for, so the card answers "why connect this" before any setting.
 const USED_FOR: Record<string, string> = {
-  lsq: 'Creates and updates leads, sends email and receives registration webhooks.',
+  lsq: 'Creates and updates leads, sends email and records registration activity.',
   zoom: 'Creates webinar meetings and imports attendance once a session ends.',
   claude: 'Scores propensity, rewrites messages and infers attendee personas.',
   apollo: 'Fills missing contact emails and verifies LinkedIn profiles before outreach.',
@@ -44,12 +44,15 @@ export function IntegrationCard({
   testResult,
   messagingBadge,
   status,
+  returnTo,
 }: {
   ig: Integration;
   testResult: TestResult | null;
   messagingBadge?: { color: string; text: string } | null;
   /** Computed once on the page so the summary tiles and this badge agree. */
   status?: IntegrationStatus;
+  /** Where to go back to after connecting (the wizard step that sent the person here). */
+  returnTo?: string | null;
 }) {
   const [drawer, setDrawer] = useState<DrawerContent | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -121,6 +124,7 @@ export function IntegrationCard({
           id={ig.id}
           name={ig.name}
           panelId={panelId}
+          returnTo={returnTo}
           onClose={() => setPanelOpen(false)}
           onChanged={() => router.refresh()}
         />

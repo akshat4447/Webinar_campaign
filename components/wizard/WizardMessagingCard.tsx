@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Icon } from '@/components/ui/Icon';
@@ -40,13 +40,14 @@ interface WizardMessagingCardProps {
   activeSteps: WizardCadenceStep[];
   fieldMappings: WizardFieldMapping[];
   templateOptions: Record<string, { id: string; name: string; scope: string }[]>;
+  /** Copy already saved for this webinar's own steps, so reopening the step shows it instead of the defaults. */
+  customTemplates?: Record<string, { subject: string | null; body: string }>;
   initialMode?: 'ai' | 'templatized';
   initialTone?: string;
   initialLength?: string;
   initialInstructions?: string;
   initialBrief?: string;
   initialOneClickSignup?: boolean;
-  initialEmailProvider?: 'leadsquared' | 'netcore';
   initialGroundingFields?: string[];
   netcoreConfigured?: boolean;
   sampleContact?: {
@@ -62,9 +63,10 @@ interface WizardMessagingCardProps {
     aiInstructions: string;
     brief: string;
     oneClickSignup: boolean;
-    emailProvider: 'leadsquared' | 'netcore';
     personalizationFields: string[];
     stepConfigs: Record<string, StepMessagingConfig>;
+    /** Steps whose settings the person actually changed, so an autosave writes only those. */
+    touchedStepKeys: string[];
   }) => void;
 }
 
@@ -88,13 +90,13 @@ export function WizardMessagingCard({
   activeSteps,
   fieldMappings,
   templateOptions,
+  customTemplates = {},
   initialMode = 'ai',
   initialTone = TONE_OPTIONS[0],
   initialLength = LENGTH_OPTIONS[0],
   initialInstructions = "Invite the reader to a live session on the webinar topic, tied to the operational problem their role owns. Lead with the problem, not a pitch. Vary the angle by seniority and function. Keep the offer and registration link exactly as given.",
   initialBrief = "Invite the reader to a live session on the webinar topic, tied to the operational problem their role owns. Lead with the problem, not a pitch. Vary the angle by seniority and function. Keep the offer and registration link exactly as given.",
   initialOneClickSignup = true,
-  initialEmailProvider = 'leadsquared',
   initialGroundingFields,
   netcoreConfigured = false,
   sampleContact = {
@@ -117,7 +119,6 @@ export function WizardMessagingCard({
   });
   const [brief, setBrief] = useState(aiInstructions);
   const oneClickSignup = initialOneClickSignup;
-  const emailProvider = initialEmailProvider;
 
   // Active steps from Step 3 sorted by canonical lifecycle order
   const validSteps = activeSteps.filter((s) => s.enabled).sort(compareCadenceSteps);
@@ -149,8 +150,8 @@ export function WizardMessagingCard({
         mode: (s.mode as 'ai' | 'template') || (initialMode === 'ai' ? 'ai' : 'template'),
         templateId: s.templateId || null,
         instruction: s.instruction || s.desc || '',
-        customSubject: "You're invited: {{topic}}",
-        customBody: brief,
+        customSubject: customTemplates[s.key]?.subject || "You're invited: {{topic}}",
+        customBody: customTemplates[s.key]?.body || brief,
       };
     }
     return init;
@@ -166,7 +167,11 @@ export function WizardMessagingCard({
     customBody: brief,
   };
 
+  // Every step starts with generated defaults. Only a step the person changed is worth saving.
+  const touchedSteps = useRef(new Set<string>());
+
   function updateStepConfig(patch: Partial<StepMessagingConfig>) {
+    touchedSteps.current.add(selectedStepKey);
     const updated = {
       ...stepConfigs,
       [selectedStepKey]: { ...currentStepConfig, ...patch },
@@ -182,7 +187,6 @@ export function WizardMessagingCard({
     aiInstructions: string;
     brief: string;
     oneClickSignup: boolean;
-    emailProvider: 'leadsquared' | 'netcore';
     personalizationFields: string[];
     stepConfigs: Record<string, StepMessagingConfig>;
   }> = {}) {
@@ -193,9 +197,9 @@ export function WizardMessagingCard({
       aiInstructions: overrides.aiInstructions ?? aiInstructions,
       brief: overrides.brief ?? brief,
       oneClickSignup: overrides.oneClickSignup ?? oneClickSignup,
-      emailProvider: overrides.emailProvider ?? emailProvider,
       personalizationFields: overrides.personalizationFields ?? groundingFields,
       stepConfigs: overrides.stepConfigs ?? stepConfigs,
+      touchedStepKeys: [...touchedSteps.current],
     });
   }
 
@@ -268,6 +272,7 @@ export function WizardMessagingCard({
   }
 
   function handleApplyAngle(angle: MessageAngle) {
+    touchedSteps.current.add(selectedStepKey);
     updateStepConfig({
       customBody: angle.body,
       customSubject: angle.subject || currentStepConfig.customSubject,
@@ -431,8 +436,8 @@ export function WizardMessagingCard({
               </div>
               {stepChannel === 'email' && (
                 <p className="lsq-hint">
-                  Email gateway: <strong>{emailProvider === 'netcore' ? 'Netcore Cloud' : 'LeadSquared CRM'}</strong>
-                  {emailProvider === 'netcore' && !netcoreConfigured && (
+                  Email gateway: <strong>Netcore Cloud</strong>
+                  {!netcoreConfigured && (
                     <>
                       {' '}
                       <Badge color="warning" text="API key required on Integrations" />

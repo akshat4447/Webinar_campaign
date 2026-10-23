@@ -4,7 +4,7 @@ import { sendEligibility } from '@/lib/sendEligibility';
 import { resolveRecipient } from '@/lib/sendGuard';
 import { renderMergeFields } from '@/lib/mergeFields';
 import { sendNetcoreEmail } from '@/lib/netcore';
-import { createOrUpdateLead, sendEmailToLead } from '@/lib/leadsquared';
+import { createOrUpdateLead } from '@/lib/leadsquared';
 import { deliverChannelMessage, getChannelDeliveryMode } from '@/lib/channelDelivery';
 import { deliverOnce, DeliveryUnknownError } from '@/lib/deliveryGuard';
 import { quotaDay, reserveSendQuota, releaseSendQuota } from '@/lib/sendQuota';
@@ -59,8 +59,7 @@ export async function processBroadcastJob(jobId: string, deadlineMs = 20_000) {
         const outcome = await deliverOnce(`${job.id}:${key}`, channel, async () => {
           if (channel === 'email') {
             const { email } = resolveRecipient(contact);
-            if (campaign.emailProvider === 'netcore') return sendNetcoreEmail({ to: email, toName: c.name, subject, html: escapeHtml(body).replace(/\n/g, '<br/>'), text: body, tags: [campaign.id, 'broadcast_reminder'] });
-            return sendEmailToLead({ recipientEmail: email, subject, contentHtml: escapeHtml(body).replace(/\n/g, '<br/>'), contentText: body });
+            return sendNetcoreEmail({ to: email, toName: c.name, subject, html: escapeHtml(body).replace(/\n/g, '<br/>'), text: body, tags: [campaign.id, 'broadcast_reminder'] });
           }
           let leadId = contact.lsqLeadId;
           if (!leadId && (await getChannelDeliveryMode(channel)) === 'trigger' && contact.email) {

@@ -1,4 +1,4 @@
-import { buildGoogleCalendarUrl, buildOutlookCalendarUrl } from '@/lib/calendar';
+import { validateLandingUrl } from '@/lib/landingUrl';
 
 export interface BuildLandingUrlOptions {
   landingPageUrl: string;
@@ -41,7 +41,8 @@ export function buildLandingPageUrl({
   registrationToken,
 }: BuildLandingUrlOptions): string {
   const trimmed = (landingPageUrl || '').trim();
-  if (!trimmed) return '';
+  // The same rule the wizard and the Registration tab apply: nothing built from an address that is not a web address.
+  if (!trimmed || !validateLandingUrl(trimmed).ok) return '';
 
   const normalizedChannel = (channel || 'email').toLowerCase();
   const token = registrationToken;
@@ -82,24 +83,9 @@ export function buildLandingPageUrl({
 
     return parsed.toString();
   } catch {
-    // If URL parsing fails, construct cleanly with query separator
-    const sep = trimmed.includes('?') ? '&' : '?';
-    const params = new URLSearchParams({
-      ...(prefill ? { FirstName: firstName } : {}),
-      ...(prefill && lastName ? { LastName: lastName } : {}),
-      ...(prefill && contact.email ? { EmailAddress: contact.email } : {}),
-      ...(prefill && contact.phone ? { Phone: contact.phone } : {}),
-      ...(prefill && contact.account ? { Company: contact.account } : {}),
-      ...(token ? { token } : {}),
-      campaignId: campaign.id,
-      ...(campaign.zoomMeetingId ? { zoomId: campaign.zoomMeetingId } : {}),
-      source: normalizedChannel,
-      utm_source: normalizedChannel,
-      utm_medium: 'outreach',
-      utm_campaign: campaignSlug,
-      ...(apiOrigin ? { apiOrigin: apiOrigin.replace(/\/$/, '') } : {}),
-    });
-    return `${trimmed}${sep}${params.toString()}`;
+    // Not a usable web address: no link at all is safer than a made-up one (javascript:, a bare word) that
+    // would go into every message. The wizard and the Registration tab refuse such an address up front.
+    return '';
   }
 }
 
@@ -215,17 +201,20 @@ export function buildNormalChannelRegistrationLinks(
 
 export type LandingPlatform = 'universal' | 'framer' | 'wordpress' | 'leadsquared' | 'webflow';
 
+/** The LeadSquared lead field that records which channel a registration came through. Created once in LeadSquared. */
+export const ATTRIBUTION_FIELD_SCHEMA_NAME = 'mx_Channel_Source';
+
 export interface EmbedScriptOptions {
   apiOrigin?: string;
   campaignId?: string;
   zoomId?: string;
-  webinarTitle?: string;
-  scheduledAt?: string | Date | null;
-  durationMinutes?: number;
-  description?: string;
-  location?: string;
-  autoOpenGoogleCalendar?: boolean;
   platform?: LandingPlatform;
+  /**
+   * The landing page address. Lets the script tell the registration form apart from other forms on the same site
+   * (a newsletter box in the footer): a form counts when it is on this page's path, or the visitor arrived from a
+   * campaign link, or it carries LeadSquared's own hidden fields.
+   */
+  landingUrl?: string;
 }
 
 /**
@@ -235,33 +224,17 @@ export interface EmbedScriptOptions {
  */
 export function generateUniversalEmbedScript(options: EmbedScriptOptions = {}): string {
   const platform = options.platform || 'universal';
-  const originPlaceholder = options.apiOrigin ? JSON.stringify(options.apiOrigin.replace(/\/$/, '')) : `window.location.origin`;
-  const defaultCampaignId = JSON.stringify(options.campaignId || '');
-  const defaultZoomId = JSON.stringify(options.zoomId || '');
-
-  let defaultGoogleCalUrl = '';
-  let defaultOutlookCalUrl = '';
-  if (options.scheduledAt && options.webinarTitle) {
-    try {
-      defaultGoogleCalUrl = buildGoogleCalendarUrl({
-        title: options.webinarTitle,
-        description: options.description || options.webinarTitle,
-        location: options.location || 'Online Webinar',
-        startTime: options.scheduledAt,
-        durationMinutes: options.durationMinutes || 60,
-      });
-      defaultOutlookCalUrl = buildOutlookCalendarUrl({
-        title: options.webinarTitle,
-        description: options.description || options.webinarTitle,
-        location: options.location || 'Online Webinar',
-        startTime: options.scheduledAt,
-        durationMinutes: options.durationMinutes || 60,
-      });
-    } catch {
-      // safe fallback if date is invalid
-    }
+  // Values are written into a <script> block: a "<" is escaped so no value can close the block early.
+  const literal = (v: string) => JSON.stringify(v).replace(/</g, '\\u003c');
+  const originPlaceholder = options.apiOrigin ? literal(options.apiOrigin.replace(/\/$/, '')) : `window.location.origin`;
+  const defaultCampaignId = literal(options.campaignId || '');
+  const defaultZoomId = literal(options.zoomId || '');
+  let landingPath = '';
+  try {
+    if (options.landingUrl) landingPath = new URL(/^https?:\/\//i.test(options.landingUrl) ? options.landingUrl : `https://${options.landingUrl}`).pathname.replace(/\/+$/, '');
+  } catch {
+    landingPath = '';
   }
-
 
   const platformHeader =
     platform === 'framer'
@@ -321,8 +294,20 @@ ${platformHeader}
     jobTitle: params.get('JobTitle') || params.get('title') || ''
   };
 
-  var googleCalUrl = ${JSON.stringify(defaultGoogleCalUrl || '')};
-  var outlookCalUrl = ${JSON.stringify(defaultOutlookCalUrl || '')};
+  var origin = config.apiOrigin ? config.apiOrigin.replace(/\\/$/, '') : window.location.origin;
+
+  // The LeadSquared lead field that records the channel, and the hand-off to the thank-you page.
+  var ATTRIBUTION_FIELD = ${literal(ATTRIBUTION_FIELD_SCHEMA_NAME)};
+  var REG_COOKIE = 'webinar_reg';
+  var REG_PARAM = 'webinar_reg';
+  var REG_TTL_SECONDS = 1800;
+
+  // The channel as Webinar Studio names it, so LeadSquared holds the same values Studio reports.
+  function channelKey(source) {
+    var s = String(source || '').toLowerCase().replace(/^\\s+|\\s+$/g, '');
+    if (!s) return 'website';
+    return s === 'email' ? 'email_campaign' : s;
+  }
 
   // Cross-Platform Input Setter (React 18/19 Synthetic Events + Standard DOM)
   function setReactInputValue(input, val) {
@@ -344,7 +329,15 @@ ${platformHeader}
       input.value = val;
     }
   }
-  var setVal = setReactInputValue;
+  // Each field is filled once, so a field the visitor has typed in, or one that appears later, is never overwritten.
+  var filledEls = [];
+  function fillOnce(input, val) {
+    if (!input || !val || filledEls.indexOf(input) !== -1) return;
+    filledEls.push(input);
+    if (input.type !== 'hidden' && input.value) return;
+    setReactInputValue(input, val);
+  }
+  var setVal = fillOnce;
 
   // Multi-Framework Input Locator (Framer, Elementor, CF7, Gravity, WPForms, LeadSquared)
   function findInput(type, context) {
@@ -444,6 +437,97 @@ ${platformHeader}
     if (config.source) setVal(findInput('source'), config.source);
   }
 
+  // ---- Cookies shared across the subdomains of one site, so the thank-you page can pick up where the form left off.
+  function readCookie(name) {
+    var all = String(document.cookie || '').split(';');
+    for (var i = 0; i < all.length; i++) {
+      var part = all[i].replace(/^\\s+/, '');
+      if (part.indexOf(name + '=') === 0) {
+        try { return decodeURIComponent(part.substring(name.length + 1)); } catch (e) { return ''; }
+      }
+    }
+    return '';
+  }
+
+  function cookieAttrs(maxAge, domain) {
+    return '; Max-Age=' + maxAge + '; Path=/; SameSite=Lax' + (window.location.protocol === 'https:' ? '; Secure' : '') + (domain ? '; Domain=' + domain : '');
+  }
+
+  function cookieDomains() {
+    var host = window.location.hostname || '';
+    var parts = host.split('.');
+    var list = [];
+    if (parts.length < 2 || /^[0-9.]+$/.test(host)) return list;
+    for (var i = parts.length - 1; i >= 0; i--) list.push(parts.slice(i).join('.'));
+    return list;
+  }
+
+  function writeSharedCookie(name, value, maxAge) {
+    var encoded = encodeURIComponent(value);
+    var domains = cookieDomains();
+    document.cookie = name + '=' + encoded + cookieAttrs(0);
+    // The broadest domain the browser accepts (the site, not just this subdomain).
+    for (var i = 0; i < domains.length; i++) {
+      document.cookie = name + '=' + encoded + cookieAttrs(maxAge, domains[i]);
+      if (readCookie(name)) return;
+    }
+    document.cookie = name + '=' + encoded + cookieAttrs(maxAge);
+  }
+
+  function clearSharedCookie(name) {
+    document.cookie = name + '=' + cookieAttrs(0);
+    var domains = cookieDomains();
+    for (var i = 0; i < domains.length; i++) document.cookie = name + '=' + cookieAttrs(0, domains[i]);
+  }
+
+  function rememberRegistration(form) {
+    try {
+      // Only the webinar and the time: no personal token travels between pages, so a forwarded link cannot lend its owner's details.
+      writeSharedCookie(REG_COOKIE, JSON.stringify({ c: config.campaignId, at: Date.now() }), REG_TTL_SECONDS);
+    } catch (e) {}
+    // If the thank-you page is on another site the cookie cannot follow, so mark the redirect address as well.
+    try {
+      var redirect = form && form.querySelector && form.querySelector('input[name="MXHRedirectUrl" i]');
+      if (redirect && redirect.value) {
+        var next = new URL(redirect.value, window.location.href);
+        if (!next.searchParams.get(REG_PARAM)) {
+          next.searchParams.set(REG_PARAM, config.campaignId);
+          redirect.value = next.toString();
+        }
+      }
+    } catch (e) {}
+  }
+
+  // The form carries the channel to LeadSquared in its own field (added to the form when it has none).
+  function setAttribution(form) {
+    if (!form || !form.querySelector) return;
+    var field = form.querySelector('input[name="' + ATTRIBUTION_FIELD + '" i]');
+    if (!field) {
+      try {
+        field = document.createElement('input');
+        field.type = 'hidden';
+        field.name = ATTRIBUTION_FIELD;
+        form.appendChild(field);
+      } catch (e) { return; }
+    }
+    field.value = channelKey(config.source);
+  }
+
+  // The script runs on every page of the site, so it has to tell the registration form from any other form with an
+  // email box. It acts on a form when the page was opened from a campaign link, when the page is the landing page (or
+  // under it), or when the form carries LeadSquared's own hidden fields. Having followed a campaign link earlier in
+  // the tab is not enough: a newsletter box visited afterwards must not become a registration.
+  var LANDING_PATH = ${literal(landingPath)};
+  function isRegistrationForm(form) {
+    if (arrivedWith.source || arrivedWith.token) return true;
+    var path = (window.location.pathname || '').replace(/\\/+$/, '');
+    if (!LANDING_PATH || path === LANDING_PATH || path.indexOf(LANDING_PATH + '/') === 0) return true;
+    try {
+      if (form && form.querySelector && (form.querySelector('input[name="MXHRedirectUrl" i]') || form.querySelector('input[name="mx_WebinarID" i]') || form.querySelector('input[name="' + ATTRIBUTION_FIELD + '" i]'))) return true;
+    } catch (e) {}
+    return false;
+  }
+
   // Dual-Dispatch on Submission (Webinar Studio + LeadSquared / WordPress)
   var hasSubmitted = false;
   function handleSubmission(e) {
@@ -451,8 +535,10 @@ ${platformHeader}
 
     // Guard: Prevent firing on invalid form inputs (Elementor / HTML5 validation)
     var target = e.target;
-    var form = target.tagName === 'FORM' ? target : target.closest('form');
+    if (!target) return;
+    var form = target.tagName === 'FORM' ? target : (target.closest ? target.closest('form') : null);
     if (form && form.checkValidity && !form.checkValidity()) return;
+    if (!isRegistrationForm(form)) return;
 
     var emailEl = findInput('email', form);
     // A form without an email field (search box, newsletter signup, a login) is not a webinar registration.
@@ -473,21 +559,8 @@ ${platformHeader}
     var companyVal = ((companyEl && companyEl.value) || leadData.company || '').trim();
     var jobTitleVal = ((jobTitleEl && jobTitleEl.value) || leadData.jobTitle || '').trim();
 
-    // Persist registration session for the post-webinar thank-you page
-    try {
-      var originStr = config.apiOrigin ? config.apiOrigin.replace(/\\/$/, '') : window.location.origin;
-      var icsUrl = originStr + '/api/calendar/' + config.campaignId + (config.token ? '?t=' + encodeURIComponent(config.token) : '');
-      sessionStorage.setItem('webinar_attendee', JSON.stringify({
-        campaignId: config.campaignId,
-        email: emailVal,
-        firstName: nameVal,
-        jobTitle: jobTitleVal,
-        googleCalUrl: googleCalUrl,
-        outlookCalUrl: outlookCalUrl,
-        icsUrl: icsUrl,
-        registeredAt: new Date().toISOString()
-      }));
-    } catch (storErr) {}
+    setAttribution(form);
+    rememberRegistration(form);
 
     var payload = JSON.stringify({
       campaignId: config.campaignId,
@@ -503,7 +576,7 @@ ${platformHeader}
       submittedAt: new Date().toISOString()
     });
 
-    var endpoint = (config.apiOrigin ? config.apiOrigin.replace(/\\/$/, '') : window.location.origin) + '/api/landing/submit';
+    var endpoint = origin + '/api/landing/submit';
 
     // Send the registration to Webinar Studio. keepalive lets it finish even if the page navigates away.
     if (window.fetch) {
@@ -514,79 +587,178 @@ ${platformHeader}
         keepalive: true
       }).then(function(res) { return res.json().catch(function() { return {}; }).then(function(body) { return { status: res.status, body: body }; }); })
         .then(function(r) {
-          if (r.body && r.body.ok) { showCalendarWidget(emailVal, nameVal, r.body.token); }
-          else if (r.status === 409) { showNotice('Registration for this webinar is closed.'); }
+          // A form that keeps the visitor on this page gets the calendar pop-up right away; one that sends them
+          // to a thank-you page shows it there instead.
+          if (r.body && r.body.ok) { showRegisteredPopup(config.campaignId, r.body.token); }
+          else if (r.status === 409) { clearSharedCookie(REG_COOKIE); showNotice('Registration for this webinar is closed.'); }
           else { hasSubmitted = false; }
         })
         .catch(function() { hasSubmitted = false; });
     } else if (navigator.sendBeacon) {
       navigator.sendBeacon(endpoint, new Blob([payload], { type: 'application/json' }));
-      showCalendarWidget(emailVal, nameVal);
     }
   }
 
   function showNotice(text) {
     var n = document.createElement('div');
     n.setAttribute('role', 'status');
-    n.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#172738;color:#fff;padding:12px 20px;border-radius:12px;z-index:999999;font-family:system-ui,-apple-system,sans-serif;font-size:14px;';
+    n.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#172738;color:#fff;padding:12px 20px;border-radius:12px;z-index:2147483000;font-family:system-ui,-apple-system,sans-serif;font-size:14px;';
     n.textContent = text;
     document.body.appendChild(n);
   }
 
-  function showCalendarWidget(email, name, serverToken) {
-    if (document.getElementById('webinar-cal-banner')) return;
-    var origin = config.apiOrigin ? config.apiOrigin.replace(/\\/$/, '') : window.location.origin;
-    // The calendar file is only available with the signed token. An email address alone gets no attendee
-    // access, so without a token the banner just confirms and points to the email.
-    var token = serverToken || config.token;
-    var banner = document.createElement('div');
-    banner.id = 'webinar-cal-banner';
-    banner.setAttribute('role', 'status');
-    banner.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#172738;color:#fff;padding:12px 20px;border-radius:12px;z-index:999999;display:flex;align-items:center;gap:14px;font-family:system-ui,-apple-system,sans-serif;font-size:14px;';
-    var msg = document.createElement('span');
-    msg.textContent = 'You are registered' + (name ? ', ' + name : '') + '.' + (token ? '' : ' Joining details will be sent by email.');
-    banner.appendChild(msg);
-    if (token) {
-      var link = document.createElement('a');
-      link.href = origin + '/api/calendar/' + config.campaignId + '?t=' + encodeURIComponent(token);
-      link.textContent = 'Add to calendar';
-      link.style.cssText = 'background:#1463ff;color:#fff;text-decoration:none;padding:6px 12px;border-radius:6px;font-weight:600;';
-      banner.appendChild(link);
-    }
-    var close = document.createElement('button');
-    close.type = 'button';
-    close.setAttribute('aria-label', 'Close');
-    close.textContent = 'Close';
-    close.style.cssText = 'background:transparent;border:none;color:#c0cad6;cursor:pointer;font-size:13px;padding:0 4px;';
-    close.onclick = function() { banner.remove(); };
-    banner.appendChild(close);
-    document.body.appendChild(banner);
+  // ---- The calendar pop-up: shown on the thank-you page (or on the form page when it does not navigate away).
+  var popupRequested = false;
+
+  function makeEl(tag, css, text) {
+    var node = document.createElement(tag);
+    if (css) node.style.cssText = css;
+    if (text) node.textContent = text;
+    return node;
   }
 
-  // 4. Attach Listeners
-  function attachListeners() {
+  function icsHref(text) {
+    try {
+      if (window.Blob && window.URL && URL.createObjectURL) return URL.createObjectURL(new Blob([text], { type: 'text/calendar;charset=utf-8' }));
+    } catch (e) {}
+    return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(text);
+  }
+
+  function showRegisteredPopup(campaignId, token) {
+    if (popupRequested || !/^[A-Za-z0-9_-]{8,64}$/.test(String(campaignId || ''))) return;
+    popupRequested = true;
+    clearSharedCookie(REG_COOKIE);
+    if (!window.fetch) { renderPopup(null); return; }
+    var url = origin + '/api/landing/event?c=' + encodeURIComponent(campaignId) + (token ? '&t=' + encodeURIComponent(token) : '');
+    fetch(url)
+      .then(function(res) { return res.json().catch(function() { return null; }); })
+      .then(function(data) { renderPopup(data && data.ok && data.event ? data : null); })
+      .catch(function() { renderPopup(null); });
+  }
+
+  function renderPopup(data) {
+    if (document.getElementById('webinar-reg-popup')) return;
+    var font = 'font-family:system-ui,-apple-system,"Segoe UI",sans-serif;';
+    var overlay = makeEl('div', 'position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483000;background:rgba(15,23,42,0.55);display:flex;align-items:center;justify-content:center;padding:16px;' + font);
+    overlay.id = 'webinar-reg-popup';
+
+    var box = makeEl('div', 'background:#fff;color:#172738;border-radius:16px;max-width:420px;width:100%;padding:24px;box-shadow:0 24px 60px rgba(15,23,42,0.35);');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    box.setAttribute('aria-labelledby', 'webinar-reg-title');
+
+    var title = makeEl('h2', 'margin:0 0 6px;font-size:22px;line-height:1.25;', 'You are registered');
+    title.id = 'webinar-reg-title';
+    box.appendChild(title);
+
+    var close = makeEl('button', 'margin-top:16px;width:100%;background:transparent;border:1px solid #c0cad6;color:#172738;border-radius:10px;padding:10px 14px;font-size:14px;font-weight:600;cursor:pointer;' + font, 'Close');
+    close.type = 'button';
+
+    if (data && data.event) {
+      box.appendChild(makeEl('p', 'margin:0;font-size:15px;font-weight:600;', data.event.title || ''));
+      var when = '';
+      try {
+        when = new Date(data.event.start).toLocaleString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+      } catch (e) {}
+      if (when) box.appendChild(makeEl('p', 'margin:4px 0 0;font-size:14px;color:#52606d;', when));
+      if (!data.event.personal) box.appendChild(makeEl('p', 'margin:8px 0 0;font-size:13px;color:#52606d;', 'Your joining details will be sent by email.'));
+      var cal = data.calendar || {};
+      box.appendChild(makeEl('p', 'margin:16px 0 8px;font-size:13px;font-weight:600;', 'Add it to your calendar'));
+      var grid = makeEl('div', 'display:grid;grid-template-columns:1fr 1fr;gap:8px;');
+      var btn = 'display:block;text-align:center;text-decoration:none;background:#1463ff;color:#fff;border-radius:10px;padding:10px 12px;font-size:14px;font-weight:600;' + font;
+      var items = [
+        { label: 'Google Calendar', href: cal.google, blank: true },
+        { label: 'Outlook', href: cal.outlookLive, blank: true },
+        { label: 'Microsoft 365', href: cal.outlookOffice, blank: true },
+        { label: 'Apple (.ics)', href: cal.ics ? icsHref(cal.ics) : '', download: 'webinar.ics' }
+      ];
+      for (var i = 0; i < items.length; i++) {
+        if (!items[i].href) continue;
+        var link = makeEl('a', btn, items[i].label);
+        link.href = items[i].href;
+        if (items[i].blank) { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
+        if (items[i].download) link.setAttribute('download', items[i].download);
+        grid.appendChild(link);
+      }
+      box.appendChild(grid);
+    } else {
+      box.appendChild(makeEl('p', 'margin:0;font-size:14px;color:#52606d;', 'Your joining details will be sent by email.'));
+    }
+
+    box.appendChild(close);
+    overlay.appendChild(box);
+
+    function dismiss() {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+    function onKey(ev) { if (ev && ev.key === 'Escape') dismiss(); }
+    close.onclick = dismiss;
+    overlay.onclick = function(ev) { if (ev && ev.target === overlay) dismiss(); };
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+    try { close.focus(); } catch (e) {}
+  }
+
+  // The thank-you page: the visitor just registered on another page and the script remembered it.
+  function checkThankYou() {
+    if (popupRequested) return;
+    var record = null;
+    try { var raw = readCookie(REG_COOKIE); record = raw ? JSON.parse(raw) : null; } catch (e) { record = null; }
+    if (record && (!record.at || Date.now() - record.at > REG_TTL_SECONDS * 1000)) record = null;
+    var campaignId = (record && record.c) || params.get(REG_PARAM) || '';
+    if (!campaignId) return;
+    // A page that still holds the registration form is the landing page, not the thank-you page.
+    if (document.querySelector('input[type="email"]')) return;
+    // Used once: take the marker out of the address bar so a refresh or a shared link does not open it again.
+    try {
+      if (params.get(REG_PARAM) && window.history && window.history.replaceState) {
+        var clean = new URL(window.location.href);
+        clean.searchParams.delete(REG_PARAM);
+        window.history.replaceState(null, '', clean.toString());
+      }
+    } catch (e) {}
+    showRegisteredPopup(campaignId, '');
+  }
+
+  // 4. Listen for submissions on the whole document, so a form that appears late (Framer loads sections as they are
+  // reached) or a page reached without a reload is handled exactly like one present at load.
+  var SUBMIT_SELECTOR = 'button[type="submit"], input[type="submit"], [data-framer-name*="Submit" i], [data-framer-name*="Register" i], .elementor-button, .wpcf7-submit';
+  document.addEventListener('submit', function(e) { handleSubmission(e); }, true);
+  document.addEventListener('click', function(e) {
+    var node = e && e.target;
+    var button = node && node.closest ? node.closest(SUBMIT_SELECTOR) : null;
+    if (button) handleSubmission({ target: button });
+  }, true);
+
+  function onPageChange() {
     autoFill();
-
-    var forms = document.querySelectorAll('form');
-    forms.forEach(function(f) {
-      f.addEventListener('submit', handleSubmission, { capture: true });
-    });
-
-    var submitBtns = document.querySelectorAll('button[type="submit"], input[type="submit"], [data-framer-name*="Submit" i], [data-framer-name*="Register" i], .elementor-button, .wpcf7-submit');
-    submitBtns.forEach(function(b) {
-      b.addEventListener('click', handleSubmission, { capture: true });
-    });
+    checkThankYou();
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', attachListeners);
+    document.addEventListener('DOMContentLoaded', onPageChange);
   } else {
-    attachListeners();
+    onPageChange();
   }
 
-  // Retry after delay for Framer/Elementor dynamic client-side hydration
-  setTimeout(attachListeners, 500);
-  setTimeout(attachListeners, 1500);
+  // Framer and similar builders change page without reloading: watch for new content and for a new address.
+  var changeTimer = 0;
+  if (window.MutationObserver && document.documentElement) {
+    new MutationObserver(function() {
+      if (changeTimer) return;
+      changeTimer = setTimeout(function() { changeTimer = 0; onPageChange(); }, 300);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  }
+  var lastHref = window.location.href;
+  setInterval(function() {
+    if (window.location.href === lastHref) return;
+    lastHref = window.location.href;
+    params = new URLSearchParams(window.location.search);
+    onPageChange();
+  }, 500);
+  setTimeout(onPageChange, 500);
+  setTimeout(onPageChange, 1500);
 })();
 </script>`;
 }

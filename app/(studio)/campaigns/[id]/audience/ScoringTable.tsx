@@ -109,6 +109,8 @@ export function ScoringTable({
   // "Filtered" is now simply the page the server sent. Campaign-wide totals
   // come in as props — counting `contacts` here only ever described this page.
   const filtered = contacts;
+  // A launched webinar can no longer take mobile numbers, so a column of dashes only crowds the table.
+  const showMobile = !locked || contacts.some((c) => c.phone);
   const allFilteredApproved = filtered.length > 0 && filtered.every((c) => c.approved);
 
   async function toggle(c: Contact) {
@@ -222,7 +224,7 @@ export function ScoringTable({
               <th scope="col">Account · vertical</th>
               <th scope="col">Title / function</th>
               <th scope="col">Source</th>
-              <th scope="col">Mobile (SMS/WA)</th>
+              {showMobile && <th scope="col">Mobile (SMS/WA)</th>}
               <th scope="col">Relevance</th>
             </tr>
           </thead>
@@ -273,7 +275,7 @@ export function ScoringTable({
                   <td>
                     <Badge color={sourceColor(c.source)} text={c.source} />
                   </td>
-                  <td>
+                  {showMobile && <td>
                     {locked ? (
                       <span className="lsq-ov-subtle">{c.phone ?? '—'}</span>
                     ) : (
@@ -283,7 +285,7 @@ export function ScoringTable({
                         onChange={(phone) => setContacts((cs) => cs.map((x) => (x.id === c.id ? { ...x, phone: phone || null } : x)))}
                       />
                     )}
-                  </td>
+                  </td>}
                   <td className="lsq-ov-score">
                     <div className="lsq-ov-score__line">
                       <Badge color={scoreBadgeColor(score)} text={String(score)} />

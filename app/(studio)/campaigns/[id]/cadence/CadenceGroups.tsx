@@ -19,6 +19,7 @@ import {
   addCadenceStepAction,
   removeCadenceStepAction,
   resetScheduleAction,
+  restoreCadenceStepAction,
   saveCadenceSequenceAction,
   updateCadenceStepTimingAction,
   type CadenceSequenceStepPatch,
@@ -50,8 +51,10 @@ export function CadenceGroups({
   registeredCount = 0,
   webinarDate,
   campaignSuppressionCount = 0,
+  removedSteps = [],
   linkedinQueue = [],
   initialLinkedInProgress = null,
+  cadenceStatus,
 }: {
   campaignId: string;
   webinarName?: string;
@@ -70,8 +73,12 @@ export function CadenceGroups({
   registeredCount?: number;
   suppressionCount?: number;
   campaignSuppressionCount?: number;
+  /** Built-in steps taken out of this cadence, so one can be brought back without resetting everything. */
+  removedSteps?: { id: string; title: string; group: string; channel: string }[];
   linkedinQueue?: LinkedInQueueItem[];
   initialLinkedInProgress?: Record<string, string> | null;
+  /** not_started | running | paused | stopped. A stopped cadence sends nothing, whatever a step says. */
+  cadenceStatus?: string;
   automationRules?: {
     stopOnRegistration?: boolean;
     stopOnDecline?: boolean;
@@ -320,6 +327,17 @@ export function CadenceGroups({
     }
   }
 
+  async function handleRestoreStep(step: { id: string; title: string }) {
+    setBusy(true);
+    try {
+      const r = await restoreCadenceStepAction(campaignId, step.id);
+      showToast(r.ok ? (r.queued > 0 ? `Restored “${step.title}” and queued ${r.queued} send${r.queued === 1 ? '' : 's'}.` : `Restored “${step.title}”.`) : r.error);
+      if (r.ok) router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleRemoveStep(step: CadenceStep) {
     setBusy(true);
     try {
@@ -390,7 +408,10 @@ export function CadenceGroups({
 
     const shortDate = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
     let dateSubtitle = '';
-    if (isInstant) {
+    if (step.trigger === 'registration') {
+      // "Instant" on a registrants-only step means the moment someone registers, never the moment of launch.
+      dateSubtitle = 'On registration';
+    } else if (isInstant) {
       dateSubtitle = 'At launch';
     } else if (effAnchor === 'event' || step.trigger === 'registration') {
       dateSubtitle = 'On registration';
@@ -407,9 +428,12 @@ export function CadenceGroups({
     const currentEnabled = enabledEdits[step.key] !== undefined ? enabledEdits[step.key] : step.enabled;
 
     // Status badge
+    // A step that has not sent says what will actually happen to it: nothing goes out from a stopped or paused cadence.
     let status: { text: string; color: string } = { text: 'Scheduled', color: 'gray' };
     if (isSent) status = { text: 'Sent', color: 'success' };
-    else if (!currentEnabled) status = { text: 'Paused', color: 'gray' };
+    else if (!currentEnabled) status = { text: 'Off', color: 'gray' };
+    else if (cadenceStatus === 'stopped') status = { text: 'Will not send', color: 'warning' };
+    else if (cadenceStatus === 'paused') status = { text: 'Paused', color: 'warning' };
     else if (step.trigger === 'registration') status = { text: 'Live', color: 'success' };
     const rowState = isSent ? 'sent' : !currentEnabled ? 'paused' : 'active';
 
@@ -504,7 +528,7 @@ export function CadenceGroups({
             </div>
           )}
 
-          {ch === 'LinkedIn' && (
+          {ch === 'LinkedIn' && step.key === 'linkedin' && (
             <div className="lsq-step-extra">
               <span>
                 <strong>{linkedinQueue.length === 0 ? 'No contacts' : pendingLinkedInCount > 0 ? `${pendingLinkedInCount} to send` : 'All sent'}</strong> on LinkedIn. Messages are sent by hand, never automatically.
@@ -576,12 +600,18 @@ export function CadenceGroups({
     { label: 'SMS', key: 'sms', icon: 'sms' },
     { label: 'LinkedIn', key: 'linkedin', icon: 'linkedin' },
   ];
-  const renderAddStep = (group: string) => (
+  // A stopped cadence sends nothing, so a step added to it would never go out: the controls come back with the restart.
+  const renderAddStep = (group: string) => cadenceStatus === 'stopped' ? null : (
     <div className="lsq-stage__foot">
       <span className="lsq-hint">Add a step</span>
       {ADD_CHANNELS.map((c) => (
         <Button key={c.key} hierarchy="secondary" size="sm" icon={<Icon name={c.icon} size={14} />} disabled={busy} onClick={() => handleAddStep(group, c.key)}>
           {c.label}
+        </Button>
+      ))}
+      {removedSteps.filter((r) => r.group === group).map((r) => (
+        <Button key={r.id} hierarchy="tertiary-color" size="sm" icon={<Icon name="refresh" size={14} />} disabled={busy} onClick={() => handleRestoreStep(r)}>
+          {`Restore “${r.title}”`}
         </Button>
       ))}
     </div>
@@ -618,6 +648,16 @@ export function CadenceGroups({
           </div>
         )}
 
+        {cadenceStatus === 'stopped' && (
+          <div className="lsq-banner lsq-banner--neutral" role="status">
+            <span className="lsq-banner__icon"><Icon name="info" size={16} /></span>
+            <p className="lsq-banner__body">
+              This cadence is stopped, so nothing below will send. To send again, restart it from{' '}
+              <Link href={`/campaigns/${campaignId}/results`}>Results</Link>.
+            </p>
+          </div>
+        )}
+
         <div className="lsq-grid lsq-grid--narrow" role="list" aria-label="Cadence summary">
           <div className="lsq-card lsq-stat" role="listitem">
             <p className="lsq-stat__label">Active Steps</p>
@@ -632,7 +672,9 @@ export function CadenceGroups({
           <div className="lsq-card lsq-stat" role="listitem">
             <p className="lsq-stat__label">Queued</p>
             <p className="lsq-stat__value">{totals.queued.toLocaleString()}</p>
-            <p className="lsq-stat__note">waiting for their time</p>
+            <p className="lsq-stat__note">
+              {cadenceStatus === 'stopped' ? 'will not send, cadence stopped' : cadenceStatus === 'paused' ? 'held, cadence paused' : cadenceStatus === 'not_started' ? 'waiting for launch' : 'waiting for their time'}
+            </p>
           </div>
           <div className="lsq-card lsq-stat" role="listitem">
             <p className="lsq-stat__label">Failed</p>

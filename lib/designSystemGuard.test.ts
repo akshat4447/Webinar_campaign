@@ -21,7 +21,7 @@ const rel = (f: string) => relative(ROOT, f);
 const read = (f: string) => readFileSync(f, 'utf8');
 
 // Brand artwork is the one place raw colours are allowed: the LeadSquared logo SVGs.
-const HEX_ALLOWED = new Set(['components/Sidebar.tsx']);
+const HEX_ALLOWED = new Set(['components/Sidebar.tsx', 'components/BrandMark.tsx']);
 
 describe('design-system guard', () => {
   it('uses no emoji or glyph icons in UI code (use <Icon />)', () => {

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
+import { plainError } from '@/lib/plainError';
 import { pushAccountsForSdrAction, generatePostEventDebriefAction } from '@/lib/actions/attendance';
 import type { AccountEngagementRow, PostEventStats } from '@/lib/postEvent';
 import type { PostEventDebriefResult } from '@/lib/claude';
@@ -48,9 +49,9 @@ export function PostEventClient({
     try {
       const res = await generatePostEventDebriefAction(campaignId);
       setDebrief(res);
-      showToast('AI executive debrief generated.');
+      showToast(res.usedFallback ? 'Claude is not configured, so this debrief is a template summary, not an analysis.' : 'AI executive debrief generated.');
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to generate debrief.');
+      showToast(plainError(err, 'Failed to generate debrief.'));
     } finally {
       setGeneratingDebrief(false);
     }
@@ -61,13 +62,17 @@ export function PostEventClient({
     try {
       const topContactIds = accounts.filter((a) => a.action !== 'Not contacted').map((a) => a.topContactId);
       const result = await pushAccountsForSdrAction(campaignId, topContactIds);
+      if (!result.ok) {
+        showToast(result.error);
+        return;
+      }
       showToast(
         result.pushed > 0
           ? `Flagged ${result.pushed} account${result.pushed === 1 ? '' : 's'} for SDR follow-up in LeadSquared.`
           : 'Nothing to push. No engaged accounts yet.'
       );
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to push activities.');
+      showToast(plainError(err, 'Failed to push activities.'));
     } finally {
       setBusy(false);
     }
@@ -96,7 +101,7 @@ export function PostEventClient({
             </div>
           </div>
           <div className="lsq-card__body">
-            <div className="lsq-msgbox">Sent via LeadSquared, personalized per attendee where AI mode is on.</div>
+            <div className="lsq-msgbox">Sent by email through Netcore, personalized per attendee where AI mode is on.</div>
           </div>
         </section>
         <section className="lsq-card" aria-labelledby="pe-noshow">
@@ -109,7 +114,7 @@ export function PostEventClient({
             </div>
           </div>
           <div className="lsq-card__body">
-            <div className="lsq-msgbox">Sent via LeadSquared, personalized per contact where AI mode is on.</div>
+            <div className="lsq-msgbox">Sent by email through Netcore, personalized per contact where AI mode is on.</div>
           </div>
         </section>
       </div>

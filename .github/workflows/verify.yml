@@ -41,6 +41,13 @@ jobs:
       - run: npm run test:ui
         env:
           NEXT_DIST_DIR: .next
+      - run: npm run test:login
+      - run: npm run test:zoom
+      - run: npm run test:landing
+      - run: npm run test:workspace
+      - run: npm run test:wizard
+      - run: npm run test:lsq-import
+      - run: npm run test:apollo
       - run: npm run test:load
         env:
           NEXT_DIST_DIR: .next

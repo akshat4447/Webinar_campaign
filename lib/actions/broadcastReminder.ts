@@ -1,4 +1,6 @@
 'use server';
+
+import { requireOperatorSession } from '@/lib/operatorSession';
 import { db } from '@/lib/db';
 import { processBroadcastJob } from '@/lib/broadcast';
 import { revalidateCampaign } from '@/lib/revalidate';
@@ -11,6 +13,7 @@ export interface BroadcastReminderResult {
 }
 const schema = z.object({ channel: z.enum(['email','whatsapp','sms','all']), subject: z.string().max(300).optional(), message: z.string().trim().min(1).max(10_000), testMode: z.boolean().optional(), testRecipientEmail: z.email().optional() });
 export async function broadcastWebinarReminderAction(campaignId: string, input: BroadcastReminderInput): Promise<BroadcastReminderResult> {
+  await requireOperatorSession();
   try {
     const parsed = schema.parse(input);
     if (parsed.testMode && (parsed.channel !== 'email' || !parsed.testRecipientEmail)) throw new Error('A preview requires the email channel and an explicit test recipient.');

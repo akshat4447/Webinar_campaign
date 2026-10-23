@@ -19,7 +19,6 @@ function envFallback(id: string, key: string): string | undefined {
     'lsq.secretKey': process.env.LSQ_SECRET_KEY,
     'lsq.host': process.env.LSQ_HOST,
     'lsq.senderEmail': process.env.LSQ_SENDER_EMAIL,
-    'lsq.webhookSecret': process.env.LSQ_WEBHOOK_SECRET,
     'claude.apiKey': process.env.ANTHROPIC_API_KEY,
     'apollo.apiKey': process.env.APOLLO_API_KEY,
     'zoom.accountId': process.env.ZOOM_ACCOUNT_ID,

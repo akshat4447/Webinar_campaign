@@ -58,6 +58,20 @@ select.lsq-select.lsq-home-select { width: auto; }
 .lsq-home-nav[data-active='true'] { background: var(--accent-50); color: var(--accent-700); }
 .lsq-home-nav svg { flex: none; }
 
+/* Shortcut back to the draft being set up. */
+.lsq-home-resume { margin-top: var(--space-20); display: flex; flex-direction: column; gap: var(--space-4); }
+.lsq-home-resume__link { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding: var(--space-12); border-radius: var(--radius-lg); background: var(--accent-50); color: var(--text-primary); text-decoration: none; box-shadow: inset 0 0 0 1px var(--accent-500); }
+.lsq-home-resume__link:hover { background: var(--surface-hover); }
+.lsq-home-resume__label { font-size: var(--fs-label-2); font-weight: var(--fw-bold); color: var(--accent-700); }
+.lsq-home-resume__name { font-size: var(--fs-label-1); font-weight: var(--fw-bold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lsq-home-resume__step { font-size: var(--fs-label-2); color: var(--text-secondary); }
+.lsq-home-resume__more { padding: 0 var(--space-12); font-size: var(--fs-label-2); color: var(--text-link); text-decoration: none; }
+.lsq-home-resume__more:hover { text-decoration: underline; }
+
+/* Draft cards show how far setup got. */
+.lsq-home-card__progress { display: flex; flex-direction: column; gap: var(--space-4); }
+.lsq-home-card__progress-note { margin: 0; font-size: var(--fs-label-2); color: var(--text-secondary); }
+
 .lsq-home-side-status { margin-top: var(--space-20); padding: var(--space-12); border-radius: var(--radius-lg); background: var(--surface-subtle); }
 .lsq-home-side-status__head { display: flex; align-items: center; gap: var(--space-8); margin-bottom: var(--space-6); font-size: var(--fs-label-2); font-weight: var(--fw-bold); color: var(--text-primary); }
 .lsq-home-side-status__dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--success-500); animation: lsq-pulse 2s infinite; flex: none; }
@@ -213,3 +227,6 @@ select.lsq-select.lsq-home-select { width: auto; }
 .lsq-home-prewrap { white-space: pre-line; }
 .lsq-home-kpis--dash { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 1000px) { .lsq-home-kpis--dash { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Sign Out sits with the other footer items but is a button inside a form. */
+.lsq-home-signout { width: 100%; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; }

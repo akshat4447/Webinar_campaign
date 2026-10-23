@@ -14,7 +14,7 @@ process.env.LSQ_API_BASE_URL = fake.url;                                // e.g. 
 // ...any non-empty accessKey / secretKey works (mock resolveIntegrationField, see lsqFake.test.ts)
 
 fake.setFault({ match: 'Lists.Get', status: 429, headers: { 'Retry-After': '2' } }); // one-shot by default
-fake.state.leads / leadsByEmail / activities / activityTypes / lists / sentEmails / webhooks / requestLog
+fake.state.leads / leadsByEmail / activities / activityTypes / lists / sentEmails / requestLog
 fake.reset();            // wipe data, faults and log (keeps the same state object)
 await fake.stop();
 ```
@@ -66,7 +66,6 @@ It prints the URL (`http://127.0.0.1:<port>/v2`) and runs until Ctrl-C. Then sta
 | POST | `/ProspectActivity.svc/Bulk/CustomActivity/Add/ByLeadId` |
 | POST | `/EmailMarketing.svc/SendEmailToLead` |
 | GET | `/UserManagement.svc/Users.Get` |
-| POST | `/Webhook.svc/Create` |
 
 Application errors are HTTP 500 with `{ExceptionType: "MX…Exception", ExceptionMessage}`, like LSQ.
 Other paths are 404, wrong methods 405, bad credentials 401.

@@ -20,6 +20,7 @@ const lsq = vi.hoisted(() => {
     createOrUpdateLead: vi.fn(),
     createActivityType: vi.fn(),
     pushCustomActivities: vi.fn(),
+    getTenantCustomFieldNames: vi.fn(),
   };
 });
 vi.mock('@/lib/leadsquared', () => lsq);
@@ -57,6 +58,7 @@ beforeEach(() => {
     leads.map((_, i) => ({ RowNumber: i, LeadId: `L${i}`, LeadCreated: true, LeadUpdated: false, AffectedRows: 1 }))
   );
   lsq.createOrUpdateLead.mockResolvedValue({ Status: 'Success', Message: { Id: 'LEAD1', AffectedRows: 1 } });
+  lsq.getTenantCustomFieldNames.mockResolvedValue(null); // the tenant's lead fields are unknown unless a test says otherwise
   delete process.env.LSQ_ZOOM_REGISTERED_FIELD;
 });
 
@@ -189,6 +191,32 @@ describe('postWebinarRegistrationActivity', () => {
     await postWebinarRegistrationActivity('c1', 'ct1', 'email');
     const f = lsq.pushCustomActivities.mock.calls[0][0][0].Fields;
     expect(f.find((x: { SchemaName: string }) => x.SchemaName === 'mx_Custom_6').Value).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  });
+
+  it('records the channel on the lead, once the tenant has the attribution field, even for a lead that already exists', async () => {
+    lsq.getTenantCustomFieldNames.mockResolvedValue(new Set(['mx_channel_source']));
+    db.contact.findUnique.mockResolvedValue(mkContact(1, { lsqLeadId: 'EXIST' }));
+    await postWebinarRegistrationActivity('c1', 'ct1', 'email');
+    const fields = lsq.createOrUpdateLead.mock.calls[0][0];
+    expect(fields).toContainEqual({ Attribute: 'mx_Channel_Source', Value: 'email_campaign' });
+    expect(fields).toContainEqual({ Attribute: 'EmailAddress', Value: 'u1@x.com' });
+
+    claims.clear();
+    lsq.createOrUpdateLead.mockClear();
+    await postWebinarRegistrationActivity('c1', 'ct1', 'sms');
+    expect(lsq.createOrUpdateLead.mock.calls[0][0]).toContainEqual({ Attribute: 'mx_Channel_Source', Value: 'sms' });
+  });
+
+  it('does not touch an existing lead, or send the field, when the tenant has no attribution field or cannot be read', async () => {
+    db.contact.findUnique.mockResolvedValue(mkContact(1, { lsqLeadId: 'EXIST' }));
+    lsq.getTenantCustomFieldNames.mockResolvedValue(new Set(['mx_other']));
+    await postWebinarRegistrationActivity('c1', 'ct1', 'email');
+    expect(lsq.createOrUpdateLead).not.toHaveBeenCalled();
+
+    claims.clear();
+    lsq.getTenantCustomFieldNames.mockRejectedValue(new Error('LeadSquared is down'));
+    expect((await postWebinarRegistrationActivity('c1', 'ct1', 'email')).ok).toBe(true);
+    expect(lsq.createOrUpdateLead).not.toHaveBeenCalled();
   });
 
   it('sets the Zoom-registered flag ONLY when a field name is configured and the contact has a Zoom registration', async () => {

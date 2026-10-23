@@ -1,3 +1,4 @@
+import { plainError } from '@/lib/plainError';
 import { createHash } from 'node:crypto';
 import { resolveStepDate } from '@/lib/stepSchedule';
 import { db } from '@/lib/db';
@@ -77,7 +78,7 @@ async function applyAttendance(campaignId: string, emailToDuration: Map<string, 
 export async function importAttendanceFromZoom(campaignId: string): Promise<AttendanceImportResult> {
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { zoomMeetingId: true, zoomEventType: true } });
   if (!campaign.zoomMeetingId) {
-    return { ok: false, error: 'No Zoom meeting is linked to this webinar — link one from Setup.' };
+    return { ok: false, error: 'No Zoom meeting is linked to this webinar — link one before the webinar, or import attendance from a CSV instead.' };
   }
 
   const { fetchParticipants } = await import('@/lib/zoom/meetings');
@@ -85,7 +86,7 @@ export async function importAttendanceFromZoom(campaignId: string): Promise<Atte
   try {
     participants = await fetchParticipants(campaign.zoomMeetingId, campaign.zoomEventType === 'webinar' ? 'webinar' : 'meeting');
   } catch (err) {
-    return { ok: false, error: `Zoom's participants report could not be fetched: ${String(err)}` };
+    return { ok: false, error: `Zoom's participants report could not be fetched: ${plainError(err)}` };
   }
   if (participants.length === 0) {
     return { ok: false, error: 'Zoom returned no participants for this meeting — nobody may have joined yet, or the meeting has not ended.' };

@@ -12,7 +12,7 @@ async function main() {
   try {
     const migrate = spawnSync('npx', ['prisma','migrate','deploy'], { env, stdio:'inherit' }); if (migrate.status) throw new Error('Test database migrations failed.');
     const diff = spawnSync('npx', ['prisma','migrate','diff','--from-config-datasource','--to-schema','prisma/schema.prisma','--exit-code'], {env,stdio:'inherit'}); if (diff.status) throw new Error('Migrated database differs from schema.');
-    const tests = spawnSync('npx', ['vitest','run', 'test-support/integration'], { env, stdio:'inherit' }); process.exitCode = tests.status ?? 1;
+    const tests = spawnSync('npx', ['vitest','run', ...(process.argv.length > 2 ? process.argv.slice(2).map(f => `test-support/integration/${f}`) : ['test-support/integration'])], { env, stdio:'inherit' }); process.exitCode = tests.status ?? 1;
   } finally { await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`); await admin.end(); }
 }
 main().catch(err => { console.error(err instanceof Error ? err.message : String(err)); process.exitCode=1; });

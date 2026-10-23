@@ -99,12 +99,21 @@ model Campaign {
   /// Planned length in minutes (sent to Zoom, used for the "ended" estimate).
   durationMinutes Int    @default(60)
 
-  /// Email delivery gateway for this campaign: 'leadsquared' | 'netcore'
-  emailProvider String @default("leadsquared")
-
   /// Comma-separated list of active registration channels:
   /// e.g. "email_campaign,whatsapp,linkedin,sdr_sales,third_parties,linkedin_event,website"
   selectedChannels String? @default("email_campaign,whatsapp,linkedin,sdr_sales,third_parties,linkedin_event,website")
+
+  // --- Creation wizard draft state (lib/wizardDraft.ts) ---
+  /// The wizard step the person was last on (0-5), so a draft reopens where it was left.
+  wizardStep          Int       @default(0)
+  /// Highest wizard step reached; steps up to here can be revisited from the stepper.
+  wizardFurthestStep  Int       @default(0)
+  /// Bumped on every wizard autosave; the base for conflict detection between tabs.
+  draftRevision       Int       @default(0)
+  /// JSON map of conflict group to the draftRevision that last wrote it. Metadata only: no form values live here.
+  draftFieldRevs      String?
+  /// Last wizard activity. Separate from updatedAt, which other jobs also bump.
+  draftTouchedAt      DateTime?
 
   cadenceStatus        String    @default("not_started") // not_started | running | paused | stopped
   linkedinMode         String    @default("assisted") // assisted (manual) | automated (simulated bot)
@@ -141,6 +150,8 @@ model Campaign {
   linkedinRegistrations LinkedinRegistration[]
   speakers              Speaker[]
   campaignSuppressions  CampaignSuppression[]
+
+  @@index([status, draftTouchedAt])
 }
 
 model Contact {

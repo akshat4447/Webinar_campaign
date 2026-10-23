@@ -1,3 +1,8 @@
+import { vi } from 'vitest';
+
+// Business tests simulate an authenticated operator. Boundary tests unmock this module and exercise real cookies.
+vi.mock('@/lib/operatorSession', () => ({ requireOperatorSession: vi.fn(async () => ({ username: 'test-operator' })) }));
+
 // Unit tests never inherit the developer's database. Integration tests require a named disposable DB.
 const url = process.env.TEST_DATABASE_URL;
 if (url && !/^webinar_(test|fix|audit)_[a-z0-9_]+$/i.test(new URL(url).pathname.slice(1))) throw new Error('TEST_DATABASE_URL must identify a disposable webinar_test_*, webinar_fix_*, or webinar_audit_* database.');
@@ -6,6 +11,8 @@ process.env.REGISTRATION_SECRET = 'test-only-registration-signing-key-with-32-pl
 process.env.CREDENTIALS_ENCRYPTION_KEY = 'test-only-credential-encryption-key-with-32-plus-characters';
 process.env.CADENCE_AUTOTICK = 'false';
 process.env.ZOOM_AUTOSYNC = 'false';
+// Pacing between LeadSquared calls is real-world protection; tests run against a local fake.
+process.env.LSQ_MIN_GAP_MS = '0';
 const realFetch = globalThis.fetch;
 globalThis.fetch = (input, init) => {
   const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);

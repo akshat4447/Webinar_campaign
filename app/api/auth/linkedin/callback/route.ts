@@ -5,24 +5,25 @@ import { resolveIntegrationField, saveIntegrationConfig } from '@/lib/integratio
 import { exchangeCodeForToken, fetchAdministeredOrganizations } from '@/lib/linkedin/auth';
 import { db } from '@/lib/db';
 import { requestOrigin } from '@/lib/requestOrigin';
+import { oauthRedirect, takeOAuthReturn } from '@/lib/oauthReturn';
 
 export const runtime = 'nodejs';
 
-function back(request: Request, params: Record<string, string>) {
-  const url = new URL('/integrations', requestOrigin(request));
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  return Response.redirect(url.toString(), 302);
+function back(request: Request, params: Record<string, string>, returnTo: string | null = null) {
+  return oauthRedirect(request, { params, returnTo, ok: params.connected === 'ok' });
 }
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const code = params.get('code');
   const state = params.get('state');
+  // The destination remembered when the connection started; consumed here so it is used once.
+  const returnTo = await takeOAuthReturn('linkedin', state);
 
   if (params.get('error')) {
-    return back(request, { connected: 'error', detail: params.get('error_description') || params.get('error')! });
+    return back(request, { connected: 'error', detail: params.get('error_description') || params.get('error')! }, returnTo);
   }
-  if (!code || !state) return back(request, { connected: 'error', detail: 'Missing code/state from LinkedIn.' });
+  if (!code || !state) return back(request, { connected: 'error', detail: 'Missing code/state from LinkedIn.' }, returnTo);
 
   // CSRF check: check HttpOnly cookie first, or fall back to a short-lived
   // DB state record — same fallback as app/api/auth/zoom/callback/route.ts.
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
   }
 
   if (!stateValid) {
-    return back(request, { connected: 'error', detail: 'OAuth state mismatch or expired — start the connection again.' });
+    return back(request, { connected: 'error', detail: 'OAuth state mismatch or expired — start the connection again.' }, returnTo);
   }
 
   try {
@@ -79,8 +80,8 @@ export async function GET(request: Request) {
     return back(request, {
       connected: 'ok',
       detail: orgs.length > 0 ? `Connected — publishing as ${orgs[0].name ?? orgs[0].organizationUrn}` : 'Connected, but no Page with ADMINISTRATOR/CONTENT_ADMINISTRATOR role was found.',
-    });
+    }, returnTo);
   } catch (err) {
-    return back(request, { connected: 'error', detail: String(err instanceof Error ? err.message : err).slice(0, 280) });
+    return back(request, { connected: 'error', detail: String(err instanceof Error ? err.message : err).slice(0, 280) }, returnTo);
   }
 }

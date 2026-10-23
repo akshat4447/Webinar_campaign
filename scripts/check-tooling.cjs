@@ -4,7 +4,7 @@ const {dirname,join} = require('node:path');
 const {createRequire} = require('node:module');
 const pluginManifest = require.resolve('@next/eslint-plugin-next/package.json');
 const plugin = JSON.parse(readFileSync(pluginManifest,'utf8'));
-if (plugin.version !== '16.4.0') throw new Error('Review the directory-glob compatibility package before updating the Next ESLint plugin.');
+if (plugin.version !== '16.4.3') throw new Error('Review the directory-glob compatibility package before updating the Next ESLint plugin.');
 const pluginRequire = createRequire(pluginManifest);
 const glob = pluginRequire('fast-glob');
 if (typeof glob.globSync !== 'function') throw new Error('Next lint requires the globSync directory API.');

@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
 import { appOrigin } from '@/lib/appOrigin';
 import { revalidateCampaign } from '@/lib/revalidate';
@@ -9,8 +11,8 @@ import { validateLandingUrl } from '@/lib/landingUrl';
 import { verifyLandingPage, type LandingReport } from '@/lib/landingVerify';
 import { computeRegistrationReadiness, type Readiness } from '@/lib/registrationReadiness';
 import { publicRegistrationUrl, buildPublicLandingUrl, registrationModeOf, type RegistrationMode } from '@/lib/inviteLink';
-import { CHANNEL_DEFINITIONS, parseSelectedChannels } from '@/lib/registrationChannels';
-import { generateUniversalEmbedScript } from '@/lib/landingPage';
+import { CHANNEL_DEFINITIONS, SHARED_CHANNELS, parseSelectedChannels } from '@/lib/registrationChannels';
+import { ATTRIBUTION_FIELD_SCHEMA_NAME, generateUniversalEmbedScript } from '@/lib/landingPage';
 import { getZoomRegistrationHealthAction } from '@/lib/actions/zoom';
 import { setupLockError } from '@/lib/setupLock';
 
@@ -51,6 +53,7 @@ async function loadLastReport(campaignId: string, url: string | null): Promise<(
 }
 
 export async function getRegistrationOverviewAction(campaignId: string): Promise<RegistrationOverview | { error: string }> {
+  await requireOperatorSession();
   const c = await db.campaign.findUnique({ where: { id: campaignId } });
   if (!c) return { error: 'Webinar not found.' };
 
@@ -70,9 +73,11 @@ export async function getRegistrationOverviewAction(campaignId: string): Promise
     zoom: { connected: zoomConnected, health: health.linked ? { registrationEnabled: health.registrationEnabled, kind: health.kind, error: health.error } : null, webhookSecretSet },
     lsqConfigured,
     landing: mode === 'external' ? landingReport : null,
+    attributionField: lsqConfigured ? (await attributionFieldStatus(false)).status : 'unknown',
   });
 
-  const channels = parseSelectedChannels(c.selectedChannels);
+  // Studio puts the right link in the messages it sends itself; only the places someone shares a link by hand need one here.
+  const channels = parseSelectedChannels(c.selectedChannels).filter((key) => SHARED_CHANNELS.includes(key));
   const channelLinks: ChannelLink[] = channels.map((key) => ({
     channel: key,
     label: CHANNEL_DEFINITIONS[key]?.label ?? key,
@@ -88,11 +93,7 @@ export async function getRegistrationOverviewAction(campaignId: string): Promise
           apiOrigin: origin,
           campaignId: c.id,
           zoomId: c.zoomMeetingId ?? undefined,
-          webinarTitle: c.name,
-          scheduledAt: c.scheduledAt,
-          durationMinutes: c.durationMinutes,
-          description: c.description ?? undefined,
-          location: c.zoomLink ?? undefined,
+          landingUrl: landingUrl ?? undefined,
         })
       : null;
 
@@ -116,6 +117,7 @@ export async function saveRegistrationSettingsAction(
   campaignId: string,
   input: { mode: RegistrationMode; landingUrl?: string | null; prefill?: boolean; oneClickSignup?: boolean }
 ): Promise<SaveRegistrationResult> {
+  await requireOperatorSession();
   if (input.mode !== 'zoom' && input.mode !== 'external') return { ok: false, error: 'Choose how people register.' };
   const locked = await setupLockError(campaignId);
   if (locked) return { ok: false, error: locked };
@@ -150,15 +152,45 @@ export async function saveRegistrationSettingsAction(
 }
 
 export async function verifyLandingPageAction(campaignId: string, url?: string | null): Promise<LandingReport & { checkedAt: string }> {
-  const c = await db.campaign.findUnique({ where: { id: campaignId }, select: { registrationLink: true } });
+  await requireOperatorSession();
+  const c = await db.campaign.findUnique({ where: { id: campaignId }, select: { registrationLink: true, zoomMeetingId: true, scheduledAt: true, timezone: true } });
   const target = (url ?? c?.registrationLink ?? '').trim();
   const v = validateLandingUrl(target);
   const report: LandingReport = v.ok
-    ? await verifyLandingPage(v.url as string, appOrigin())
+    ? await verifyLandingPage(v.url as string, appOrigin(), undefined, { zoomId: c?.zoomMeetingId, scheduledAt: c?.scheduledAt, timezone: c?.timezone })
     : { url: target, finalUrl: null, status: null, title: null, platform: 'unknown', embeddable: false, overall: 'fail', checks: [{ id: 'reachable', label: 'Page loads', status: 'fail', detail: v.error ?? 'Invalid address.', fix: 'Enter a valid landing page address.' }] };
   const stamped = { ...report, url: v.ok ? (v.url as string) : target, checkedAt: new Date().toISOString() };
   const key = REPORT_KEY(campaignId);
   await db.appSetting.upsert({ where: { key }, create: { key, value: JSON.stringify(stamped) }, update: { value: JSON.stringify(stamped) } }).catch(() => undefined);
   revalidateCampaign(campaignId);
   return stamped;
+}
+
+export type AttributionFieldStatus = { field: string; status: 'found' | 'missing' | 'unknown' };
+
+/**
+ * Whether the LeadSquared lead field that records each registration's channel exists. It is created once in
+ * LeadSquared; until then the script still sends the value, but LeadSquared drops it. 'unknown' means LeadSquared
+ * is not connected or did not answer, which is not the same as missing.
+ */
+export async function checkAttributionFieldAction(): Promise<AttributionFieldStatus> {
+  await requireOperatorSession();
+  return attributionFieldStatus(true);
+}
+
+/** `fresh` drops the cached lead schema first, so a field created a moment ago is seen. */
+async function attributionFieldStatus(fresh: boolean): Promise<AttributionFieldStatus> {
+  const field = ATTRIBUTION_FIELD_SCHEMA_NAME;
+  const connected = Boolean((await resolveIntegrationField('lsq', 'accessKey')) && (await resolveIntegrationField('lsq', 'secretKey')));
+  if (!connected) return { field, status: 'unknown' };
+  const { getTenantCustomFieldNames, resetLeadSchemaCache } = await import('@/lib/leadsquared');
+  if (fresh) resetLeadSchemaCache();
+  let names: Set<string> | null | undefined;
+  try {
+    names = await getTenantCustomFieldNames();
+  } catch {
+    names = null;
+  }
+  if (!names) return { field, status: 'unknown' };
+  return { field, status: names.has(field.toLowerCase()) ? 'found' : 'missing' };
 }

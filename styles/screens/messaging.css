@@ -16,6 +16,8 @@
 .lsq-msg-mode { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-12) var(--space-16); }
 .lsq-msg-mode__select { flex: 1 1 220px; max-width: 360px; }
 .lsq-msg-section-title { font-size: var(--fs-label-1); font-weight: var(--fw-semibold); color: var(--text-primary); margin: 0; }
+/* The subject line of a copy shown as one block: set apart from the body that follows. */
+.lsq-msgbox > .lsq-msg-section-title { margin-bottom: var(--space-12); padding-bottom: var(--space-8); border-bottom: 1px solid var(--border-subtle); }
 .lsq-msg-meter { display: flex; flex-direction: column; gap: var(--space-6); }
 .lsq-msg-meter__row { display: flex; justify-content: space-between; gap: var(--space-8); font-size: var(--fs-label-1); color: var(--text-secondary); }
 .lsq-msg-meter__row strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }

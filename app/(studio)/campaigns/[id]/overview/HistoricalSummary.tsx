@@ -2,31 +2,25 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Icon } from '@/components/ui/Icon';
 import { Drawer, type DrawerContent } from '@/components/ui/Drawer';
 import { ChannelRegistrationOverviewCard } from '@/components/overview/ChannelRegistrationOverviewCard';
 import type { CampaignRegistrationOverview } from '@/lib/registrationChannels';
-import { EditSetupModal } from './EditSetupModal';
 import { isCampaignCompleted, isSetupLocked } from '@/lib/campaignLifecycle';
+import { wizardResumeHref } from '@/lib/wizardDraft';
 import { formatLsqDateTime, timeZoneLabel } from '@/lib/dateFormat';
 import type { Campaign, Speaker } from '@/lib/generated/prisma/client';
 
 export function HistoricalSummary({
   campaign,
-  serverNow,
-  initialEditOpen = false,
   registrationChannels,
   drawers = {},
 }: {
   campaign: Campaign & { speakers?: Speaker[] };
-  serverNow: number;
-  initialEditOpen?: boolean;
   registrationChannels?: CampaignRegistrationOverview;
   drawers?: Record<string, DrawerContent>;
 }) {
-  const [editOpen, setEditOpen] = useState(initialEditOpen);
   const [drawer, setDrawer] = useState<DrawerContent | null>(null);
   const completed = isCampaignCompleted(campaign.status);
   const setupLocked = isSetupLocked(campaign);
@@ -68,9 +62,10 @@ export function HistoricalSummary({
         </div>
         <div className="lsq-page-header__actions">
           {!completed && !setupLocked && (
-            <Button hierarchy="secondary" icon={<Icon name="edit" size={16} />} onClick={() => setEditOpen(true)}>
-              Edit Setup
-            </Button>
+            <Link href={wizardResumeHref(campaign)} className="lsq-btn lsq-btn--md lsq-btn--secondary lsq-ov-linkbtn">
+              <Icon name="edit" size={16} />
+              Continue Setup
+            </Link>
           )}
           {completed || setupLocked ? (
             <Link href={`/campaigns/${campaign.id}/results`} className="lsq-btn lsq-btn--md lsq-btn--primary lsq-ov-linkbtn">
@@ -148,10 +143,6 @@ export function HistoricalSummary({
             )}
           </div>
         </div>
-      )}
-
-      {!setupLocked && (
-        <EditSetupModal campaign={campaign} serverNow={serverNow} isOpen={editOpen} onClose={() => setEditOpen(false)} />
       )}
     </div>
   );

@@ -2,16 +2,17 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Drawer, type DrawerContent } from '@/components/ui/Drawer';
 import { Icon } from '@/components/ui/Icon';
-import { EditSetupModal } from './EditSetupModal';
 import { BroadcastReminderModal } from '@/components/cadence/BroadcastReminderModal';
 import { ChannelRegistrationOverviewCard } from '@/components/overview/ChannelRegistrationOverviewCard';
 import type { CampaignRegistrationOverview } from '@/lib/registrationChannels';
 import { isCampaignCompleted, isSetupLocked } from '@/lib/campaignLifecycle';
 import { formatLsqDateTime, timeZoneLabel } from '@/lib/dateFormat';
+import { wizardResumeHref, wizardStepLabel } from '@/lib/wizardDraft';
 import type { Campaign, Speaker } from '@/lib/generated/prisma/client';
 
 type BreakdownMode = 'persona' | 'scoreband' | 'source' | 'vertical';
@@ -131,6 +132,8 @@ export function DashboardClient({
   scoreBands,
   stepBreakdown,
   channelBreakdown,
+  queuedNote = 'queued',
+  eventOver = false,
   breakdownData,
   accountBreakdown,
   attended,
@@ -140,8 +143,6 @@ export function DashboardClient({
   attendeeChannelBreakdown,
   drawers,
   campaign,
-  serverNow,
-  initialEditOpen,
   registrationChannels,
 }: {
   pipeline: PipelineStage[];
@@ -152,6 +153,10 @@ export function DashboardClient({
   scoreBands: ScoreBand[];
   stepBreakdown: Row[];
   channelBreakdown: Array<{ label: string; sent: number; queued: number; failed: number }>;
+  /** What a queued message means right now: it is waiting, paused, or will not go because the cadence stopped. */
+  queuedNote?: string;
+  /** The webinar's time has passed: a reminder or a LinkedIn push for it would be pointless. */
+  eventOver?: boolean;
   breakdownData: Record<BreakdownMode, Row[]>;
   accountBreakdown: AccountRow[];
   attended: number;
@@ -161,14 +166,12 @@ export function DashboardClient({
   attendeeChannelBreakdown: AttendeeChannelStat[];
   drawers: Record<string, DrawerContent>;
   campaign?: Campaign & { speakers?: Speaker[] };
-  serverNow?: number;
-  initialEditOpen?: boolean;
   registrationChannels?: CampaignRegistrationOverview;
 }) {
+  const router = useRouter();
   const [breakdownMode, setBreakdownMode] = useState<BreakdownMode>('persona');
   const [drawer, setDrawer] = useState<DrawerContent | null>(null);
   const [showTable, setShowTable] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(initialEditOpen ?? false);
   const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
 
   const completed = campaign ? isCampaignCompleted(campaign.status) : false;
@@ -195,18 +198,17 @@ export function DashboardClient({
     <div className="lsq-page">
       <header className="lsq-page-header">
         <div className="lsq-page-header__text">
-          <p className="lsq-page-header__eyebrow">Overview</p>
+          {/* The webinar's name is already in the workspace header above; repeating it here only pushed the numbers down. */}
           <div className="lsq-ov-titlerow">
-            <h1 className="lsq-page-header__title">{about.name}</h1>
+            <h1 className="lsq-page-header__title">Overview</h1>
             {campaign && completed && <Badge color="success" text="Completed" dot />}
-            {campaign && !completed && setupLocked && <Badge color="blue" text="Launched, setup locked" dot />}
             {isDraft && <Badge color="gray" text="Draft" dot />}
           </div>
           <p className="lsq-page-header__sub">
             {when} · {speakerLine} · {zoomLinked ? 'Zoom linked' : 'Direct join link'}
           </p>
         </div>
-        {campaign && !completed && (
+        {campaign && !completed && (!eventOver || isDraft) && (
           <div className="lsq-page-header__actions">
             <Button hierarchy="secondary" icon={<Icon name="bell" size={16} />} onClick={() => setBroadcastModalOpen(true)}>
               Broadcast Reminder
@@ -217,17 +219,29 @@ export function DashboardClient({
                 LinkedIn Outreach
               </Link>
             )}
-            {!setupLocked && (
-              <Button hierarchy="secondary" icon={<Icon name="edit" size={16} />} onClick={() => setEditModalOpen(true)}>
-                Edit Setup
-              </Button>
+            {isDraft && campaign && (
+              <Link href={wizardResumeHref(campaign)} className="lsq-btn lsq-btn--md lsq-btn--primary lsq-ov-linkbtn">
+                <Icon name="edit" size={16} />
+                Continue Setup
+              </Link>
             )}
           </div>
         )}
       </header>
 
-      {campaign && !setupLocked && (
-        <EditSetupModal campaign={campaign} serverNow={serverNow ?? 0} isOpen={editModalOpen} onClose={() => setEditModalOpen(false)} />
+      {isDraft && campaign && (
+        <div className="lsq-banner lsq-banner--neutral" role="region" aria-label="Setup in progress">
+          <span className="lsq-banner__icon" aria-hidden="true"><Icon name="info" size={16} /></span>
+          <div>
+            <p className="lsq-banner__title">Setup Is Not Finished</p>
+            <p className="lsq-banner__body">
+              This webinar is a draft. Setup reopens where it was left ({wizardStepLabel(campaign.wizardStep)}), with every value kept.
+            </p>
+          </div>
+          <Link href={wizardResumeHref(campaign)} className="lsq-btn lsq-btn--sm lsq-btn--secondary">
+            Continue Setup
+          </Link>
+        </div>
       )}
 
       {campaign && !completed && broadcastModalOpen && (
@@ -306,7 +320,7 @@ export function DashboardClient({
           overview={registrationChannels}
           drawers={drawers}
           onOpenDrawer={(content) => setDrawer(content)}
-          onEditChannels={setupLocked ? undefined : () => setEditModalOpen(true)}
+          onEditChannels={isDraft && campaign ? () => router.push(wizardResumeHref({ id: campaign.id, wizardStep: 0 })) : undefined}
         />
       )}
 
@@ -379,8 +393,12 @@ export function DashboardClient({
           <div className="lsq-card__body">
             <p className="lsq-ov-desc">{about.description || 'No description set yet.'}</p>
             <dl className="lsq-kv">
-              <dt>Vertical</dt>
-              <dd>{about.vertical}</dd>
+              {about.vertical && about.vertical !== 'Unassigned' && (
+                <>
+                  <dt>Vertical</dt>
+                  <dd>{about.vertical}</dd>
+                </>
+              )}
               <dt>Date</dt>
               <dd>{when}</dd>
               {(about.speakersSummary || about.speakerName) && (
@@ -495,7 +513,7 @@ export function DashboardClient({
                   <p className="lsq-ov-tile__value">{c.sent.toLocaleString()}</p>
                   <p className="lsq-ov-tile__note">
                     sent
-                    {c.queued > 0 && <span> · {c.queued.toLocaleString()} queued</span>}
+                    {c.queued > 0 && <span> · {c.queued.toLocaleString()} {queuedNote}</span>}
                     {c.failed > 0 && <span className="lsq-ov-danger"> · {c.failed.toLocaleString()} failed</span>}
                   </p>
                 </div>
@@ -602,15 +620,20 @@ export function DashboardClient({
         <div className="lsq-card__body">
           {breakdownData[breakdownMode].length === 0 && <p className="lsq-ov-muted">No contacts imported yet.</p>}
           <ul className="lsq-ov-bars">
-            {breakdownData[breakdownMode].slice(0, 8).map((row) => (
-              <li key={row.label} className="lsq-ov-bar lsq-ov-bar--3">
-                <span className="lsq-ov-bar__label" title={row.label}>{row.label}</span>
-                <div className="lsq-progress" aria-hidden="true">
-                  <div className="lsq-progress__bar" style={{ width: `${Math.max(1.5, row.pct)}%` }} />
-                </div>
-                <span className="lsq-ov-bar__value">{row.count.toLocaleString()}</span>
-              </li>
-            ))}
+            {breakdownData[breakdownMode].slice(0, 8).map((row) => {
+              // The bar is this segment's share of everyone imported, so equal segments look equal and none fills the row.
+              const everyone = breakdownData[breakdownMode].reduce((sum, r) => sum + r.count, 0);
+              const share = everyone ? Math.round((row.count / everyone) * 100) : 0;
+              return (
+                <li key={row.label} className="lsq-ov-bar lsq-ov-bar--3">
+                  <span className="lsq-ov-bar__label" title={row.label}>{row.label}</span>
+                  <div className="lsq-progress" aria-hidden="true">
+                    <div className="lsq-progress__bar" style={{ width: `${Math.max(1.5, share)}%` }} />
+                  </div>
+                  <span className="lsq-ov-bar__value">{row.count.toLocaleString()} · {share}%</span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </section>

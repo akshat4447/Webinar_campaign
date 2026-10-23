@@ -12,16 +12,10 @@ import {
   listLsqActivityTypesAction,
   getActivityMappingAction,
   saveLsqActivityMappingAction,
-  registerLeadSquaredWebhookAction,
-  ensureRegistrationActivityTypeAction,
-  buildLeadSquaredWebhookUrlAction,
 } from '@/lib/actions/integrations';
-import { useOrigin } from '@/lib/useOrigin';
 
-type ChannelKey = 'email' | 'linkedin' | 'sms' | 'whatsapp';
+type ChannelKey = 'sms' | 'whatsapp';
 const CHANNELS: Array<{ key: ChannelKey; label: string }> = [
-  { key: 'email', label: 'Email sent' },
-  { key: 'linkedin', label: 'LinkedIn touch done' },
   { key: 'sms', label: 'SMS activity' },
   { key: 'whatsapp', label: 'WhatsApp activity' },
 ];
@@ -44,77 +38,6 @@ export function LsqActivityMappingCard() {
   const [everSaved, setEverSaved] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [editingChannels, setEditingChannels] = useState<Record<string, boolean>>({});
-  const origin = useOrigin();
-  const [copied, setCopied] = useState(false);
-  const [webhookUrl, setWebhookUrl] = useState<string | null>(null);
-  const [pinging, setPinging] = useState(false);
-  const [pingResult, setPingResult] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  const [registeringWebhook, setRegisteringWebhook] = useState(false);
-  const [webhookRegResult, setWebhookRegResult] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [ensuringType, setEnsuringType] = useState(false);
-  const [typeResult, setTypeResult] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  async function registerWebhookInLsq() {
-    setRegisteringWebhook(true);
-    setWebhookRegResult(null);
-    try {
-      const targetUrl = webhookUrl ?? (await resolveWebhookUrl());
-      const res = await registerLeadSquaredWebhookAction(targetUrl);
-      setWebhookRegResult({ ok: res.ok, msg: res.message });
-    } catch (e) {
-      setWebhookRegResult({ ok: false, msg: `Registration failed: ${String(e)}` });
-    } finally {
-      setRegisteringWebhook(false);
-    }
-  }
-
-  // Resolves (and, on first use, generates) the signed webhook URL — the
-  // secret is minted server-side so it's never round-tripped unsigned.
-  async function resolveWebhookUrl(): Promise<string> {
-    const base = `${origin}/api/webhooks/leadsquared/activity`;
-    const { url } = await buildLeadSquaredWebhookUrlAction(base);
-    setWebhookUrl(url);
-    return url;
-  }
-
-  useEffect(() => {
-    if (origin) void resolveWebhookUrl();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [origin]);
-
-  async function ensureActivityType() {
-    setEnsuringType(true);
-    setTypeResult(null);
-    try {
-      const res = await ensureRegistrationActivityTypeAction();
-      setTypeResult({ ok: res.ok, msg: res.message });
-      if (res.ok) void refresh();
-    } catch (e) {
-      setTypeResult({ ok: false, msg: `Creation failed: ${String(e)}` });
-    } finally {
-      setEnsuringType(false);
-    }
-  }
-
-
-  async function pingWebhook() {
-    setPinging(true);
-    setPingResult(null);
-    try {
-      const res = await fetch('/api/webhooks/leadsquared/activity');
-      const data = await res.json();
-      if (res.ok && data.ok) {
-        setPingResult({ ok: true, msg: `Endpoint active (status 200 OK, ${data.message})` });
-      } else {
-        setPingResult({ ok: false, msg: `Endpoint returned HTTP ${res.status}` });
-      }
-    } catch (e) {
-      setPingResult({ ok: false, msg: `Ping failed: ${String(e)}` });
-    } finally {
-      setPinging(false);
-    }
-  }
 
   // Both halves load on open. The types used to require clicking a quiet
   // tertiary button, so the card rendered four empty dropdowns and looked
@@ -194,8 +117,7 @@ export function LsqActivityMappingCard() {
       <div className="lsq-card__body lsq-stack lsq-stack--lg">
         <ResultBanner tone="warning" title="Avoid Duplicate Sends">
           Do not map a channel to an activity type whose automation <em>sends that same channel</em>. The app already sent
-          it, so the automation would send a second copy. Email is sent directly by the app; leave it unmapped unless the
-          automation only logs or scores.
+          it, so the automation would send a second copy.
         </ResultBanner>
 
         <div className="lsq-int-map-grid">
@@ -327,66 +249,6 @@ export function LsqActivityMappingCard() {
           )}
         </div>
         {error && <ResultBanner tone="error">{error}</ResultBanner>}
-
-        <hr className="lsq-divider" />
-
-        {/* Inbound Registration Webhook Section */}
-        <div className="lsq-stack">
-          <div className="lsq-cluster lsq-cluster--between">
-            <h3 className="lsq-int-block__title">Inbound Registration Webhook (LeadSquared to Webinar Campaign)</h3>
-            <Badge color="success" text="Active, ready for automations" dot />
-          </div>
-          <p className="lsq-hint">
-            When a prospect registers in the LeadSquared tenant (via landing page, web form or an automation rule), configure the automation action <strong>&ldquo;Call Webhook&rdquo;</strong> with this exact URL. The app then marks the recipient as registered, ejects them from regular outreach cadence and triggers registered countdown reminders. The <code>secret</code> query parameter is required and requests without it are rejected, so paste the full URL as shown.
-          </p>
-
-          <div className="lsq-int-url">
-            <div suppressHydrationWarning className="lsq-code lsq-code--wrap">
-              {webhookUrl || (origin ? `${origin}/api/webhooks/leadsquared/activity` : '/api/webhooks/leadsquared/activity')}
-            </div>
-            <div className="lsq-cluster">
-              <Button
-                hierarchy="secondary"
-                size="sm"
-                icon={<Icon name={copied ? 'check' : 'copy'} size={16} />}
-                onClick={async () => {
-                  const url = webhookUrl ?? (await resolveWebhookUrl());
-                  if (typeof navigator !== 'undefined') {
-                    navigator.clipboard.writeText(url);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  }
-                }}
-              >
-                {copied ? 'Copied' : 'Copy URL'}
-              </Button>
-              <Button hierarchy="secondary" size="sm" icon={<Icon name="zap" size={16} />} onClick={pingWebhook} loading={pinging}>
-                {pinging ? 'Pinging…' : 'Ping Endpoint'}
-              </Button>
-            </div>
-          </div>
-          {pingResult && <ResultBanner tone={pingResult.ok ? 'success' : 'error'}>{pingResult.msg}</ResultBanner>}
-
-          {origin && origin.includes('localhost') && (
-            <ResultBanner tone="neutral" title="Local Dev Note">
-              LeadSquared cloud servers cannot reach <code>localhost</code> directly. To test live automations, use an ngrok or Cloudflare tunnel and set <code>APP_ORIGIN=https://your-tunnel.domain</code> in <code>.env.local</code>.
-            </ResultBanner>
-          )}
-
-          <div className="lsq-cluster">
-            <Button hierarchy="secondary" size="sm" icon={<Icon name="link" size={16} />} onClick={registerWebhookInLsq} loading={registeringWebhook}>
-              {registeringWebhook ? 'Registering Webhook…' : 'Register Webhook in LeadSquared'}
-            </Button>
-            <Button hierarchy="secondary" size="sm" icon={<Icon name="tag" size={16} />} onClick={ensureActivityType} loading={ensuringType}>
-              {ensuringType ? 'Checking Type…' : 'Ensure "Webinar Registration" Activity Type'}
-            </Button>
-          </div>
-
-          {webhookRegResult && <ResultBanner tone={webhookRegResult.ok ? 'success' : 'error'}>{webhookRegResult.msg}</ResultBanner>}
-          {typeResult && <ResultBanner tone={typeResult.ok ? 'success' : 'error'}>{typeResult.msg}</ResultBanner>}
-
-
-        </div>
       </div>
     </section>
   );

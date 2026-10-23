@@ -2,11 +2,13 @@ import { Badge } from '@/components/ui/Badge';
 import { formatLsqDateTime } from '@/lib/dateFormat';
 
 // Each log entry carries the colour token of whichever action wrote it. That token is data, so it is
-// mapped onto a status label, a Badge colour and a tone for the numbered marker.
-const STATUS_BY_DOT: Record<string, { label: string; badge: string; tone: 'success' | 'warning' | 'info' }> = {
+// mapped onto a status label, a Badge colour and a tone for the numbered marker. A plain informational entry
+// (the default colour) is a note about something that already happened, so it gets no status at all: "Running"
+// on "Webinar created" three weeks later said something that was never true.
+const STATUS_BY_DOT: Record<string, { label: string | null; badge: string; tone: 'success' | 'warning' | 'info' }> = {
   'var(--success-500)': { label: 'Done', badge: 'success', tone: 'success' },
   'var(--warning-700)': { label: 'Attention', badge: 'warning', tone: 'warning' },
-  'var(--accent-500)': { label: 'Running', badge: 'blue', tone: 'info' },
+  'var(--accent-500)': { label: null, badge: 'gray', tone: 'info' },
 };
 
 interface LogRow {
@@ -31,7 +33,7 @@ export function ActivityLog({ entries }: { entries: LogRow[] }) {
     <section className="lsq-card" aria-labelledby="res-activity">
       <div className="lsq-card__header">
         <h2 className="lsq-card__title" id="res-activity">Agent Activity</h2>
-        <Badge color="success" text="Live, real-time to LeadSquared" dot />
+        <span className="lsq-hint">{entries.length.toLocaleString()} {entries.length === 1 ? 'entry' : 'entries'}</span>
       </div>
 
       {entries.length === 0 ? (
@@ -52,7 +54,7 @@ export function ActivityLog({ entries }: { entries: LogRow[] }) {
                   <p className="lsq-res-log__text">{e.text}</p>
                   <p className="lsq-res-log__time">{formatLsqDateTime(e.createdAt)}</p>
                 </div>
-                <Badge color={status.badge} text={status.label} />
+                {status.label && <Badge color={status.badge} text={status.label} />}
               </li>
             );
           })}

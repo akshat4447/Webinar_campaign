@@ -1,8 +1,12 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { getSidebarSummaryAction } from '@/lib/actions/navigation';
 import { Icon } from './ui/Icon';
+import { BrandMark } from './BrandMark';
+import { wizardResumeHref, wizardStepLabel } from '@/lib/wizardDraft';
 
 /** One nav destination. `match` decides highlighting, which is not always
  *  "pathname equals href" — Webinars stays lit while you are inside a
@@ -37,24 +41,37 @@ export function Sidebar({
   liveCount,
   draftCount,
   completedCount,
+  resumeDraft = null,
+  moreDrafts = 0,
 }: {
   totalCount: number;
   liveCount: number;
   draftCount: number;
   completedCount: number;
+  /** The most recently touched draft, so a half-finished webinar is one click from where it was left. */
+  resumeDraft?: { id: string; name: string; wizardStep: number } | null;
+  moreDrafts?: number;
 }) {
   const pathname = usePathname();
   const isIntegrations = pathname === '/integrations';
+
+  const initial = { totalCount, liveCount, draftCount, completedCount, resumeDraft, moreDrafts };
+  const propsKey = JSON.stringify(initial);
+  const [snapshot, setSnapshot] = useState<{ key: string; value: typeof initial } | null>(null);
+  const summary = snapshot?.key === propsKey ? snapshot.value : initial;
+  // Layouts persist between pages. Fetch only the sidebar data: a whole-router refresh here used to race
+  // the next navigation and occasionally leave Integrations or pagination stuck in a loading state.
+  useEffect(() => {
+    let active = true;
+    void getSidebarSummaryAction().then(value => { if (active) setSnapshot({ key: propsKey, value }); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [pathname, propsKey]);
 
   return (
     <aside className="lsq-sidebar lsq-home-sidebar">
       <div className="lsq-sidebar__brand lsq-home-brand">
         <div className="lsq-home-brand__logo">
-<svg width="32" height="32" aria-hidden="true" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="87.2732" height="87.2732" fill="#0C9AFC" />
-            <path d="M0 43.3984H43.875V87.2735H0V43.3984Z" fill="#172738" />
-            <path d="M43.875 43.3984H0L43.875 87.2735V43.3984Z" fill="#F5F5F5" />
-            </svg>
+<BrandMark size={32} />
         </div>
         <div className="lsq-home-brand__text">
           <div className="lsq-home-brand__name">Webinar Studio</div>
@@ -80,6 +97,21 @@ export function Sidebar({
         })}
       </nav>
 
+      {summary.resumeDraft && (
+        <div className="lsq-home-resume">
+          <Link href={wizardResumeHref(summary.resumeDraft)} className="lsq-home-resume__link">
+            <span className="lsq-home-resume__label">Draft in progress</span>
+            <span className="lsq-home-resume__name">{summary.resumeDraft.name}</span>
+            <span className="lsq-home-resume__step">{wizardStepLabel(summary.resumeDraft.wizardStep)}</span>
+          </Link>
+          {summary.moreDrafts > 0 && (
+            <Link href="/?view=draft" className="lsq-home-resume__more">
+              and {summary.moreDrafts} more {summary.moreDrafts === 1 ? 'draft' : 'drafts'}
+            </Link>
+          )}
+        </div>
+      )}
+
       {/* Live agent status. Kept from the previous shell: it is the only place
           in the app that answers "is anything running right now?" without
           opening a campaign. */}
@@ -89,8 +121,8 @@ export function Sidebar({
           Agent online
         </div>
         <p className="lsq-home-side-status__body">
-          {totalCount} {totalCount === 1 ? 'webinar' : 'webinars'} across {liveCount} live, {draftCount} draft,{' '}
-          {completedCount} completed.
+          {summary.totalCount} {summary.totalCount === 1 ? 'webinar' : 'webinars'} across {summary.liveCount} live, {summary.draftCount} draft,{' '}
+          {summary.completedCount} completed.
         </p>
       </div>
 
@@ -104,6 +136,14 @@ export function Sidebar({
           <Icon name="plug" size={16} />
           Integrations
         </Link>
+
+        {/* A plain form post: signing out clears the cookie on the server and returns to the sign-in page. */}
+        <form method="post" action="/api/auth/logout">
+          <button type="submit" className="lsq-home-nav lsq-home-signout">
+            <Icon name="lock" size={16} />
+            Sign Out
+          </button>
+        </form>
 
         <div className="lsq-sidebar__built lsq-home-built">
           <span className="lsq-home-built__label">Built on</span>

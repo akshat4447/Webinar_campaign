@@ -236,8 +236,8 @@ export default async function PersonalizePage({ params, searchParams }: { params
   return (
     <main className="lsq-msg-main">
       <div className="lsq-page">
-      <ContactPagination path={`/campaigns/${id}/messaging`} page={page} total={matchingContacts} q={q} params={{step:activeStep.key}} label="message recipients" />
       <PersonalizeClient
+        recipientsPager={<ContactPagination path={`/campaigns/${id}/messaging`} page={page} total={matchingContacts} q={q} params={{step:activeStep.key}} label="message recipients" />}
         // Remount on step change: the editor holds the recipient copy in local
         // state, and a soft navigation between steps swaps the props without
         // reseeding it — which would show the previous step's messages.

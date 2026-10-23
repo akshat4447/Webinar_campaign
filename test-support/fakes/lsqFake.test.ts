@@ -30,7 +30,6 @@ import {
   PartialActivityPushError,
   probeSenderIdentity,
   pushCustomActivities,
-  registerLeadSquaredWebhook,
   resetLeadSchemaCache,
   sendEmailToLead,
   setLeadSchemaOverrideForTests,
@@ -536,17 +535,6 @@ describe('SendEmailToLead and Users.Get', () => {
   });
 });
 
-describe('Webhook.Create', () => {
-  it('returns {Status:"Success", Message:{Id:"wh_n"}} with incrementing ids and stores the webhook', async () => {
-    const a = await call('POST', '/Webhook.svc/Create', { body: { Description: 'd', URL: 'https://app.test/hook', Method: 'POST', WebhookEvent: '2' } });
-    const b = await call('POST', '/Webhook.svc/Create', { body: { URL: 'https://app.test/hook2' } });
-    expect(a.json).toEqual({ Status: 'Success', Message: { Id: 'wh_1' } });
-    expect((b.obj.Message as Json).Id).toBe('wh_2');
-    expect(fake.state.webhooks[0]).toMatchObject({ id: 'wh_1', url: 'https://app.test/hook', webhookEvent: '2' });
-    expect((await call('POST', '/Webhook.svc/Create', { body: { Description: 'no url' } })).status).toBe(500);
-  });
-});
-
 // ===========================================================================
 // FAULT INJECTION
 // ===========================================================================
@@ -777,10 +765,10 @@ describe('contract: lib/leadsquared.ts against the fake', () => {
     expect(fake.state.activities).toHaveLength(1);
   });
 
-  it('a persistent 429 gives up after 4 attempts with LeadSquaredError(429)', async () => {
+  it('a persistent 429 gives up after 8 attempts with LeadSquaredError(429)', async () => {
     fake.setFault({ match: 'Lists.Get', status: 429, times: 'forever' });
     await expect(getLists()).rejects.toMatchObject({ name: 'LeadSquaredError', status: 429 });
-    expect(fake.requestsTo('Lists.Get')).toHaveLength(4);
+    expect(fake.requestsTo('Lists.Get')).toHaveLength(8);
   });
 
   it('does not replay a non-idempotent POST after 503', async () => {
@@ -876,7 +864,8 @@ describe('contract: lib/leadsquared.ts against the fake', () => {
     const rows = await getLeadsInList(listId, 25);
     expect(rows).toHaveLength(60);
     expect(rows[0]).toMatchObject({ EmailAddress: 'm0@example.com', FirstName: 'M0' });
-    expect(fake.requestsTo('Retrieve/BySearchParameter')).toHaveLength(3);
+    // Three pages of leads, then the empty page that proves the list has ended.
+    expect(fake.requestsTo('Retrieve/BySearchParameter')).toHaveLength(4);
     expect(await getLeadsInList(listId, 25, 30)).toHaveLength(30);
 
     await emptyStaticList(listId);
@@ -938,17 +927,5 @@ describe('contract: lib/leadsquared.ts against the fake', () => {
     const users = await listUsers();
     expect(users.find((u) => u.email === 'sender@example.com')).toMatchObject({ active: true, role: 'Administrator' });
     expect(users.find((u) => u.email === 'old@example.com')).toEqual({ id: 'u-9', email: 'old@example.com', firstName: 'Old', lastName: 'Timer', role: 'Sales', active: false });
-  });
-
-  it('registerLeadSquaredWebhook registers and returns the wh_n id; reports ok:false on a deterministic failure', async () => {
-    const ok = await registerLeadSquaredWebhook('https://app.test/api/webhooks/leadsquared/activity');
-    expect(ok).toMatchObject({ ok: true, webhookId: 'wh_1' });
-    expect(fake.state.webhooks[0]).toMatchObject({ url: 'https://app.test/api/webhooks/leadsquared/activity', webhookEvent: '2', method: 'POST', contentType: 'application/json' });
-
-    fake.setFault({ match: 'Webhook.svc', status: 500, body: { ExceptionType: 'MXInvalidInputException', ExceptionMessage: 'quota' } });
-    const failed = await registerLeadSquaredWebhook('https://app.test/x');
-    expect(failed.ok).toBe(false);
-    expect(failed.message).toContain('MXInvalidInputException');
-    expect(fake.state.webhooks).toHaveLength(1);
   });
 });

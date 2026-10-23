@@ -6,31 +6,33 @@ import { resolveIntegrationField, saveIntegrationConfig, saveTestResult } from '
 import { exchangeCodeForToken, fetchConnectedUser } from '@/lib/zoom/auth';
 import { validateAndConsumeOAuthState } from '@/lib/zoom/oauthState';
 import { requestOrigin } from '@/lib/requestOrigin';
+import { oauthRedirect, takeOAuthReturn } from '@/lib/oauthReturn';
+import { effectiveZoomRedirectUri } from '@/lib/zoom/redirect';
 
 export const runtime = 'nodejs';
 
-function back(request: Request, params: Record<string, string>) {
-  const url = new URL('/integrations', requestOrigin(request));
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  return Response.redirect(url.toString(), 302);
+function back(request: Request, params: Record<string, string>, returnTo: string | null = null) {
+  return oauthRedirect(request, { params, returnTo, ok: params.connected === 'ok' });
 }
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const code = params.get('code');
   const state = params.get('state');
+  // The destination remembered when the connection started; consumed here so it is used once.
+  const returnTo = await takeOAuthReturn('zoom', state);
 
   if (params.get('error')) {
-    return back(request, { connected: 'error', detail: params.get('error_description') || params.get('error')! });
+    return back(request, { connected: 'error', detail: params.get('error_description') || params.get('error')! }, returnTo);
   }
-  if (!code || !state) return back(request, { connected: 'error', detail: 'Missing code/state from Zoom.' });
+  if (!code || !state) return back(request, { connected: 'error', detail: 'Missing code/state from Zoom.' }, returnTo);
 
   // CSRF: the state must match this browser's cookie (or, only when the cookie was
   // dropped, an unexpired server-side record). Either way it is consumed — one use.
   const stateValid = await validateAndConsumeOAuthState(request.headers.get('cookie'), state);
 
   if (!stateValid) {
-    return back(request, { connected: 'error', detail: 'OAuth state mismatch or expired — start the connection again.' });
+    return back(request, { connected: 'error', detail: 'OAuth state mismatch or expired — start the connection again.' }, returnTo);
   }
 
   try {
@@ -42,10 +44,7 @@ export async function GET(request: Request) {
     const configuredRedirectUri =
       (await resolveIntegrationField('zoom', 'redirectUri')) ||
       process.env.ZOOM_REDIRECT_URI;
-    let redirectUri = configuredRedirectUri || `${origin}/api/auth/zoom/callback`;
-    if (!redirectUri || redirectUri.includes('zoom.us')) {
-      redirectUri = `${origin}/api/auth/zoom/callback`;
-    }
+    const redirectUri = effectiveZoomRedirectUri(configuredRedirectUri, origin);
 
     const token = await exchangeCodeForToken({ clientId, clientSecret, code, redirectUri });
     await saveIntegrationConfig('zoom', {
@@ -62,8 +61,8 @@ export async function GET(request: Request) {
     // "Not tested yet" until someone happens to open Configure and click Test.
     await saveTestResult('zoom', true, detail);
 
-    return back(request, { connected: 'ok', detail });
+    return back(request, { connected: 'ok', detail }, stateValid ? returnTo : null);
   } catch (err) {
-    return back(request, { connected: 'error', detail: String(err instanceof Error ? err.message : err).slice(0, 280) });
+    return back(request, { connected: 'error', detail: String(err instanceof Error ? err.message : err).slice(0, 280) }, returnTo);
   }
 }

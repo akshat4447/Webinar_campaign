@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { revalidatePath } from 'next/cache';
 import {
   addCampaignSuppression,
@@ -11,6 +13,7 @@ import {
 import { db } from '@/lib/db';
 
 export async function getCampaignSuppressionsAction(campaignId: string, search?: string) {
+  await requireOperatorSession();
   try {
     const items = await getCampaignSuppressions(campaignId, search);
     return { ok: true, items };
@@ -20,6 +23,7 @@ export async function getCampaignSuppressionsAction(campaignId: string, search?:
 }
 
 export async function getCampaignSuppressionSummaryAction(campaignId: string) {
+  await requireOperatorSession();
   try {
     const [campaignCount, globalCount] = await Promise.all([
       getCampaignSuppressionCount(campaignId),
@@ -36,6 +40,7 @@ export async function addCampaignSuppressionAction(
   target: string,
   reason = 'manual'
 ) {
+  await requireOperatorSession();
   try {
     if (!campaignId) throw new Error('Campaign ID is required');
     if (!target || !target.trim()) throw new Error('Email address or domain is required');
@@ -54,6 +59,7 @@ export async function bulkAddCampaignSuppressionAction(
   rawContent: string,
   defaultReason = 'csv_import'
 ) {
+  await requireOperatorSession();
   try {
     if (!campaignId) throw new Error('Campaign ID is required');
     if (!rawContent || !rawContent.trim()) throw new Error('CSV or email content is required');
@@ -68,6 +74,7 @@ export async function bulkAddCampaignSuppressionAction(
 }
 
 export async function removeCampaignSuppressionAction(campaignId: string, id: string) {
+  await requireOperatorSession();
   try {
     if (!campaignId || !id) throw new Error('Campaign ID and Item ID are required');
 

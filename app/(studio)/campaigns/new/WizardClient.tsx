@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/Button';
@@ -8,7 +9,6 @@ import { Icon } from '@/components/ui/Icon';
 import { Field } from '@/components/ui/Field';
 import { useToast } from '@/components/ui/Toast';
 import { formatLsqDateTime, safeTimeZone, timeZoneLabel, wallClockToDate, COMMON_TIME_ZONES } from '@/lib/dateFormat';
-import { EmailGatewayPicker } from '@/components/wizard/EmailGatewayPicker';
 import { LeadImportCard } from '../[id]/setup/LeadImportCard';
 import { EnrichmentCard } from '../[id]/setup/EnrichmentCard';
 import type { EnrichmentStats } from '@/lib/actions/enrichment';
@@ -25,9 +25,8 @@ import {
   DEFAULT_LEADSQUARED_FIELD_MAPPINGS,
 } from '@/lib/wizardFields';
 import { createZoomMeetingAction, linkZoomMeetingAction, listZoomMeetingsAction, fetchZoomEventDetailsAction, type ZoomMeeting } from '@/lib/actions/zoom';
-import { parseZoomInput } from '@/lib/zoomParser';
 import { updateScoringConfigAction } from '@/lib/actions/scoring';
-import { validateWizardDetails } from '@/lib/wizardValidation';
+import { landingLinkError, validateWizardDetails } from '@/lib/wizardValidation';
 import { DEFAULT_ENABLED_CHANNELS } from '@/lib/channels';
 import { toDateTimeLocal } from '@/lib/campaignDate';
 import { SpeakerListEditor } from '@/components/speakers/SpeakerListEditor';
@@ -44,6 +43,21 @@ import { WizardCadenceSetupCard, type WizardCadenceStep } from '@/components/wiz
 import { WizardMessagingCard, type StepMessagingConfig } from '@/components/wizard/WizardMessagingCard';
 import { WizardReviewLaunchCard } from '@/components/wizard/WizardReviewLaunchCard';
 import { CampaignSuppressionModal } from '../[id]/cadence/CampaignSuppressionModal';
+import { useDraftAutosave } from '@/components/wizard/useDraftAutosave';
+import { getDraftIdForTokenAction, getDraftRevisionAction } from '@/lib/actions/wizardDraft';
+import { DraftSaveStatus } from '@/components/wizard/DraftSaveStatus';
+import { clearMirror, readMirror, type Mirror } from '@/lib/wizardDraftMirror';
+import {
+  applyPatchToFields,
+  diffDraftFields,
+  integrationsHref,
+  isEmptyPatch,
+  describeGroups,
+  type DraftFields,
+  type DraftPatch,
+  type DraftSpeaker,
+  type DraftStepConfig,
+} from '@/lib/wizardDraft';
 import { ChannelSelectionCard } from '@/components/channels/ChannelSelectionCard';
 import {
   parseSelectedChannels,
@@ -76,6 +90,10 @@ const DEFAULT_BRIEF_BY_MODE = {
 interface WizardCampaign {
   id: string;
   name: string;
+  /** Where the draft was left, how far it got, and the revision autosave builds on. */
+  wizardStep?: number;
+  wizardFurthestStep?: number;
+  draftRevision?: number;
   description: string | null;
   scheduledAt: string | null;
   speakerName: string | null;
@@ -95,7 +113,6 @@ interface WizardCampaign {
   scoringThreshold: number;
   personalizationFields?: string | null;
   lsqFieldMappingTokens?: string | null;
-  emailProvider?: string;
   selectedChannels?: string | null;
   speakers?: SpeakerInput[];
   /** IANA timezone the webinar's wall-clock time is expressed in. */
@@ -115,13 +132,16 @@ export function WizardClient({
   cadenceSteps = [],
   scoredContacts = [],
   templateOptions = {},
+  customTemplates = {},
   automationRules,
   initialChannels,
-  defaultEmailProvider,
   netcoreConfigured,
   initialOrigin,
+  connectResult,
 }: {
   step: number;
+  /** What an Integrations round trip reported when it returned here (shown once). */
+  connectResult?: { ok: boolean; detail: string };
   initialOrigin?: string;
   campaign: WizardCampaign | null;
   contactCount: number;
@@ -133,6 +153,7 @@ export function WizardClient({
   cadenceSteps?: WizardCadenceStep[];
   scoredContacts?: ScoredContactItem[];
   templateOptions?: Record<string, { id: string; name: string; scope: string }[]>;
+  customTemplates?: Record<string, { subject: string | null; body: string }>;
   automationRules?: {
     stopOnRegistration?: boolean;
     stopOnDecline?: boolean;
@@ -140,67 +161,37 @@ export function WizardClient({
     suppressionPreflight?: boolean;
   };
   initialChannels?: Record<string, boolean>;
-  defaultEmailProvider?: 'leadsquared' | 'netcore';
   netcoreConfigured?: boolean;
 }) {
   const router = useRouter();
   const { showToast } = useToast();
+
+  // The draft may be created by autosave (as soon as there is a title) before the page has been told about it.
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const draftId = campaign?.id ?? createdId;
+  const [remoteChanged, setRemoteChanged] = useState(false);
+  const { queue, state: saveState } = useDraftAutosave({
+    campaignId: campaign?.id ?? null,
+    baseRevision: campaign?.draftRevision ?? 0,
+    step,
+    onCreated: (id) => {
+      setCreatedId(id);
+      // replace, not push: Back must not walk through the creation.
+      router.replace(`/campaigns/new?${new URLSearchParams({ id, step: '0' })}`, { scroll: false });
+    },
+    onRemoteChange: () => setRemoteChanged(true),
+  });
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [zoomChoice, setZoomChoice] = useState<'existing' | 'paste' | 'new'>(
-    campaign?.zoomMeetingId ? 'paste' : 'existing'
-  );
+  const [zoomChoice, setZoomChoice] = useState<'existing' | 'new'>('existing');
   const [zoomMeetings, setZoomMeetings] = useState<ZoomMeeting[] | null>(null);
   const [zoomMeetingId, setZoomMeetingId] = useState(campaign?.zoomMeetingId || '');
-  const [pastedZoomText, setPastedZoomText] = useState(campaign?.zoomMeetingId || campaign?.zoomLink || '');
-  const [parsedZoomInfo, setParsedZoomInfo] = useState<ReturnType<typeof parseZoomInput> | null>(() => {
-    if (campaign?.zoomMeetingId || campaign?.zoomLink) {
-      return parseZoomInput(campaign.zoomMeetingId || campaign.zoomLink || '');
-    }
-    return null;
-  });
   const [zoomLoading, setZoomLoading] = useState(false);
   const [zoomError, setZoomError] = useState<string | null>(null);
-  const [pasteError, setPasteError] = useState<string | null>(null);
   const [suppressionModalOpen, setSuppressionModalOpen] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const dateRef = useRef<HTMLInputElement>(null);
-
-  function handlePastedZoomChange(val: string) {
-    setPastedZoomText(val);
-    setZoomError(null);
-    setPasteError(null);
-    if (!val.trim()) {
-      setParsedZoomInfo(null);
-      setZoomMeetingId('');
-      setDetails((d) => ({ ...d, zoomMeetingId: '', zoomLink: '' }));
-      return;
-    }
-    const parsed = parseZoomInput(val);
-    setParsedZoomInfo(parsed);
-    if (parsed.isValid && parsed.webinarId) {
-      setZoomMeetingId(parsed.webinarId);
-      setDetails((d) => ({
-        ...d,
-        zoomMeetingId: parsed.webinarId || undefined,
-        zoomLink: parsed.canonicalJoinUrl || parsed.normalizedUrl || d.zoomLink,
-      }));
-    }
-  }
-
-  async function fetchFromPastedZoom() {
-    if (!parsedZoomInfo?.webinarId) return;
-    setZoomLoading(true);
-    setPasteError(null);
-    try {
-      await selectZoomMeeting(parsedZoomInfo.webinarId);
-      showToast('Zoom details fetched and applied.');
-    } catch (err) {
-      setPasteError(err instanceof Error ? err.message : 'Could not fetch from Zoom API');
-    } finally {
-      setZoomLoading(false);
-    }
-  }
+  const linkRef = useRef<HTMLInputElement>(null);
 
   async function pickExistingZoom(force = false) {
     if (zoomLoading) return;
@@ -217,6 +208,8 @@ export function WizardClient({
       setZoomMeetings(res.meetings);
       if (res.meetings.length === 0) {
         setZoomError('No upcoming meetings or webinars found on this Zoom account. A new event can be created on Zoom, or the Zoom integration connected in Settings.');
+      } else if (res.warning) {
+        setZoomError(res.warning);
       }
     } catch (err) {
       setZoomError(err instanceof Error ? err.message : 'Failed to list Zoom meetings');
@@ -236,6 +229,8 @@ export function WizardClient({
           setZoomMeetings(res.meetings);
           if (res.meetings.length === 0) {
             setZoomError('No upcoming meetings or webinars found on this Zoom account. A new event can be created on Zoom, or the Zoom integration connected in Settings.');
+          } else if (res.warning) {
+            setZoomError(res.warning);
           }
         }
       }).catch((err) => {
@@ -248,12 +243,17 @@ export function WizardClient({
     };
   }, [step, zoomMeetings]);
 
-  async function selectZoomMeeting(id: string) {
-    setZoomMeetingId(id);
-    if (!id) return;
+  /**
+   * Fills the form from a Zoom event: `idOrLink` is the event's numeric ID, from the list. Resolves
+   * to an error the person can read when Zoom could not supply the details, instead of looking like success.
+   */
+  async function selectZoomMeeting(idOrLink: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!idOrLink) return { ok: false, error: 'Nothing to look up.' };
+    const isId = /^\d{9,11}$/.test(idOrLink);
+    if (isId) setZoomMeetingId(idOrLink);
 
-    // Fast preview from cached list
-    const quick = zoomMeetings?.find((m) => m.id === id);
+    // Fast preview from the list already on screen
+    const quick = isId ? zoomMeetings?.find((m) => m.id === idOrLink) : undefined;
     if (quick) {
       const start = quick.startTime ? new Date(quick.startTime) : null;
       const localStr = start ? toDateTimeLocal(start, details.timezone) : '';
@@ -269,40 +269,44 @@ export function WizardClient({
     }
 
     // Deep fetch for full speakers, panelists, and capacity
-    try {
-      const res = await fetchZoomEventDetailsAction(id);
-      if (res.ok && res.meeting) {
-        const m = res.meeting;
-        const start = m.startTime ? new Date(m.startTime) : null;
-        const localStr = start ? toDateTimeLocal(start, details.timezone) : '';
-        const cleanTitle = m.topic.replace(/^\[Webinar\]\s*/, '');
-
-        const mappedSpeakers: SpeakerInput[] = (m.speakers || []).map((s, idx) => ({
-          name: s.name,
-          title: s.title || (s.isPrimary ? 'Host & Keynote Speaker' : 'Panelist / Speaker'),
-          company: s.company || 'LeadSquared',
-          bio: s.bio,
-          avatarUrl: s.avatarUrl,
-          isPrimary: !!s.isPrimary,
-          order: idx,
-        }));
-
-        setDetails((d) => ({
-          ...d,
-          title: cleanTitle || d.title,
-          date: localStr ? localStr.slice(0, 10) : d.date,
-          time: localStr ? localStr.slice(11, 16) : d.time,
-          zoomLink: m.joinUrl,
-          description: m.agenda || d.description,
-          capacity: m.capacity ? String(m.capacity) : d.capacity,
-          speakers: mappedSpeakers.length > 0 ? mappedSpeakers : d.speakers,
-          speakerName: mappedSpeakers[0]?.name || d.speakerName,
-          speakerTitle: mappedSpeakers[0]?.title || d.speakerTitle,
-        }));
-      }
-    } catch {
-      // Non-fatal, quick state remains
+    const res = await fetchZoomEventDetailsAction(idOrLink);
+    if (!res.ok) {
+      // The preview from the list stays, but the reason Zoom would not give the rest is shown, never swallowed.
+      return { ok: false, error: res.error };
     }
+    const m = res.meeting;
+    setZoomMeetingId(m.id);
+    // The event is shown in the zone Zoom holds it in, the one the host sees, when that zone is one we know.
+    const zone = m.timezone && safeTimeZone(m.timezone) === m.timezone ? m.timezone : (details.timezone ?? initialZone);
+    const start = m.startTime ? new Date(m.startTime) : null;
+    const localStr = start ? toDateTimeLocal(start, zone) : '';
+    const cleanTitle = m.topic.replace(/^\[Webinar\]\s*/, '');
+
+    const mappedSpeakers: SpeakerInput[] = (m.speakers || []).map((s, idx) => ({
+      name: s.name,
+      title: s.title || (s.isPrimary ? 'Host & Keynote Speaker' : 'Panelist / Speaker'),
+      company: s.company || '',
+      bio: s.bio,
+      avatarUrl: s.avatarUrl,
+      isPrimary: !!s.isPrimary,
+      order: idx,
+    }));
+
+    setDetails((d) => ({
+      ...d,
+      title: cleanTitle || d.title,
+      timezone: zone,
+      ...(m.duration && m.duration > 0 ? { durationMinutes: Math.min(720, Math.max(5, Math.round(m.duration))) } : {}),
+      date: localStr ? localStr.slice(0, 10) : d.date,
+      time: localStr ? localStr.slice(11, 16) : d.time,
+      zoomLink: m.joinUrl,
+      description: m.agenda || d.description,
+      capacity: m.capacity ? String(m.capacity) : d.capacity,
+      speakers: mappedSpeakers.length > 0 ? mappedSpeakers : d.speakers,
+      speakerName: mappedSpeakers[0]?.name || d.speakerName,
+      speakerTitle: mappedSpeakers[0]?.title || d.speakerTitle,
+    }));
+    return { ok: true };
   }
 
   const scheduled = campaign?.scheduledAt ? new Date(campaign.scheduledAt) : null;
@@ -325,7 +329,6 @@ export function WizardClient({
         : campaign?.speakerName
           ? [{ name: campaign.speakerName, title: campaign.speakerTitle || '', isPrimary: true, order: 0 }]
           : [],
-    emailProvider: (campaign?.emailProvider as 'leadsquared' | 'netcore') ?? defaultEmailProvider ?? 'leadsquared',
     selectedChannels: parseSelectedChannels(campaign?.selectedChannels),
     timezone: initialZone,
     durationMinutes: campaign?.durationMinutes ?? 60,
@@ -420,7 +423,6 @@ export function WizardClient({
     brief: string;
     oneClickSignup: boolean;
     channels: Record<string, boolean>;
-    emailProvider: 'leadsquared' | 'netcore';
     personalizationFields: string[];
     stepConfigs?: Record<string, StepMessagingConfig>;
   }>({
@@ -434,7 +436,6 @@ export function WizardClient({
         : DEFAULT_BRIEF_BY_MODE.ai),
     brief: campaign?.brief ?? DEFAULT_BRIEF_BY_MODE.ai,
     oneClickSignup: campaign?.oneClickSignup ?? true,
-    emailProvider: (campaign?.emailProvider as 'leadsquared' | 'netcore') ?? defaultEmailProvider ?? 'leadsquared',
     personalizationFields: campaign?.personalizationFields
       ? campaign.personalizationFields.split(',').map((s) => s.trim()).filter(Boolean)
       : [...DEFAULT_PERSONALIZATION_FIELDS],
@@ -450,21 +451,205 @@ export function WizardClient({
 
   const set = (k: keyof WizardDetails, v: string) => setDetails((d) => ({ ...d, [k]: v }));
 
+  // --- Autosave -------------------------------------------------------------------------------------------
+  // Every autosaved field, read off the form state. Whatever changed since the last look is handed to the
+  // queue as a patch, so no input handler needs to know autosave exists.
+  const snapshot: DraftFields = {
+    title: details.title,
+    description: details.description,
+    date: details.date,
+    time: details.time,
+    timezone: details.timezone ?? 'Asia/Kolkata',
+    durationMinutes: details.durationMinutes ?? 60,
+    capacity: details.capacity,
+    registrationLink: details.registrationLink,
+    zoomLink: details.zoomLink,
+    zoomMeetingId: zoomMeetingId.trim(),
+    speakers: (details.speakers ?? []) as DraftSpeaker[],
+    selectedChannels: details.selectedChannels ?? [],
+    scoringPrompt: scoring.prompt,
+    scoringCriteria: scoring.criteria,
+    scoringThreshold: scoring.threshold,
+    msgMode: messaging.msgMode,
+    tone: messaging.tone,
+    msgLength: messaging.msgLength,
+    aiInstructions: messaging.aiInstructions,
+    brief: messaging.brief,
+    oneClickSignup: messaging.oneClickSignup,
+    personalizationFields: messaging.personalizationFields,
+  };
+  const snapshotKey = JSON.stringify(snapshot);
+  const lastQueued = useRef<DraftFields | null>(null);
+  const sentStepConfigs = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const next = JSON.parse(snapshotKey) as DraftFields;
+    if (lastQueued.current === null) {
+      // The first look is what the server already holds: nothing to send.
+      lastQueued.current = next;
+      return;
+    }
+    const patch = diffDraftFields(lastQueued.current, next);
+    lastQueued.current = next;
+    if (!isEmptyPatch(patch)) queue.update(patch);
+  }, [snapshotKey, queue]);
+
+  // Edits kept on this device by an earlier visit that never reached the server (a crash, a closed laptop).
+  const [restorable, setRestorable] = useState<{ mirror: Mirror; older: boolean } | null>(null);
+  useEffect(() => {
+    const mirror = readMirror(campaign?.id ?? null);
+    const base = lastQueued.current;
+    if (!mirror || !base) return;
+    // Anything the server already has needs no restoring (the page may have unloaded just after a save).
+    const remaining: DraftPatch = diffDraftFields(base, applyPatchToFields(base, mirror.patch));
+    if (mirror.patch.stepConfigs) remaining.stepConfigs = mirror.patch.stepConfigs;
+    if (isEmptyPatch(remaining)) {
+      clearMirror(campaign?.id ?? null);
+      return;
+    }
+    const offer = () => setRestorable({ mirror: { ...mirror, patch: remaining }, older: !!campaign && mirror.baseRevision < (campaign.draftRevision ?? 0) });
+    if (!campaign && mirror.createToken) {
+      // Edits kept before any draft existed. If the draft was in fact created (the page closed as it was being
+      // made), the server has it and offering these edits would make a second one.
+      void getDraftIdForTokenAction(mirror.createToken)
+        .then((existing) => {
+          if (existing) clearMirror(null);
+          else offer();
+        })
+        .catch(offer);
+      return;
+    }
+    offer();
+    // Runs once per opened draft: later edits replace the stored copy on their own.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function restoreUnsaved() {
+    if (!restorable) return;
+    const patch = restorable.mirror.patch;
+    const f = applyPatchToFields(snapshot, patch);
+    setDetails((d) => ({
+      ...d,
+      title: f.title, description: f.description, date: f.date, time: f.time, timezone: f.timezone,
+      durationMinutes: f.durationMinutes, capacity: f.capacity, registrationLink: f.registrationLink,
+      zoomLink: f.zoomLink, speakers: f.speakers as SpeakerInput[],
+      selectedChannels: f.selectedChannels,
+      speakerName: (f.speakers.find((x) => x.isPrimary) ?? f.speakers[0])?.name ?? d.speakerName,
+      speakerTitle: (f.speakers.find((x) => x.isPrimary) ?? f.speakers[0])?.title ?? d.speakerTitle,
+    }));
+    setZoomMeetingId(f.zoomMeetingId);
+    setScoring({ prompt: f.scoringPrompt, criteria: f.scoringCriteria, threshold: f.scoringThreshold });
+    setMessaging((m) => ({
+      ...m, msgMode: f.msgMode, tone: f.tone, msgLength: f.msgLength, aiInstructions: f.aiInstructions,
+      brief: f.brief, oneClickSignup: f.oneClickSignup, personalizationFields: f.personalizationFields,
+    }));
+    // Message settings for individual steps live inside the Messaging card; they go straight to the server.
+    setRestorable(null);
+    if (patch.stepConfigs) {
+      // The Messaging card keeps its own copy of each step's settings, so it is reopened from what was saved.
+      queue.update({ stepConfigs: patch.stepConfigs });
+      void queue.flush().then((ok) => {
+        if (ok) window.location.reload();
+        else showToast('Restored, but not saved yet. Use Retry in the header.');
+      });
+      return;
+    }
+    showToast('Unsaved changes restored.');
+  }
+
+  function discardUnsaved() {
+    clearMirror(campaign?.id ?? null);
+    setRestorable(null);
+  }
+
+  // A page restored by the browser's back/forward buttons can be an older copy than the server holds. If the
+  // draft has moved on, reload so nothing stale is shown or saved over newer work.
+  useEffect(() => {
+    if (!campaign) return;
+    let active = true;
+    void getDraftRevisionAction(campaign.id)
+      .then((revision) => {
+        if (active && revision !== null && revision > (campaign.draftRevision ?? 0) && !queue.hasUnsaved()) window.location.reload();
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+    // Once per arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Which Zoom source is picked is interface state, not draft data. It is kept for
+  // this tab only, so a refresh or a trip to Integrations does not silently reset "Create New in Zoom".
+  // Only for a draft that exists: a brand-new wizard must start clean, not inherit what an earlier one left in this tab.
+  const zoomUiKey = campaign?.id ? `wizard-ui:${campaign.id}` : null;
+  useEffect(() => {
+    if (!zoomUiKey) return;
+    try {
+      const raw = window.sessionStorage.getItem(zoomUiKey);
+      if (!raw) return;
+      const v = JSON.parse(raw) as { zoomChoice?: string };
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reads browser storage, which the server cannot
+      if (v.zoomChoice === 'new') setZoomChoice('new');
+    } catch {
+      /* storage unavailable: the defaults apply */
+    }
+    // Read once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!zoomUiKey) return;
+    try {
+      window.sessionStorage.setItem(zoomUiKey, JSON.stringify({ zoomChoice }));
+    } catch {
+      /* ignore */
+    }
+  }, [zoomUiKey, zoomChoice]);
+
+  // Returning from Integrations: say how the connection went, once, then tidy the address bar.
+  useEffect(() => {
+    if (!connectResult) return;
+    showToast(connectResult.ok ? connectResult.detail || 'Connected.' : `Connection failed. ${connectResult.detail}`.trim());
+    if (campaign) router.replace(`/campaigns/new?${new URLSearchParams({ id: campaign.id, step: String(step) })}`, { scroll: false });
+    // Once per arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // A shown error disappears as soon as its field is valid again, whichever path corrected it
   // (typing, or a Zoom event filling the date), instead of lingering until the next Continue.
   const stillInvalid = validateWizardDetails(details);
   const fieldErrors = Object.fromEntries(Object.entries(errors).filter(([k]) => k in stillInvalid));
   const missingDetails = Object.keys(stillInvalid);
 
-  function go(nextStep: number, id = campaign?.id) {
+  /**
+   * Saves whatever is pending. Returns false, with the reason shown, when the draft cannot take the edit: it
+   * launched, it is gone, or another tab changed the same field. A save that is merely failing does not block
+   * (the edits stay on this device and Continue writes everything itself).
+   */
+  async function settleDraft(): Promise<boolean> {
+    await queue.flush();
+    const status = queue.getState().status;
+    if (status === 'locked') showToast('This webinar has launched, so it can no longer be edited here.');
+    else if (status === 'gone') showToast('This draft was deleted or archived.');
+    else if (status === 'conflict') showToast('Another tab changed this draft. Choose Keep Mine or Reload first.');
+    return status !== 'locked' && status !== 'gone' && status !== 'conflict';
+  }
+
+  async function go(nextStep: number, id = draftId ?? undefined) {
+    // Everything typed is saved, and the new step recorded, before the page changes. A save that is merely
+    // failing does not trap the person: their edits stay on this device. A launched or deleted draft does stop here.
+    queue.setStep(nextStep);
+    if (!(await settleDraft())) return;
     router.push(`/campaigns/new?${new URLSearchParams({ ...(id ? { id } : {}), step: String(nextStep) })}`);
   }
+
+  /** Where the Integrations page should send the person back to. Only a draft that exists has somewhere to return to. */
+  const returnTo = draftId ? `/campaigns/new?${new URLSearchParams({ id: draftId, step: String(step) })}` : null;
 
   async function continueFromDetails() {
     const next = validateWizardDetails(details);
     if (Object.keys(next).length) {
       setErrors(next);
-      (next.title ? titleRef : dateRef).current?.focus();
+      (next.title ? titleRef : next.date ? dateRef : linkRef).current?.focus();
       return;
     }
     setBusy(true);
@@ -473,17 +658,24 @@ export function WizardClient({
       zoomMeetingId: zoomMeetingId.trim() || undefined,
     };
     try {
-      const id = campaign ? campaign.id : await createCampaignFromWizardAction(effectiveDetails);
-      if (campaign) await updateWizardDetailsAction(campaign.id, effectiveDetails);
+      // Let autosave land first so this explicit save never races it. A save that is failing does not block
+      // Continue, which writes everything itself; a launched or deleted draft does.
+      if (!(await settleDraft())) return;
+      // The queue may have just created the draft; the page's props only catch up after the next render.
+      const existingId = queue.currentCampaignId ?? draftId;
+      const id = existingId ?? (await createCampaignFromWizardAction(effectiveDetails));
+      // A creation autosave has not managed yet (offline, say) must go to this draft, not make a second one.
+      if (!existingId) queue.adopt(id, 0);
+      if (existingId) await updateWizardDetailsAction(existingId, effectiveDetails);
 
       // Collected into one message rather than shown immediately — showToast
       // only ever displays one message at a time, so a Zoom result shown here
       // and then overwritten a few lines down by the "Draft created" toast
       // (new campaigns) would never be seen, silently hiding a Zoom failure.
       let zoomMessage: string | null = null;
-      if ((zoomChoice === 'existing' || zoomChoice === 'paste') && zoomMeetingId) {
+      if (zoomChoice === 'existing' && zoomMeetingId) {
         const r = await linkZoomMeetingAction(id, zoomMeetingId);
-        if (!r.ok && zoomChoice === 'existing') zoomMessage = r.error;
+        if (!r.ok) zoomMessage = r.error;
       } else if (zoomChoice === 'new') {
         const r = await createZoomMeetingAction(id);
         if (r.ok && r.meeting) {
@@ -495,12 +687,9 @@ export function WizardClient({
         zoomMessage = r.ok ? 'Zoom meeting created.' : `Zoom meeting not created: ${r.error}`;
       }
 
-      if (!campaign) {
-        showToast(zoomMessage ? `Draft created. ${zoomMessage}` : 'Draft created. Next, bring in the audience.');
-      } else if (zoomMessage) {
-        showToast(zoomMessage);
-      }
-      go(1, id);
+      if (zoomMessage) showToast(zoomMessage);
+      else if (!existingId) showToast('Draft created. Next, bring in the audience.');
+      await go(1, id);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to save webinar details');
     } finally {
@@ -526,18 +715,20 @@ export function WizardClient({
   }
 
   async function continueFromScore() {
-    if (!campaign) {
+    const scoringId = queue.currentCampaignId ?? draftId;
+    if (!scoringId) {
       go(3);
       return;
     }
     setBusy(true);
     try {
-      await updateScoringConfigAction(campaign.id, {
+      if (!(await settleDraft())) return;
+      await updateScoringConfigAction(scoringId, {
         prompt: scoring.prompt,
         criteria: scoring.criteria,
         threshold: scoring.threshold,
       });
-      go(3);
+      await go(3);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to save scoring config');
     } finally {
@@ -550,19 +741,38 @@ export function WizardClient({
   }
 
   async function continueFromMessaging() {
-    if (!campaign) {
+    const messagingId = queue.currentCampaignId ?? draftId;
+    if (!messagingId) {
       go(5);
       return;
     }
     setBusy(true);
     try {
-      await saveWizardMessagingAction(campaign.id, messaging, { autoDraftInvite: true });
-      go(5);
+      if (!(await settleDraft())) return;
+      // Channels are left out on purpose: Step 3 owns which channels are on, and this form's copy of them was
+      // read when the wizard opened, so sending it back could undo what Step 3 just set.
+      await saveWizardMessagingAction(messagingId, { ...messaging, channels: undefined }, { autoDraftInvite: true });
+      await go(5);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to save messaging setup');
     } finally {
       setBusy(false);
     }
+  }
+
+  const furthestStep = Math.max(campaign?.wizardFurthestStep ?? 0, step);
+
+  /** Stepper navigation. Leaving the first step forward needs a valid title and date, as Continue does. */
+  function jumpTo(target: number) {
+    if (target > step && step === 0) {
+      const problems = validateWizardDetails(details);
+      if (Object.keys(problems).length) {
+        setErrors(problems);
+        (problems.title ? titleRef : dateRef).current?.focus();
+        return;
+      }
+    }
+    void go(target);
   }
 
   const meta = STEP_META[step];
@@ -584,14 +794,14 @@ export function WizardClient({
   let footerHint = '';
   if (busy) footerHint = 'Saving changes.';
   else if (step === 0 && missingDetails.length)
-    footerHint = `Required before continuing: ${missingDetails.map((k) => (k === 'title' ? 'webinar title' : 'date')).join(' and ')}.`;
-  else if (step === 0) footerHint = 'Details are saved when continuing.';
+    footerHint = `Required before continuing: ${missingDetails.map((k) => (k === 'title' ? 'webinar title' : k === 'date' ? 'date' : 'a valid landing page address (or leave it blank)')).join(' and ')}.`;
+  else if (step === 0) footerHint = 'Changes are saved automatically.';
   else if (step === 1)
     footerHint = contactCount === 0 ? 'No contacts yet. Import a list so the next step has someone to score.' : `${contactCount.toLocaleString()} contact${contactCount === 1 ? '' : 's'} imported.`;
   else if (step === 2)
-    footerHint = `${scoredCount.toLocaleString()} of ${contactCount.toLocaleString()} contact${contactCount === 1 ? '' : 's'} scored. Scoring settings are saved when continuing.`;
+    footerHint = `${scoredCount.toLocaleString()} of ${contactCount.toLocaleString()} contact${contactCount === 1 ? '' : 's'} scored. Scoring settings are saved automatically.`;
   else if (step === 3) footerHint = `${enabledTouchpoints} touchpoint${enabledTouchpoints === 1 ? '' : 's'} enabled.`;
-  else if (step === 4) footerHint = 'Messaging setup is saved when continuing.';
+  else if (step === 4) footerHint = 'Messaging setup is saved automatically.';
 
   return (
     <div className="lsq-page lsq-page--form">
@@ -601,18 +811,78 @@ export function WizardClient({
           <h1 className="lsq-page-header__title">{meta.title}</h1>
           <p className="lsq-page-header__sub">{meta.sub}</p>
         </div>
-        {campaign && (
-          <div className="lsq-page-header__actions">
-            <Badge color="gray" text="Draft" />
-          </div>
-        )}
+        <div className="lsq-page-header__actions">
+          <DraftSaveStatus
+            state={saveState}
+            remoteChanged={remoteChanged}
+            onRetry={() => void queue.retry()}
+            onKeepMine={() => void queue.keepMine()}
+            onReload={() => window.location.reload()}
+          />
+          {draftId && <Badge color="gray" text="Draft" />}
+        </div>
       </header>
+
+      {restorable && (
+        <div className="lsq-banner lsq-banner--neutral" role="region" aria-label="Unsaved changes found">
+          <span className="lsq-banner__icon" aria-hidden="true"><Icon name="info" size={16} /></span>
+          <div>
+            <p className="lsq-banner__title">Unsaved Changes Found On This Device</p>
+            <p className="lsq-banner__body">
+              {restorable.older
+                ? 'These edits were made on an older version of this draft. Restoring them replaces the matching fields.'
+                : 'These edits were made here but never reached the server.'}
+            </p>
+          </div>
+          <div className="lsq-cluster">
+            <Button hierarchy="secondary" size="sm" onClick={restoreUnsaved}>Restore Unsaved Changes</Button>
+            <Button hierarchy="tertiary" size="sm" onClick={discardUnsaved}>Discard</Button>
+          </div>
+        </div>
+      )}
+
+      {saveState.status === 'locked' && (
+        <div className="lsq-banner lsq-banner--warning" role="alert">
+          <span className="lsq-banner__icon" aria-hidden="true"><Icon name="warning" size={16} /></span>
+          <div>
+            <p className="lsq-banner__title">This Webinar Has Launched</p>
+            <p className="lsq-banner__body">Its setup is locked, so edits made here were not saved. Open the workspace to see what was launched.</p>
+          </div>
+          <Link className="lsq-btn lsq-btn--sm lsq-btn--secondary" href={`/campaigns/${saveState.campaignId}/overview`}>Open Workspace</Link>
+        </div>
+      )}
+
+      {saveState.status === 'gone' && (
+        <div className="lsq-banner lsq-banner--warning" role="alert">
+          <span className="lsq-banner__icon" aria-hidden="true"><Icon name="warning" size={16} /></span>
+          <div>
+            <p className="lsq-banner__title">This Draft No Longer Exists</p>
+            <p className="lsq-banner__body">It was deleted or archived from another tab. Start a new webinar to continue.</p>
+          </div>
+          <Link className="lsq-btn lsq-btn--sm lsq-btn--secondary" href="/">Back To Webinars</Link>
+        </div>
+      )}
+
+      {saveState.status === 'conflict' && (
+        <div className="lsq-banner lsq-banner--warning" role="alert">
+          <span className="lsq-banner__icon" aria-hidden="true"><Icon name="warning" size={16} /></span>
+          <div>
+            <p className="lsq-banner__title">This Draft Was Changed In Another Tab</p>
+            <p className="lsq-banner__body">The {describeGroups(saveState.groups)} changed there after this page opened. Keep this version, or reload to see the other one.</p>
+          </div>
+          <div className="lsq-cluster">
+            <Button hierarchy="secondary" size="sm" onClick={() => void queue.keepMine()}>Keep Mine</Button>
+            <Button hierarchy="tertiary" size="sm" onClick={() => window.location.reload()}>Reload</Button>
+          </div>
+        </div>
+      )}
 
       <nav className="lsq-card lsq-wiz-stepper-card" aria-label="Wizard progress">
         <ol className="lsq-stepper lsq-wiz-stepper">
           {STEP_META.map((s, i) => {
             const state = i < step ? 'done' : i === step ? 'current' : 'todo';
-            const clickable = state === 'done' && !!campaign;
+            // Any step up to the furthest one reached can be revisited; later ones open in order.
+            const reachable = !!draftId && i !== step && i <= furthestStep;
             const inner = (
               <>
                 <span className="lsq-step__n" aria-hidden="true">
@@ -621,17 +891,18 @@ export function WizardClient({
                 <span className="lsq-wiz-step__label">
                   {s.short}
                   {state === 'done' && <span className="lsq-sr-only"> (completed)</span>}
+                  {!reachable && state === 'todo' && <span className="lsq-sr-only"> (not reached yet)</span>}
                 </span>
               </>
             );
             return (
               <li key={s.short} className="lsq-step" data-state={state} aria-current={state === 'current' ? 'step' : undefined}>
-                {clickable ? (
-                  <button type="button" className="lsq-wiz-step__btn" disabled={busy} onClick={() => go(i)}>
+                {reachable ? (
+                  <button type="button" className="lsq-wiz-step__btn" disabled={busy} onClick={() => jumpTo(i)}>
                     {inner}
                   </button>
                 ) : (
-                  <span className="lsq-wiz-step__btn" data-static="true">{inner}</span>
+                  <span className="lsq-wiz-step__btn" data-static="true" data-locked={state === 'todo' ? 'true' : undefined} title={state === 'todo' ? 'Finish the earlier steps first' : undefined}>{inner}</span>
                 )}
               </li>
             );
@@ -773,7 +1044,6 @@ export function WizardClient({
                 {(
                   [
                     { id: 'existing', icon: 'calendar', title: 'Select From Zoom', blurb: 'Pick a scheduled event from the Zoom account' },
-                    { id: 'paste', icon: 'link', title: 'Paste Link or ID', blurb: 'Paste any Zoom link or webinar ID directly' },
                     { id: 'new', icon: 'plus', title: 'Create New in Zoom', blurb: 'Creates the webinar in Zoom when continuing' },
                   ] as const
                 ).map((opt) => (
@@ -802,15 +1072,22 @@ export function WizardClient({
                 <div className="lsq-stack lsq-stack--sm">
                   <div className="lsq-cluster lsq-cluster--between">
                     <span className="lsq-hint">Upcoming Zoom meetings and webinars</span>
-                    <Button
-                      hierarchy="tertiary-color"
-                      size="sm"
-                      icon={<Icon name="refresh" size={14} />}
-                      onClick={() => pickExistingZoom(true)}
-                      disabled={zoomLoading}
-                    >
-                      {zoomLoading ? 'Refreshing' : 'Refresh List'}
-                    </Button>
+                    <div className="lsq-cluster">
+                      {/* Connecting Zoom happens on the Integrations page; the link brings the person back to this step. */}
+                      <Link className="lsq-btn lsq-btn--sm lsq-btn--tertiary-color" href={integrationsHref(returnTo)}>
+                        <Icon name="plug" size={14} />
+                        Manage Zoom Connection
+                      </Link>
+                      <Button
+                        hierarchy="tertiary-color"
+                        size="sm"
+                        icon={<Icon name="refresh" size={14} />}
+                        onClick={() => pickExistingZoom(true)}
+                        disabled={zoomLoading}
+                      >
+                        {zoomLoading ? 'Refreshing' : 'Refresh List'}
+                      </Button>
+                    </div>
                   </div>
 
                   {zoomLoading ? (
@@ -818,7 +1095,7 @@ export function WizardClient({
                   ) : zoomMeetings && zoomMeetings.length > 0 ? (
                     <Field label="Zoom event">
                       {(p) => (
-                        <select {...p} className="lsq-select" value={zoomMeetingId} onChange={(e) => selectZoomMeeting(e.target.value)}>
+                        <select {...p} className="lsq-select" value={zoomMeetingId} onChange={(e) => { setZoomError(null); void selectZoomMeeting(e.target.value).then((r) => { if (!r.ok) setZoomError(r.error); }); }}>
                           <option value="">Choose an upcoming webinar or meeting</option>
                           {zoomMeetings.map((m) => (
                             <option key={m.id} value={m.id}>
@@ -856,64 +1133,6 @@ export function WizardClient({
                 </div>
               )}
 
-              {zoomChoice === 'paste' && (
-                <div className="lsq-stack lsq-stack--sm">
-                  <Field label="Zoom webinar URL or numeric ID">
-                    {(p) => (
-                      <div className="lsq-cluster lsq-wiz-inputrow">
-                        <input
-                          {...p}
-                          className="lsq-input lsq-grow lsq-wiz-mono"
-                          type="text"
-                          value={pastedZoomText}
-                          onChange={(e) => handlePastedZoomChange(e.target.value)}
-                          placeholder="https://zoom.us/webinar/register/WN_... or 849 2049 1823"
-                        />
-                        {parsedZoomInfo?.isValid && (
-                          <Button hierarchy="secondary" icon={<Icon name="bolt" size={14} />} disabled={zoomLoading} onClick={fetchFromPastedZoom}>
-                            {zoomLoading ? 'Fetching' : 'Sync Details'}
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </Field>
-
-                  {pasteError && (
-                    <div className="lsq-banner lsq-banner--warning" role="alert">
-                      <span className="lsq-banner__icon" aria-hidden="true"><Icon name="warning" size={16} /></span>
-                      <p className="lsq-banner__body">{pasteError}</p>
-                    </div>
-                  )}
-
-                  {parsedZoomInfo && parsedZoomInfo.isValid ? (
-                    <div className="lsq-banner lsq-banner--success" role="status">
-                      <span className="lsq-banner__icon" aria-hidden="true"><Icon name="check-circle" size={16} /></span>
-                      <div>
-                        <p className="lsq-banner__title">Valid Zoom {parsedZoomInfo.type === 'webinar' ? 'webinar' : 'event'}</p>
-                        <p className="lsq-banner__body lsq-cluster">
-                          <span className="lsq-wiz-code-inline">ID #{parsedZoomInfo.webinarId}</span>
-                          {parsedZoomInfo.isRegistration && <Badge color="blue" text={`Registration slug ${parsedZoomInfo.registrationSlug}`} />}
-                          <span>Attribution and auto-sync ready</span>
-                        </p>
-                      </div>
-                    </div>
-                  ) : pastedZoomText.trim() ? (
-                    <div className="lsq-banner lsq-banner--error" role="alert">
-                      <span className="lsq-banner__icon" aria-hidden="true"><Icon name="error" size={16} /></span>
-                      <p className="lsq-banner__body">
-                        Could not detect a valid Zoom webinar ID or registration link. Enter a 9 to 11 digit ID or a standard zoom.us URL.
-                      </p>
-                    </div>
-                  ) : null}
-
-                  <p className="lsq-hint">
-                    Works with Zoom webinar registration links (<span className="lsq-wiz-code-inline">https://zoom.us/webinar/register/WN_...</span>), direct join
-                    links (<span className="lsq-wiz-code-inline">https://zoom.us/w/84920491823</span>) or plain IDs. The webinar ID is extracted and passed to the
-                    landing page and the registration sync.
-                  </p>
-                </div>
-              )}
-
               {zoomChoice === 'new' && (
                 <div className="lsq-banner lsq-banner--neutral">
                   <span className="lsq-banner__icon" aria-hidden="true"><Icon name="info" size={16} /></span>
@@ -937,6 +1156,7 @@ export function WizardClient({
               <Field
                 label="Custom landing page URL"
                 optional
+                error={fieldErrors.registrationLink ?? (landingLinkError(details.registrationLink) ? `${landingLinkError(details.registrationLink)} It is not saved until it is fixed.` : null)}
                 hint={
                   details.registrationLink
                     ? 'Outbound messages route invitees to the custom landing page with recipient tokens. Form submissions register attendees, cancel the outreach cadence and sync calendars.'
@@ -946,6 +1166,7 @@ export function WizardClient({
                 {(p) => (
                   <input
                     {...p}
+                    ref={linkRef}
                     className={`lsq-input${details.registrationLink ? ' lsq-wiz-mono' : ''}`}
                     type="url"
                     value={details.registrationLink}
@@ -961,30 +1182,9 @@ export function WizardClient({
             </div>
           </section>
 
-          <section className="lsq-card" aria-labelledby="wiz-gateway">
-            <div className="lsq-card__header">
-              <div>
-                <h2 className="lsq-card__title" id="wiz-gateway">Email Delivery</h2>
-                <p className="lsq-card__sub">Which service sends the emails for this webinar.</p>
-              </div>
-            </div>
-            <div className="lsq-card__body">
-              <EmailGatewayPicker
-                value={details.emailProvider || 'leadsquared'}
-                netcoreConfigured={netcoreConfigured}
-                hint="Choose whether emails for this webinar dispatch via LeadSquared CRM or Netcore Cloud."
-                onChange={(gw) => {
-                  setDetails((d) => ({ ...d, emailProvider: gw }));
-                  setMessaging((m) => ({ ...m, emailProvider: gw }));
-                }}
-              />
-            </div>
-          </section>
-
           <ChannelSelectionCard
             selectedChannels={(details.selectedChannels as RegistrationChannelKey[]) || DEFAULT_SELECTED_CHANNELS}
             onChange={(channels) => setDetails((d) => ({ ...d, selectedChannels: channels }))}
-            zoomMeetingId={zoomMeetingId}
             disabled={busy}
           />
         </div>
@@ -1029,6 +1229,7 @@ export function WizardClient({
                 }))
               );
             }}
+            onConfigChange={({ prompt, criteria }) => setScoring((sc) => ({ ...sc, prompt, criteria }))}
             onRefreshScoring={() => {
               router.refresh();
             }}
@@ -1073,13 +1274,13 @@ export function WizardClient({
           activeSteps={activeCadenceSteps}
           fieldMappings={fieldMappings}
           templateOptions={templateOptions}
+          customTemplates={customTemplates}
           initialMode={messaging.msgMode}
           initialTone={messaging.tone}
           initialLength={messaging.msgLength}
           initialInstructions={messaging.aiInstructions}
           initialBrief={messaging.brief}
           initialOneClickSignup={messaging.oneClickSignup}
-          initialEmailProvider={messaging.emailProvider}
           initialGroundingFields={messaging.personalizationFields}
           netcoreConfigured={netcoreConfigured}
           sampleContact={activeScoredContacts[0] ? {
@@ -1097,10 +1298,24 @@ export function WizardClient({
               aiInstructions: cfg.aiInstructions,
               brief: cfg.brief,
               oneClickSignup: cfg.oneClickSignup,
-              emailProvider: cfg.emailProvider,
               personalizationFields: cfg.personalizationFields,
               stepConfigs: cfg.stepConfigs,
             }));
+            // Per-step settings are saved for the steps the person changed, and only when they really differ.
+            const changed: Record<string, DraftStepConfig> = {};
+            for (const key of cfg.touchedStepKeys) {
+              const c = cfg.stepConfigs[key];
+              if (!c) continue;
+              const body: DraftStepConfig = {
+                mode: c.mode, templateId: c.templateId, instruction: c.instruction,
+                customSubject: c.customSubject, customBody: c.customBody,
+              };
+              const serialized = JSON.stringify(body);
+              if (sentStepConfigs.current[key] === serialized) continue;
+              sentStepConfigs.current[key] = serialized;
+              changed[key] = body;
+            }
+            if (Object.keys(changed).length > 0) queue.update({ stepConfigs: changed });
           }}
         />
       )}
@@ -1121,7 +1336,6 @@ export function WizardClient({
           zoomLink={details.zoomLink}
           zoomMeetingId={zoomMeetingId || campaign.zoomMeetingId || undefined}
           speakers={details.speakers}
-          emailProvider={messaging.emailProvider}
           validation={validation}
           approvedCount={liveApprovedCount}
           fieldMappings={fieldMappings}
@@ -1131,10 +1345,7 @@ export function WizardClient({
           msgLength={messaging.msgLength}
           brief={messaging.brief}
             onApprovedCountChange={(count) => setLiveApprovedCount(count)}
-          onFunnelModeChange={(mode, link) => {
-            set('registrationLink', mode === 'framer' ? (link || '') : '');
-            setMessaging((m) => ({ ...m, oneClickSignup: mode === 'normal' }));
-          }}
+          onChangeRegistration={() => void go(0)}
         />
       )}
 

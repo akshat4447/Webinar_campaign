@@ -26,6 +26,13 @@ services:
         sync: false
       - key: CREDENTIALS_ENCRYPTION_KEY
         sync: false
+      # The operator sign-in. Render asks for both; they are never stored in the repository.
+      - key: APP_USERNAME
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: CRON_SECRET
+        sync: false
       - key: CADENCE_AUTOTICK
         value: 'false'
       - key: CADENCE_AUTOTICK_SECONDS

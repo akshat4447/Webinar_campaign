@@ -2,8 +2,8 @@ import '@/lib/loadEnv';
 import {writeFile,mkdir} from 'node:fs/promises';
 import {db} from '@/lib/db';
 import {getIntegrationConfig,INTEGRATION_FIELDS,resolveIntegrationField} from '@/lib/integrationConfig';
-import {testIntegrationAction} from '@/lib/actions/integrations';
-import {getLeadsMetadata,getLeadByEmailAddress,createOrUpdateLead,sendEmailToLead} from '@/lib/leadsquared';
+import {testIntegrationConnection} from '@/lib/integrationConnection';
+import {getLeadsMetadata,getLeadByEmailAddress} from '@/lib/leadsquared';
 import {zoomRequest} from '@/lib/zoom/client';
 import {sendNetcoreEmail,isEmailSuppressed} from '@/lib/netcore';
 import {getChannelDeliveryMode,getActivityMap,DIRECT_GATEWAY_KEYS,deliverChannelMessage} from '@/lib/channelDelivery';
@@ -22,7 +22,7 @@ async function main(){
  const sanitize=(value:string)=>secrets.filter(v=>v.length>=6).reduce((s,v)=>s.split(v).join('[REDACTED]'),value).replace(/(accessKey|secretKey|api_key|access_token)=([^&\s]+)/gi,'$1=[REDACTED]').slice(0,600);
  const results:Array<{provider:string;operation:string;status:string;detail:string}>=[];
  const check=async(provider:string,fn:()=>Promise<unknown>)=>{try{await fn();results.push({provider,operation:'connection',status:'passed',detail:'Live provider accepted the connection check.'});return true;}catch(e){results.push({provider,operation:'connection',status:'failed',detail:sanitize(e instanceof Error?e.message:String(e))});return false;}};
- const actionCheck=async(id:string)=>{const result=await testIntegrationAction(id);if(!result.ok)throw new Error(result.detail);};
+ const actionCheck=async(id:string)=>{const result=await testIntegrationConnection(id);if(!result.ok)throw new Error(result.detail);};
  const [lsqOK,netcoreOK]=await Promise.all([
   check('leadsquared',()=>getLeadsMetadata()),check('netcore',()=>actionCheck('netcore')),
   check('zoom',()=>zoomRequest('/users/me')),check('apollo',()=>actionCheck('apollo')),check('claude',()=>actionCheck('claude')),
@@ -33,8 +33,6 @@ async function main(){
  if(email){
   const suppressed=await isEmailSuppressed(email);if(suppressed)throw new Error('Designated test email is suppressed; the test will not bypass suppression.');
   const contacts=await db.contact.findMany({where:{email:{equals:email,mode:'insensitive'}}});for(const c of contacts){const eligible=await sendEligibility(c.campaignId,c,'email');if(!eligible.ok)throw new Error(eligible.reason);}
-  if(lsqOK)await send('leadsquared',async()=>{await createOrUpdateLead([{Attribute:'EmailAddress',Value:email}]);return sendEmailToLead({recipientEmail:email,subject:'[TEST] Webinar Studio delivery verification',contentHtml:`<p>${message}</p>`,contentText:message});});
-  else results.push({provider:'leadsquared',operation:'designated_recipient_test',status:'blocked',detail:'Live connection rejected; no email send attempted.'});
   if(netcoreOK)await send('netcore',async()=>{const result=await sendNetcoreEmail({to:email,subject:'[TEST] Webinar Studio delivery verification',html:`<p>${message}</p>`,text:message,tags:['operator_verification']});if(!result.ok)throw new DeliveryRejectedError(result.error||'Netcore rejected the test.');return {messageId:result.messageId};});
   else results.push({provider:'netcore',operation:'designated_recipient_test',status:'blocked',detail:'Live connection rejected; no email send attempted.'});
  }

@@ -153,25 +153,19 @@ describe('Wizard Funnel & Calendar Edge Cases Test Suite', () => {
   });
 
   describe('Edge Case 3: Framer Script Generator Safe String Serialization', () => {
-    it('produces safe JavaScript code even when webinar title contains single and double quotes', () => {
+    it('produces safe JavaScript even when an identifier holds quotes or a closing script tag', () => {
       const script = generateFramerEmbedScript({
-        campaignId: 'camp_quote_1',
+        campaignId: 'camp"</script><script>alert(1)//',
         zoomId: '8123456789',
-        webinarTitle: 'Founder\'s Guide to "Hyper-Growth": 2026 Strategy',
-        scheduledAt: '2026-11-20T10:00:00.000Z',
-        description: 'Includes single \' quotes and double " quotes.',
-        location: 'Online Webinar',
-        autoOpenGoogleCalendar: true,
         apiOrigin: 'https://webinar.studio.io',
       });
 
-      expect(script).toContain('<script>');
-      expect(script).toContain('camp_quote_1');
       expect(script).toContain('8123456789');
       expect(script).toContain('https://webinar.studio.io');
-      expect(script).not.toContain('window.open(googleCalUrl');
-      expect(script).toContain('googleCalUrl = "https://calendar.google.com/calendar/render');
-      expect(script).toContain('</script>');
+      // Only the one real closing tag: nothing a value contains can end the block early.
+      expect(script.match(/<\/script>/g)).toHaveLength(1);
+      expect(script.match(/<script>/g)).toHaveLength(1);
+      expect(() => new Function(script.replace(/^[\s\S]*?<script>/, '').replace(/<\/script>\s*$/, ''))).not.toThrow();
     });
   });
 
@@ -193,6 +187,14 @@ describe('Wizard Funnel & Calendar Edge Cases Test Suite', () => {
           registrationMode: 'zoom',
         },
       });
+    });
+
+    it('refuses a custom landing page address that is not a web address, and writes nothing', async () => {
+      vi.mocked(db.campaign.update).mockClear();
+      for (const bad of ['javascript:alert(1)', 'not a url', 'https://user:pw@pages.example.com', 'webinar']) {
+        await expect(updateWizardFunnelModeAction('camp_test', 'framer', bad), bad).rejects.toThrow();
+      }
+      expect(db.campaign.update).not.toHaveBeenCalled();
     });
 
     it('commits custom framer funnel mode to Campaign record in DB', async () => {

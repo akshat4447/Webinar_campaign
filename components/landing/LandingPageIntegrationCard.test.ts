@@ -68,10 +68,7 @@ describe('LandingPageIntegrationCard Studio Logic', () => {
       const script = generateUniversalEmbedScript({
         campaignId: campaign.id,
         zoomId: campaign.zoomMeetingId,
-        webinarTitle: campaign.name,
-        scheduledAt: '2026-10-25T14:00:00Z',
         platform: plat,
-        autoOpenGoogleCalendar: true,
       });
 
       expect(script).toContain('<script>');
@@ -80,8 +77,8 @@ describe('LandingPageIntegrationCard Studio Logic', () => {
       expect(script).toContain('setReactInputValue');
       expect(script).toContain('navigator.sendBeacon');
       expect(script).toContain('/api/landing/submit');
-      expect(script).toContain('googleCalUrl');
-      expect(script).not.toContain('window.open(googleCalUrl');
+      expect(script).toContain('/api/landing/event');
+      expect(script).toContain('webinar-reg-popup');
 
       if (plat === 'framer') {
         expect(script).toContain('Framer');

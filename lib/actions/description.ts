@@ -1,9 +1,12 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
 import { improveDescription } from '@/lib/claude';
 
 export async function improveDescriptionAction(campaignId: string, current: string) {
+  await requireOperatorSession();
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { name: true, vertical: true } });
   try {
     const improved = await improveDescription({ topic: campaign.name, vertical: campaign.vertical, current });

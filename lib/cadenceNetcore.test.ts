@@ -49,7 +49,6 @@ vi.mock('@/lib/attentionItems', () => ({
 }));
 
 vi.mock('@/lib/channelDelivery', () => ({
-  postSentActivityIfMapped: vi.fn(),
   deliverChannelMessage: vi.fn(),
 }));
 
@@ -60,15 +59,12 @@ vi.mock('@/lib/netcore', () => ({
 
 vi.mock('@/lib/leadsquared', () => ({
   createOrUpdateLead: vi.fn(),
-  sendEmailToLead: vi.fn(),
   LeadSquaredError: class LeadSquaredError extends Error {},
 }));
 
 import { db } from '@/lib/db';
 import { resolveStepTemplate } from '@/lib/messageTemplates';
 import { sendNetcoreEmail, isEmailSuppressed } from '@/lib/netcore';
-import { postSentActivityIfMapped } from '@/lib/channelDelivery';
-import { sendEmailToLead } from '@/lib/leadsquared';
 import { processDueSends } from './cadence';
 
 describe('Cadence Engine Dual Gateway & Netcore Routing (lib/cadence.ts)', () => {
@@ -76,7 +72,6 @@ describe('Cadence Engine Dual Gateway & Netcore Routing (lib/cadence.ts)', () =>
     id: 'campaign_c1',
     name: 'AI Banking Webinar',
     date: 'Sep 25, 2026',
-    emailProvider: 'netcore',
     cadenceStatus: 'running',
     dailyLimit: 100,
     scheduleWindow: '09:00-18:00',
@@ -152,7 +147,7 @@ describe('Cadence Engine Dual Gateway & Netcore Routing (lib/cadence.ts)', () =>
     addReliabilityMocks(reliabilityDb);
 });
 
-  it('routes email dispatch through sendNetcoreEmail when campaign.emailProvider is netcore', async () => {
+  it('routes email dispatch through sendNetcoreEmail', async () => {
     vi.mocked(isEmailSuppressed).mockResolvedValueOnce(null);
     vi.mocked(sendNetcoreEmail).mockResolvedValueOnce({
       ok: true,
@@ -169,18 +164,6 @@ describe('Cadence Engine Dual Gateway & Netcore Routing (lib/cadence.ts)', () =>
         toName: 'Priya Nair',
         subject: expect.stringContaining('AI Banking Webinar'),
         tags: ['campaign_c1', 'invite'],
-      })
-    );
-    expect(sendEmailToLead).not.toHaveBeenCalled();
-
-    // Dual-logging to LeadSquared
-    expect(postSentActivityIfMapped).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: 'email',
-        lsqLeadId: 'lsq_lead_123',
-        campaignName: 'AI Banking Webinar',
-        stepKey: 'invite',
-        note: expect.stringContaining('delivered via Netcore Cloud'),
       })
     );
   });
@@ -200,7 +183,6 @@ describe('Cadence Engine Dual Gateway & Netcore Routing (lib/cadence.ts)', () =>
     expect(res.sent).toBe(0);
     expect(res.failed).toBe(0);
     expect(sendNetcoreEmail).not.toHaveBeenCalled();
-    expect(sendEmailToLead).not.toHaveBeenCalled();
 
     expect(db.cadenceSend.update).toHaveBeenCalledWith({
       where: { id: 'send_1' },
@@ -231,24 +213,6 @@ describe('Cadence Engine Dual Gateway & Netcore Routing (lib/cadence.ts)', () =>
     });
   });
 
-  it('routes through LeadSquared sendEmailToLead when campaign.emailProvider is leadsquared', async () => {
-    vi.mocked(db.campaign.findUniqueOrThrow).mockResolvedValue({
-      ...mockCampaign,
-      emailProvider: 'leadsquared',
-    } as any);
-    vi.mocked(isEmailSuppressed).mockResolvedValueOnce(null);
-    vi.mocked(sendEmailToLead).mockResolvedValueOnce({} as any);
-
-    const res = await processDueSends('campaign_c1');
-    expect(res.sent).toBe(1);
-    expect(sendEmailToLead).toHaveBeenCalledWith(
-      expect.objectContaining({
-        recipientEmail: 'priya@example.com',
-      })
-    );
-    expect(sendNetcoreEmail).not.toHaveBeenCalled();
-  });
-
   it('aborts dispatch if send status was marked skipped in-flight by registration', async () => {
     vi.mocked(isEmailSuppressed).mockResolvedValueOnce(null);
     // Send was claimed into candidateIds, but findUnique finds it was transitioned to skipped (e.g. by registerContact)
@@ -260,7 +224,6 @@ describe('Cadence Engine Dual Gateway & Netcore Routing (lib/cadence.ts)', () =>
     const res = await processDueSends('campaign_c1');
     expect(res.sent).toBe(0);
     expect(sendNetcoreEmail).not.toHaveBeenCalled();
-    expect(sendEmailToLead).not.toHaveBeenCalled();
     // Verify it did not overwrite skipped with sent
     expect(db.cadenceSend.update).not.toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'sent' }) })

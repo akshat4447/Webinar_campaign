@@ -1,3 +1,4 @@
+import { summarizeRowFailures, type RowFailure } from '@/lib/leadSyncErrors';
 import { db } from '@/lib/db';
 import { bulkCreateOrUpdateLeads, createEmptyList, addLeadsToStaticList, getLists, LeadSquaredError, takeSkippedCustomFields, type LeadField } from '@/lib/leadsquared';
 import { isValidLsqSchemaName } from '@/lib/lsqPayload';
@@ -159,6 +160,12 @@ export interface LeadSyncOptions {
    * Defaults to false (Option 2: strict opt-in, never create lists autonomously).
    */
   createList?: boolean;
+  /**
+   * Which leads are added to the bound static list. 'all' (default) adds every synced lead. 'created' adds only
+   * the leads this run created: right after importing FROM that list, re-adding all of them is thousands of
+   * pointless calls (the leads are already members) that used to push a big import past the request time limit.
+   */
+  addToList?: 'all' | 'created';
 }
 
 // Pushes every contact with an email (that doesn't already have an lsqLeadId)
@@ -174,19 +181,24 @@ export async function syncContactsToLeadSquared(campaignId: string, options?: Le
   let leadsCreated = 0;
   let leadsUpdated = 0;
   let leadsFailed = 0;
+  const createdLeadIds: string[] = [];
   const rowErrors: string[] = [];
+  const rowFailures: RowFailure[] = [];
   try {
     if (toCreate.length > 0) {
       const results = await bulkCreateOrUpdateLeads(toCreate.map((c) => leadFieldsFor(c, campaign.lsqFieldMappingTokens)));
       // Per-row failures come back inline (empty LeadId + an ExceptionType),
       // not as a thrown error — only write lsqLeadId for rows that actually got one.
       const succeeded = results.filter((r) => r.LeadId);
-      await db.$transaction(succeeded.map((r) => db.contact.update({ where: { id: toCreate[r.RowNumber].id }, data: { lsqLeadId: r.LeadId } })));
+      for (let i = 0; i < succeeded.length; i += 100) {
+        await db.$transaction(succeeded.slice(i, i + 100).map((r) => db.contact.update({ where: { id: toCreate[r.RowNumber].id }, data: { lsqLeadId: r.LeadId } })));
+      }
+      createdLeadIds.push(...succeeded.map((r) => r.LeadId));
       leadsCreated = results.filter((r) => r.LeadCreated).length;
       leadsUpdated = results.filter((r) => r.LeadUpdated).length;
       leadsFailed = results.length - succeeded.length;
       for (const r of results) {
-        if (!r.LeadId && r.ErrorMessage) rowErrors.push(`${toCreate[r.RowNumber].name}: ${r.ExceptionType ?? ''} ${r.ErrorMessage}`.trim());
+        if (!r.LeadId && r.ErrorMessage) rowFailures.push({ name: toCreate[r.RowNumber].name, message: `${r.ExceptionType ?? ''} ${r.ErrorMessage}`.trim() });
       }
     }
 
@@ -218,7 +230,7 @@ export async function syncContactsToLeadSquared(campaignId: string, options?: Le
 
       if (isStatic) {
         let synced = await db.contact.findMany({ where: { campaignId, lsqLeadId: { not: null }, email: { not: null } } });
-        let leadIds = synced.map((c) => c.lsqLeadId).filter((id): id is string => !!id);
+        let leadIds = options?.addToList === 'created' ? createdLeadIds : synced.map((c) => c.lsqLeadId).filter((id): id is string => !!id);
 
         if (leadIds.length > 0) {
           try {
@@ -236,7 +248,9 @@ export async function syncContactsToLeadSquared(campaignId: string, options?: Le
           if (err instanceof LeadSquaredError && STALE_LEAD_ERROR.test(String(err.body))) {
             const refreshed = await bulkCreateOrUpdateLeads(synced.map((c) => leadFieldsFor(c, campaign.lsqFieldMappingTokens)));
             const succeeded = refreshed.filter((r) => r.LeadId);
-            await db.$transaction(succeeded.map((r) => db.contact.update({ where: { id: synced[r.RowNumber].id }, data: { lsqLeadId: r.LeadId } })));
+            for (let i = 0; i < succeeded.length; i += 100) {
+              await db.$transaction(succeeded.slice(i, i + 100).map((r) => db.contact.update({ where: { id: synced[r.RowNumber].id }, data: { lsqLeadId: r.LeadId } })));
+            }
             synced = await db.contact.findMany({ where: { campaignId, lsqLeadId: { not: null }, email: { not: null } } });
             leadIds = synced.map((c) => c.lsqLeadId).filter((id): id is string => !!id);
             await addLeadsToStaticList(listId, leadIds);
@@ -255,7 +269,7 @@ export async function syncContactsToLeadSquared(campaignId: string, options?: Le
         .create({ data: { campaignId, text: `LeadSquared fields not found in this tenant were skipped: ${skippedFields.join(', ')}. Create them in LeadSquared to sync that data.`, dot: 'var(--accent-500)' } })
         .catch(() => undefined);
     }
-    return { listId: listId ?? null, leadsCreated, leadsUpdated, leadsFailed, error: rowErrors.length > 0 ? rowErrors.slice(0, 3).join('; ') : undefined, skippedFields: skippedFields.length ? skippedFields : undefined };
+    return { listId: listId ?? null, leadsCreated, leadsUpdated, leadsFailed, error: rowErrors.length + rowFailures.length > 0 ? [...rowErrors, ...summarizeRowFailures(rowFailures)].join(' ') : undefined, skippedFields: skippedFields.length ? skippedFields : undefined };
   } catch (err) {
     return { listId: campaign.lsqListId ?? null, leadsCreated, leadsUpdated, leadsFailed: toCreate.length - leadsCreated - leadsUpdated, error: String(err) };
   }

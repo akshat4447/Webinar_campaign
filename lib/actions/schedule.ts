@@ -1,21 +1,36 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
-import { launchCadence, processDueSends, restartCadence } from '@/lib/cadence';
+import { launchCadence, processDueSends, queueStepsForRunningCadence, restartCadence } from '@/lib/cadence';
 import { resolveStepDate, offsetLabel, ANCHOR_LABEL, STEP_DEFAULTS, STEP_DEFAULT_INSTRUCTIONS, parseTimingString } from '@/lib/stepSchedule';
 import { revalidateCampaign } from '@/lib/revalidate';
 import { z } from 'zod';
 import { assertSetupEditable, assertStepUnsent } from '@/lib/setupLock';
+import { plainError } from '@/lib/plainError';
+import { writeWebinarSchedule } from '@/lib/webinarSchedule';
 
 const campaignIdSchema = z.string().min(1);
 const stepKeySchema = z.string().min(1);
 const stepIdSchema = z.string().min(1);
 
+/** A step added or switched on after launch has no sends yet; give it its audience. Never blocks the edit itself. */
+async function catchUpRunningCadence(campaignId: string) {
+  try {
+    await queueStepsForRunningCadence(campaignId);
+  } catch (err) {
+    console.error('[cadence] could not queue sends for the edited step', err);
+  }
+}
+
 export async function toggleCadenceStepAction(campaignId: string, stepKey: string, enabled: boolean) {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const validStepKey = stepKeySchema.parse(stepKey);
   await assertStepUnsent(validCampaignId, validStepKey);
   await db.cadenceStep.update({ where: { campaignId_key: { campaignId: validCampaignId, key: validStepKey } }, data: { enabled: !!enabled } });
+  if (enabled) await catchUpRunningCadence(validCampaignId);
   revalidateCampaign(validCampaignId);
 }
 
@@ -32,6 +47,7 @@ export async function updateStepScheduleAction(
   stepKey: string,
   patch: { offsetValue?: number; offsetUnit?: string; anchor?: string; timing?: string }
 ) {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const validStepKey = stepKeySchema.parse(stepKey);
   await assertStepUnsent(validCampaignId, validStepKey);
@@ -62,6 +78,14 @@ export async function updateStepScheduleAction(
     dataToUpdate.timing = patch.timing.trim();
   }
 
+  // "Instant" is typed as an event-anchored time, which only means something for a step fired by a registration.
+  // On a step queued at launch it has no date at all, so launch would silently skip it: for that step, instant
+  // means the moment of launch.
+  if (dataToUpdate.anchor === 'event') {
+    const current = await db.cadenceStep.findUnique({ where: { campaignId_key: { campaignId: validCampaignId, key: validStepKey } }, select: { trigger: true } });
+    if (current?.trigger === 'launch') dataToUpdate.anchor = 'launch';
+  }
+
   const step = await db.cadenceStep.update({
     where: { campaignId_key: { campaignId: validCampaignId, key: validStepKey } },
     data: dataToUpdate,
@@ -82,6 +106,7 @@ export async function updateStepScheduleAction(
     },
   });
 
+  await catchUpRunningCadence(validCampaignId);
   revalidateCampaign(validCampaignId);
   return { ok: true as const, resolvedAt: dueAt?.toISOString() ?? null, step };
 }
@@ -96,6 +121,7 @@ export async function updateCadenceStepTimingAction(
     anchor: string;
   }
 ) {
+  await requireOperatorSession();
   return updateStepScheduleAction(campaignId, stepKey, timing);
 }
 
@@ -109,6 +135,7 @@ export async function updateCadenceStepTimingAction(
  * quietly kept rows that reset is supposed to have undone.
  */
 export async function resetScheduleAction(campaignId: string) {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const steps = await db.cadenceStep.findMany({ where: { campaignId: validCampaignId } });
   for (const step of steps) await assertStepUnsent(validCampaignId, step.key);
@@ -162,6 +189,7 @@ export async function saveCadenceSequenceAction(
   campaignId: string,
   patches: CadenceSequenceStepPatch[]
 ): Promise<{ ok: boolean; updatedCount: number; error?: string }> {
+  await requireOperatorSession();
   try {
     const validCampaignId = campaignIdSchema.parse(campaignId);
     if (!Array.isArray(patches) || patches.length === 0) {
@@ -296,6 +324,7 @@ const CHANNEL_LABEL: Record<string, string> = {
  * the same name.
  */
 export async function addCadenceStepAction(campaignId: string, group: string, channel: string) {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const validGroup = z.string().min(1).parse(group);
   const validChannel = z.string().min(1).parse(channel);
@@ -337,6 +366,7 @@ export async function addCadenceStepAction(campaignId: string, group: string, ch
   await db.activityLogEntry.create({
     data: { campaignId: validCampaignId, text: `Added a ${label} step to “${validGroup}”`, dot: 'var(--accent-500)' },
   });
+  await catchUpRunningCadence(validCampaignId);
   revalidateCampaign(validCampaignId);
   return step.id;
 }
@@ -350,6 +380,7 @@ export async function addCadenceStepAction(campaignId: string, group: string, ch
  * message from a step the operator believes they deleted.
  */
 export async function removeCadenceStepAction(campaignId: string, stepId: string) {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const state = await db.campaign.findUniqueOrThrow({ where: { id: validCampaignId }, select: { status: true, archived: true } });
   if (state.status === 'completed' || state.archived) throw new Error('This webinar is closed.');
@@ -379,26 +410,102 @@ export async function removeCadenceStepAction(campaignId: string, stepId: string
   return { cancelled: cancelled.count };
 }
 
-export async function launchCadenceAction(campaignId: string) {
+/**
+ * Brings back a built-in step that was removed. Removing one (the first invite, say) leaves nothing that sends the
+ * registration link, and the planner could only add new steps or reset everything, which also undoes every other edit.
+ * The step comes back switched on, with its own message and timing, and a running cadence queues it for its audience.
+ */
+export async function restoreCadenceStepAction(campaignId: string, stepId: string): Promise<{ ok: true; queued: number } | { ok: false; error: string }> {
+  await requireOperatorSession();
+  try {
+    const validCampaignId = campaignIdSchema.parse(campaignId);
+    const campaign = await db.campaign.findUnique({ where: { id: validCampaignId }, select: { status: true, archived: true, cadenceStatus: true } });
+    if (!campaign) return { ok: false, error: 'Webinar not found.' };
+    if (campaign.status === 'completed' || campaign.archived) return { ok: false, error: 'This webinar is closed.' };
+    if (campaign.cadenceStatus === 'stopped') return { ok: false, error: 'This cadence is stopped. Restart it first.' };
+    const step = await db.cadenceStep.findFirst({ where: { id: stepIdSchema.parse(stepId), campaignId: validCampaignId } });
+    if (!step || !step.removedAt) return { ok: false, error: 'That step was not removed.' };
+    await db.cadenceStep.update({ where: { id: step.id }, data: { removedAt: null, enabled: true } });
+    await db.activityLogEntry.create({ data: { campaignId: validCampaignId, text: `Restored “${step.title}” to the cadence`, dot: 'var(--accent-500)' } });
+    const { queued } = await queueStepsForRunningCadence(validCampaignId).catch(() => ({ queued: 0 }));
+    revalidateCampaign(validCampaignId);
+    return { ok: true, queued };
+  } catch (err) {
+    return { ok: false, error: plainError(err, 'Could not restore the step.') };
+  }
+}
+
+export type LaunchCadenceResult =
+  | ({ ok: true } & Awaited<ReturnType<typeof launchCadence>> & Awaited<ReturnType<typeof processDueSends>>)
+  | { ok: false; error: string; problems?: string[] };
+
+/**
+ * Starts the cadence. A webinar that is not ready gets its reasons back as a list, and any other failure comes back as a
+ * sentence: both are returned rather than thrown, because production replaces a thrown server error's message with a code.
+ */
+export async function launchCadenceAction(campaignId: string): Promise<LaunchCadenceResult> {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
-  const result = await launchCadence(validCampaignId);
-  // Fire anything already due (e.g. the Day-0 invite) immediately after launch.
-  const processed = await processDueSends(validCampaignId);
-  revalidateCampaign(validCampaignId);
-  return { ...result, ...processed };
+  try {
+    const { getLaunchReadiness } = await import('@/lib/launchReadiness');
+    const readiness = await getLaunchReadiness(validCampaignId);
+    if (!readiness.ok) return { ok: false, error: 'This webinar is not ready to launch yet.', problems: readiness.problems };
+    const result = await launchCadence(validCampaignId);
+    // Fire anything already due (e.g. the Day-0 invite) immediately after launch.
+    const processed = await processDueSends(validCampaignId);
+    revalidateCampaign(validCampaignId);
+    return { ok: true, ...result, ...processed };
+  } catch (err) {
+    return { ok: false, error: plainError(err, 'The cadence could not be launched.') };
+  }
 }
 
 /**
- * Resets a stopped cadence back to `not_started` so Schedule can show the
- * Launch button again — previously a stopped campaign had no path back to
- * sending at all short of manually editing the database. This does not
- * un-stop the abandoned run (see restartCadence's comment); it starts a new one.
+ * Starts a stopped cadence over. A stopped cadence cannot be resumed, so this resets it to "not launched" (what was left
+ * unsent is marked skipped, what already went out stays sent) and the webinar can then be launched again. It needs a
+ * date that is still ahead: invites and reminders are timed from it.
  */
-export async function restartCadenceAction(campaignId: string) {
+export async function restartCadenceAction(campaignId: string): Promise<{ ok: true; skipped: number } | { ok: false; error: string }> {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
-  const result = await restartCadence(validCampaignId);
-  revalidateCampaign(validCampaignId);
-  return result;
+  try {
+    const campaign = await db.campaign.findUnique({ where: { id: validCampaignId }, select: { status: true, archived: true, scheduledAt: true } });
+    if (!campaign) return { ok: false, error: 'That webinar no longer exists.' };
+    if (campaign.status === 'completed' || campaign.archived) return { ok: false, error: 'This webinar is closed, so its cadence cannot be restarted.' };
+    if (!campaign.scheduledAt || campaign.scheduledAt.getTime() <= Date.now()) {
+      return { ok: false, error: 'The webinar date has passed. Reschedule the webinar to a date that is still ahead, then restart its cadence.' };
+    }
+    const result = await restartCadence(validCampaignId);
+    revalidateCampaign(validCampaignId);
+    return { ok: true, skipped: result.skipped };
+  } catch (err) {
+    return { ok: false, error: plainError(err, 'The cadence could not be restarted.') };
+  }
+}
+
+/**
+ * Moves a launched webinar to a new date. Messages still waiting on the old date move with it; messages already sent stay as
+ * they were. Studio does not change the Zoom event, so `zoomLinked` tells the page to remind the person to.
+ */
+export async function rescheduleWebinarAction(
+  campaignId: string,
+  dateTimeLocal: string
+): Promise<{ ok: true; display: string; zoomLinked: boolean } | { ok: false; error: string }> {
+  await requireOperatorSession();
+  const validCampaignId = campaignIdSchema.parse(campaignId);
+  try {
+    const campaign = await db.campaign.findUnique({ where: { id: validCampaignId }, select: { status: true, archived: true, zoomMeetingId: true } });
+    if (!campaign) return { ok: false, error: 'That webinar no longer exists.' };
+    if (campaign.status === 'completed' || campaign.archived) return { ok: false, error: 'This webinar is closed, so it cannot be rescheduled.' };
+    if (!dateTimeLocal) return { ok: false, error: 'Choose the new date and time.' };
+    const written = await writeWebinarSchedule(validCampaignId, dateTimeLocal, { requireFuture: true });
+    if (!written.ok) return written;
+    await db.activityLogEntry.create({ data: { campaignId: validCampaignId, text: `Webinar rescheduled to ${written.display}`, dot: 'var(--warning-700)' } });
+    revalidateCampaign(validCampaignId);
+    return { ok: true, display: written.display, zoomLinked: Boolean(campaign.zoomMeetingId) };
+  } catch (err) {
+    return { ok: false, error: plainError(err, 'The webinar could not be rescheduled.') };
+  }
 }
 
 export type AutomationRuleKey =
@@ -419,6 +526,7 @@ export async function updateCadenceAutomationRuleAction(
   rule: AutomationRuleKey,
   enabled: boolean
 ) {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const state = await db.campaign.findUniqueOrThrow({ where: { id: validCampaignId }, select: { status: true, archived: true } });
   if (state.status === 'completed' || state.archived) throw new Error('This webinar is closed.');
@@ -534,6 +642,7 @@ export async function updateCadenceAutomationRuleAction(
 
 
 export async function getLaunchReadinessAction(campaignId: string) {
+  await requireOperatorSession();
   const {getLaunchReadiness}=await import('@/lib/launchReadiness');
   return getLaunchReadiness(campaignIdSchema.parse(campaignId));
 }

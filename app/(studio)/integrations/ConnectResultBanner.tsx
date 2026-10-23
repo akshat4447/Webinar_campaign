@@ -9,7 +9,7 @@ import { Icon } from '@/components/ui/Icon';
 // connection could genuinely succeed (or fail with a specific reason) and the
 // operator would see the page reload with no visible change at all. Captured
 // into local state on mount so the banner survives the URL cleanup below.
-export function ConnectResultBanner({ connected, detail }: { connected?: string; detail?: string }) {
+export function ConnectResultBanner({ connected, detail, returnTo }: { connected?: string; detail?: string; returnTo?: string | null }) {
   const router = useRouter();
   // Captured from the props on first render so it survives the URL cleanup below.
   const [shown, setShown] = useState<{ ok: boolean; detail: string } | null>(() =>
@@ -22,8 +22,9 @@ export function ConnectResultBanner({ connected, detail }: { connected?: string;
   );
 
   useEffect(() => {
-    if (connected) router.replace('/integrations', { scroll: false });
-  }, [connected, router]);
+    // The way back to the webinar stays in the address bar; only the one-time result is cleared.
+    if (connected) router.replace(returnTo ? `/integrations?returnTo=${encodeURIComponent(returnTo)}` : '/integrations', { scroll: false });
+  }, [connected, returnTo, router]);
 
   if (!shown) return null;
 

@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
 import { revalidateCampaign } from '@/lib/revalidate';
 import { z } from 'zod';
@@ -18,6 +20,7 @@ const campaignIdSchema = z.string().min(1);
  * would cut that work off. This is that decision, made explicit.
  */
 export async function markCampaignCompletedAction(campaignId: string) {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const campaign = await db.campaign.findUniqueOrThrow({
     where: { id: validCampaignId },
@@ -74,6 +77,7 @@ export async function markCampaignCompletedAction(campaignId: string) {
  * that's really what they want.
  */
 export async function reopenCampaignAction(campaignId: string) {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
   await db.campaign.update({ where: { id: validCampaignId }, data: { status: 'live' } });
   await db.activityLogEntry.create({

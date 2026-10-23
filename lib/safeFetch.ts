@@ -6,7 +6,7 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import ipaddr from 'ipaddr.js';
-import { Agent } from 'undici';
+import { Agent, fetch as undiciFetch } from 'undici';
 
 export class UnsafeUrlError extends Error {
   constructor(message: string) {
@@ -19,6 +19,9 @@ export class UnsafeUrlError extends Error {
 export function isPrivateAddress(ip: string): boolean {
   try { return ipaddr.process(ip).range() !== 'unicast'; } catch { return true; }
 }
+
+/** The Agent comes from the `undici` package, so it must be paired with that package's fetch: Node's built-in fetch bundles a different undici and rejects it (UND_ERR_INVALID_ARG). */
+export const dispatchingFetch = undiciFetch as unknown as typeof fetch;
 
 /** DNS is checked at the connection itself, so fetch cannot resolve a different private address. */
 export function publicDispatcher(resolve: Resolver = defaultResolver): Agent {
@@ -72,7 +75,7 @@ export async function safeFetchText(
   raw: string,
   opts: { timeoutMs?: number; maxBytes?: number; maxRedirects?: number; resolve?: Resolver; fetchImpl?: typeof fetch } = {}
 ): Promise<SafeFetchResult> {
-  const { timeoutMs = 8000, maxBytes = 1_000_000, maxRedirects = 4, resolve, fetchImpl = fetch } = opts;
+  const { timeoutMs = 8000, maxBytes = 1_000_000, maxRedirects = 4, resolve, fetchImpl = dispatchingFetch } = opts;
   const redirects: string[] = [];
   let current = (await assertPublicUrl(raw, resolve)).toString();
   const dispatcher = process.env.ALLOW_PRIVATE_FETCH === '1' ? undefined : publicDispatcher(resolve);

@@ -383,3 +383,9 @@ select.lsq-select { width: 100%; }
   .lsq-sidebar__status, .lsq-sidebar__built { display: none !important; }
   .lsq-sidebar__foot { margin-top: 0 !important; padding-top: 0 !important; margin-left: auto; flex: none; }
 }
+
+/* Search and page links above a long list of contacts. */
+.lsq-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-8) var(--space-16); padding: var(--space-12) var(--space-16); margin-bottom: var(--space-16); }
+.lsq-pager__search { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); flex: 1 1 320px; min-width: 0; margin: 0; }
+.lsq-pager__input { flex: 1 1 220px; max-width: 360px; min-width: 0; }
+.lsq-pager__pages { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }

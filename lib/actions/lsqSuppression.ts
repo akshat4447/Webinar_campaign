@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import {
   getLeadSquaredSuppressionConfig,
   createAndAttachLsqSuppressionList,
@@ -10,6 +12,7 @@ import {
 import { revalidatePath } from 'next/cache';
 
 export async function getLeadSquaredSuppressionConfigAction(campaignId: string): Promise<LsqSuppressionConfig> {
+  await requireOperatorSession();
   return getLeadSquaredSuppressionConfig(campaignId);
 }
 
@@ -18,6 +21,7 @@ export async function createAndAttachLsqSuppressionListAction(
   listName: string,
   description?: string
 ) {
+  await requireOperatorSession();
   const result = await createAndAttachLsqSuppressionList(campaignId, listName, description);
   const { refreshLsqExclusions } = await import('@/lib/lsqExclusions');
   await refreshLsqExclusions(campaignId, true);
@@ -32,6 +36,7 @@ export async function updateCampaignSuppressionListsAction(
   suppressionListId: string | null,
   exclusionListIds: string[] = []
 ) {
+  await requireOperatorSession();
   const result = await updateCampaignSuppressionLists(campaignId, suppressionListId, exclusionListIds);
   const { refreshLsqExclusions } = await import('@/lib/lsqExclusions');
   await refreshLsqExclusions(campaignId, true);
@@ -42,6 +47,7 @@ export async function updateCampaignSuppressionListsAction(
 }
 
 export async function syncRegistrantToLsqAction(campaignId: string, contactId: string) {
+  await requireOperatorSession();
   const success = await syncContactToLsqSuppressionList(campaignId, contactId);
   return { ok: success };
 }

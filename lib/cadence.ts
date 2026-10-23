@@ -5,14 +5,14 @@ import { sendEligibility } from '@/lib/sendEligibility';
 import { quotaDay, reserveSendQuota, releaseSendQuota } from '@/lib/sendQuota';
 import { db } from '@/lib/db';
 import { deliverOnce, DeliveryUnknownError } from '@/lib/deliveryGuard';
-import { createOrUpdateLead, sendEmailToLead, LeadSquaredError } from '@/lib/leadsquared';
+import { createOrUpdateLead, LeadSquaredError } from '@/lib/leadsquared';
 import { resolveRecipient } from '@/lib/sendGuard';
 import { upsertAttentionItem, resolveAttentionItems } from '@/lib/attentionItems';
 import { resolveStepDate } from '@/lib/stepSchedule';
 import { isWithinSendWindow } from '@/lib/sendWindow';
 import { validateRenderedMessage, validateRenderedMessageForChannel } from '@/lib/messageValidation';
 import { normalizeChannel, isAutomatableChannel, isContactEligibleForChannel } from '@/lib/channels';
-import { deliverChannelMessage, getChannelDeliveryMode, postSentActivityIfMapped, type DeliveryChannel } from '@/lib/channelDelivery';
+import { deliverChannelMessage, getChannelDeliveryMode, type DeliveryChannel } from '@/lib/channelDelivery';
 import { resolveStepTemplate } from '@/lib/messageTemplates';
 import { appOrigin } from '@/lib/appOrigin';
 import { buildInviteLink } from '@/lib/inviteLink';
@@ -87,35 +87,17 @@ function escapeHtml(text: string): string {
 import { renderMergeFields } from './mergeFields';
 export { renderMergeFields };
 
-export async function launchCadence(campaignId: string) {
-  await assertLaunchReady(campaignId);
-  await refreshLsqExclusions(campaignId);
-  const [campaign, allLaunchSteps, recipients] = await Promise.all([
-    db.campaign.findUniqueOrThrow({ where: { id: campaignId } }),
-    db.cadenceStep.findMany({ where: { campaignId, trigger: 'launch', enabled: true, removedAt: null } }),
-    db.contact.findMany({ where: { campaignId, OR: [{approved:true},{registeredAt:{not:null}}] } }),
-  ]);
+type QueueCampaign = import('@/lib/generated/prisma/client').Campaign;
+type QueueContact = import('@/lib/generated/prisma/client').Contact;
+type QueueStep = import('@/lib/generated/prisma/client').CadenceStep;
 
-  const approvedContacts = recipients.filter(c=>c.approved);
-  const now = new Date();
-
-  // `isAutomatableChannel` parses a display string, which SQL cannot do, so the
-  // channel half of the rule is applied here rather than in the query above.
-  const steps = allLaunchSteps.filter((step) => isAutomatableChannel(step.channel));
-
-  // Each step's send time comes from its own offset, resolved against the launch
-  // moment or the webinar date. A webinar-anchored step with no date set can't be
-  // scheduled, so it's skipped rather than silently queued for "now".
-  const scheduled = steps
-    .map((step) => ({ step, dueAt: resolveStepDate(step, { launchAt: now, webinarAt: campaign.scheduledAt }) }))
-    .filter((s): s is { step: (typeof steps)[number]; dueAt: Date } => {
-      if (s.dueAt === null) return false;
-      // If the webinar date has already passed, pre-webinar reminders should not be scheduled
-      if (s.step.anchor === 'webinar' && campaign.scheduledAt && campaign.scheduledAt < now) return false;
-      return true;
-    });
-  const unschedulable = steps.length - scheduled.length;
-
+/**
+ * Which contacts get which launch-triggered step, and when. The one rule set used both when the cadence launches
+ * and when a step is added or switched on after it launched, so the two can never disagree about who is eligible.
+ */
+async function buildQueueRows(args: { campaign: QueueCampaign; scheduled: { step: QueueStep; dueAt: Date }[]; recipients: QueueContact[]; now: Date }) {
+  const { campaign, scheduled, recipients, now } = args;
+  const campaignId = campaign.id;
   // Eligibility is per CHANNEL, not global. Requiring an email for every step
   // meant an SMS step could never reach a contact who has a mobile but no
   // usable inbox — which is exactly who an SMS invite exists for.
@@ -180,6 +162,39 @@ export async function launchCadence(campaignId: string) {
         error: isPastLaunch ? 'Past launch window (auto-skipped)' : null,
       }));
   });
+  return { rows, isExcludedByCampaignSuppression };
+}
+
+export async function launchCadence(campaignId: string) {
+  await assertLaunchReady(campaignId);
+  await refreshLsqExclusions(campaignId);
+  const [campaign, allLaunchSteps, recipients] = await Promise.all([
+    db.campaign.findUniqueOrThrow({ where: { id: campaignId } }),
+    db.cadenceStep.findMany({ where: { campaignId, trigger: 'launch', enabled: true, removedAt: null } }),
+    db.contact.findMany({ where: { campaignId, OR: [{approved:true},{registeredAt:{not:null}}] } }),
+  ]);
+
+  const approvedContacts = recipients.filter(c=>c.approved);
+  const now = new Date();
+
+  // `isAutomatableChannel` parses a display string, which SQL cannot do, so the
+  // channel half of the rule is applied here rather than in the query above.
+  const steps = allLaunchSteps.filter((step) => isAutomatableChannel(step.channel));
+
+  // Each step's send time comes from its own offset, resolved against the launch
+  // moment or the webinar date. A webinar-anchored step with no date set can't be
+  // scheduled, so it's skipped rather than silently queued for "now".
+  const scheduled = steps
+    .map((step) => ({ step, dueAt: resolveStepDate(step, { launchAt: now, webinarAt: campaign.scheduledAt }) }))
+    .filter((s): s is { step: (typeof steps)[number]; dueAt: Date } => {
+      if (s.dueAt === null) return false;
+      // If the webinar date has already passed, pre-webinar reminders should not be scheduled
+      if (s.step.anchor === 'webinar' && campaign.scheduledAt && campaign.scheduledAt < now) return false;
+      return true;
+    });
+  const unschedulable = steps.length - scheduled.length;
+
+  const { rows, isExcludedByCampaignSuppression } = await buildQueueRows({ campaign, scheduled, recipients, now });
 
   const usesSms = scheduled.some((s) => s.step.channel.toLowerCase() === 'sms');
   const usesWhatsapp = scheduled.some((s) => s.step.channel.toLowerCase() === 'whatsapp');
@@ -239,6 +254,41 @@ export async function launchCadence(campaignId: string) {
   });
 
   return { queued, skippedNoEmail: withoutEmail, skippedUnverified: unverified };
+}
+
+/**
+ * Queues the sends for a launch-triggered step that has none yet, on a cadence that is already running.
+ *
+ * Sends are created when the cadence launches, when someone registers and when attendance is imported. A step added
+ * or switched on after launch therefore had no sends at all and silently never went out. This gives it the same
+ * audience the launch would have, with launch-anchored steps counted from now rather than from the original launch
+ * (which would make a new "Instant" step instantly overdue). Contacts who already have a send for the step are left
+ * alone, so it is safe to call repeatedly. Nothing is delivered here: the normal send worker does that.
+ */
+export async function queueStepsForRunningCadence(campaignId: string): Promise<{ queued: number }> {
+  const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
+  if (!campaign || campaign.cadenceStatus !== 'running' || campaign.archived || campaign.status === 'completed') return { queued: 0 };
+  const now = new Date();
+  const [steps, recipients, existing] = await Promise.all([
+    db.cadenceStep.findMany({ where: { campaignId, trigger: 'launch', enabled: true, removedAt: null } }),
+    db.contact.findMany({ where: { campaignId, OR: [{ approved: true }, { registeredAt: { not: null } }] } }),
+    db.cadenceSend.findMany({ where: { campaignId }, select: { contactId: true, stepKey: true } }),
+  ]);
+  const scheduled = steps
+    .filter((step) => isAutomatableChannel(step.channel))
+    .map((step) => ({ step, dueAt: resolveStepDate(step, { launchAt: now, webinarAt: campaign.scheduledAt }) }))
+    .filter((s): s is { step: QueueStep; dueAt: Date } => s.dueAt !== null && !(s.step.anchor === 'webinar' && campaign.scheduledAt && campaign.scheduledAt < now));
+  if (!scheduled.length) return { queued: 0 };
+
+  const have = new Set(existing.map((e) => `${e.contactId}:${e.stepKey}`));
+  const rows = (await buildQueueRows({ campaign, scheduled, recipients, now })).rows.filter((r) => r.status === 'queued' && !have.has(`${r.contactId}:${r.stepKey}`));
+  if (!rows.length) return { queued: 0 };
+  const created = await db.cadenceSend.createMany({ data: rows, skipDuplicates: true });
+  if (created.count > 0) {
+    const titles = Array.from(new Set(rows.map((r) => scheduled.find((s) => s.step.key === r.stepKey)?.step.title ?? r.stepKey)));
+    await db.activityLogEntry.create({ data: { campaignId, text: `Queued ${created.count} send(s) for ${titles.map((t) => `“${t}”`).join(', ')} on the running cadence`, dot: 'var(--accent-500)' } });
+  }
+  return { queued: created.count };
 }
 
 /**
@@ -697,98 +747,30 @@ async function processSingleSend(
           const { email: recipientEmail } = resolveRecipient({ ...contact, email: send.recipient || contact.email });
 
       await db.cadenceSend.updateMany({ where: { id: send.id, recipient: null }, data: { recipient: recipientEmail, renderedSubject: subject, renderedBody: body, templateVersion: template.id } });
-      const emailProvider = campaign.emailProvider || 'leadsquared';
 
-      if (emailProvider === 'netcore') {
-        const originalRecipient = contact.email ?? undefined; // captured: narrowing does not survive into the closure
-        const netcoreOutcome = await deliverOnce(send.id, 'email', () =>
-          sendNetcoreEmail({
-            to: recipientEmail,
-            toName: contact.name,
-            subject,
-            html: escapeHtml(body).replace(/\n/g, '<br/>'),
-            text: body,
-            tags: [campaign.id, send.stepKey],
-            originalRecipient,
-          })
-        , { campaignId, payload: { recipient: recipientEmail, subject, body, templateId: template.id } });
-        await db.cadenceSend.update({ where: { id: send.id }, data: { providerMessageId: netcoreOutcome.value?.messageId ?? null } });
-        if (netcoreOutcome.duplicate) console.warn(`[cadence] send ${send.id} was already delivered via Netcore — duplicate suppressed`);
-
-        await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'sent', sentAt: new Date(), claimedAt: null, error: null, deliveryOutcome: 'accepted' } });
-        await resolveAttentionItems(campaignId, [`Send failed for ${contact.name}`]);
-
-        // Dual-logging: If LeadSquared has a lead ID for this contact, log "Email Sent (via Netcore)"
-        // to the lead's CRM timeline so SDRs retain full touchpoint history.
-        if (contact.lsqLeadId) {
-          try {
-            await postSentActivityIfMapped({
-              channel: 'email',
-              lsqLeadId: contact.lsqLeadId,
-              campaignName: campaign.name,
-              stepKey: send.stepKey,
-              note: `Email "${template.label}" delivered via Netcore Cloud`,
-            });
-          } catch {
-            /* mapping hook must never fail the email itself */
-          }
-        }
-
-        await db.activityLogEntry.create({
-          data: {
-            campaignId,
-            text: `Sent "${template.label}" to ${contact.name} via Netcore${personalized ? ' (personalized)' : ''}`,
-            dot: 'var(--success-500)',
-          },
-        });
-        return 'sent';
-      }
-
-      // Default LeadSquared email sending
-      // Ensure the contact exists as a LeadSquared lead before emailing it.
-      let lsqLeadId = contact.lsqLeadId;
-      if (!lsqLeadId) {
-        const result = await createOrUpdateLead([
-          { Attribute: 'EmailAddress', Value: contact.email },
-          { Attribute: 'FirstName', Value: mergeOpts.firstName },
-          { Attribute: 'Company', Value: contact.account },
-        ]);
-        lsqLeadId = result.Message.Id;
-        await db.contact.update({ where: { id: contact.id }, data: { lsqLeadId } });
-      }
-
-      const lsqOutcome = await deliverOnce(send.id, 'email', () =>
-        sendEmailToLead({
-          recipientEmail,
+      const originalRecipient = contact.email ?? undefined; // captured: narrowing does not survive into the closure
+      const netcoreOutcome = await deliverOnce(send.id, 'email', () =>
+        sendNetcoreEmail({
+          to: recipientEmail,
+          toName: contact.name,
           subject,
-          contentHtml: escapeHtml(body).replace(/\n/g, '<br/>'),
-          contentText: body,
-        }), { campaignId, payload: { recipient: recipientEmail, subject, body, templateId: template.id } }
-      );
-      if (lsqOutcome.duplicate) console.warn(`[cadence] send ${send.id} was already delivered via LeadSquared — duplicate suppressed`);
+          html: escapeHtml(body).replace(/\n/g, '<br/>'),
+          text: body,
+          tags: [campaign.id, send.stepKey],
+          originalRecipient,
+        })
+      , { campaignId, payload: { recipient: recipientEmail, subject, body, templateId: template.id } });
+      await db.cadenceSend.update({ where: { id: send.id }, data: { providerMessageId: netcoreOutcome.value?.messageId ?? null } });
+      if (netcoreOutcome.duplicate) console.warn(`[cadence] send ${send.id} was already delivered via Netcore — duplicate suppressed`);
 
       await db.cadenceSend.update({ where: { id: send.id }, data: { status: 'sent', sentAt: new Date(), claimedAt: null, error: null, deliveryOutcome: 'accepted' } });
       // This send working retracts the card its own failure raises below.
       await resolveAttentionItems(campaignId, [`Send failed for ${contact.name}`]);
 
-      // Optional hook for THEIR automations: post the mapped "email sent"
-      // activity if the operator mapped one for this channel (Integrations).
-      try {
-        await postSentActivityIfMapped({
-          channel: 'email',
-          lsqLeadId,
-          campaignName: campaign.name,
-          stepKey: send.stepKey,
-          note: `Email "${template.label}" delivered`,
-        });
-      } catch {
-        /* mapping hook must never fail the email itself */
-      }
-
       await db.activityLogEntry.create({
         data: {
           campaignId,
-          text: `Sent "${template.label}" to ${contact.name}${personalized ? ' (personalized)' : ''}`,
+          text: `Sent "${template.label}" to ${contact.name} via Netcore${personalized ? ' (personalized)' : ''}`,
           dot: 'var(--success-500)',
         },
       });

@@ -24,8 +24,6 @@ export async function register() {
     startCadenceAutotick();
   }
 
-  if (['1', 'true'].includes(process.env.ZOOM_AUTOSYNC ?? '')) {
-    const { startZoomAutosync } = await import('./lib/zoomAutosync');
-    startZoomAutosync();
-  }
+  // Zoom autosync runs inside the same database-leased cadence worker. A second independent
+  // timer would duplicate synchronization and compete with that worker after every deployment.
 }

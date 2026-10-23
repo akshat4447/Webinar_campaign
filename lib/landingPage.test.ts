@@ -107,24 +107,26 @@ describe('lib/landingPage', () => {
     expect(script).toContain('setReactInputValue');
   });
 
-  it('generates a Framer embed script with calendar integration and submit button auto-calendar', () => {
+  it('generates a Framer embed script with the calendar pop-up, the attribution field and the thank-you hand-off', () => {
     const script = generateFramerEmbedScript({
       apiOrigin: 'https://webinar.studio.io',
       campaignId: 'camp_123',
       zoomId: '81234567891',
-      webinarTitle: 'OPD to IPD Funnel Masterclass',
-      scheduledAt: '2026-10-30T10:00:00.000Z',
-      durationMinutes: 60,
-      autoOpenGoogleCalendar: true,
     });
 
-    expect(script).toContain('googleCalUrl');
-    expect(script).toContain('outlookCalUrl');
-    expect(script).toContain('https://calendar.google.com/calendar/render');
-    expect(script).toContain('https://outlook.live.com/calendar/0/deeplink/compose');
-    expect(script).not.toContain('window.open(googleCalUrl');
-    expect(script).toContain('sessionStorage.setItem');
-    expect(script).toContain('webinar_attendee');
+    // The calendar details are fetched when the pop-up opens, never baked in, so a changed date cannot leave stale links.
+    expect(script).toContain('https://webinar.studio.io');
+    expect(script).toContain('/api/landing/event');
+    expect(script).not.toContain('calendar.google.com');
+    expect(script).not.toContain('outlook.live.com');
+    expect(script).toContain('webinar-reg-popup');
+    expect(script).toContain('Google Calendar');
+    expect(script).toContain('Microsoft 365');
+    expect(script).toContain('Apple (.ics)');
+    // Attribution field for LeadSquared and the cookie/redirect hand-off to the thank-you page.
+    expect(script).toContain('mx_Channel_Source');
+    expect(script).toContain('webinar_reg');
+    expect(script).toContain('MXHRedirectUrl');
   });
 
   it('generates normal channel-wise 1-click registration links with valid tokens and channel source parameters', () => {
@@ -150,6 +152,21 @@ describe('lib/landingPage', () => {
       expect(verified.payload.campaignId).toBe('camp_123');
       expect(verified.payload.contactId).toBe('contact_sample_999');
     }
+  });
+});
+
+describe('a landing address that is not a web address', () => {
+  const campaign = { id: 'camp_123', name: 'Webinar' };
+  const contact = { id: 'cont_456', name: 'Ananya Roy', email: 'ananya@example.com' };
+
+  it('produces no link rather than one built from the bad address', () => {
+    for (const bad of ['javascript:alert(1)', 'not a url', 'htp://pages.example.com']) {
+      expect(buildLandingPageUrl({ landingPageUrl: bad, campaign, contact, channel: 'email' }), bad).toBe('');
+    }
+  });
+
+  it('still builds a link when only the scheme is missing', () => {
+    expect(buildLandingPageUrl({ landingPageUrl: 'pages.example.com/w', campaign, contact, channel: 'email' })).toMatch(/^https:\/\/pages\.example\.com\/w\?/);
   });
 });
 

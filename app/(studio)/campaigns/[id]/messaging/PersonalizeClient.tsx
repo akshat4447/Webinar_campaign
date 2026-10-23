@@ -133,6 +133,7 @@ export function PersonalizeClient({
   msgLength,
   confirmThreshold,
   statusNotice,
+  recipientsPager,
   msgMode,
   speakers = [],
 }: {
@@ -167,6 +168,8 @@ export function PersonalizeClient({
   confirmThreshold: number;
   /** Page-level status shown directly under the header (readiness summary). */
   statusNotice?: React.ReactNode;
+  /** Search and page links for the recipient list, shown right above it rather than above the page title. */
+  recipientsPager?: React.ReactNode;
   /** Campaign-level messaging mode set in the wizard — governs the run
    *  summary's copy only; generation itself is unconditional (AI mode uses
    *  the brief, templatized mode still runs a merge-field pass per contact). */
@@ -247,11 +250,13 @@ export function PersonalizeClient({
   // isn't just cosmetic.
   const validationByContact = useMemo(() => {
     const map = new Map<string, ValidationResult>();
+    // A step that has already sent is a read-only record of what went out: nothing in it is left to fix.
+    if (isSent) return map;
     for (const r of rows) {
       if (r.message) map.set(r.contactId, validateRenderedMessageForChannel(r.message.subject, r.message.body, activeChannel === 'email', currentLink, activeChannel));
     }
     return map;
-  }, [rows, activeChannel, currentLink]);
+  }, [rows, activeChannel, currentLink, isSent]);
   const selectedValidation = selected?.message ? validationByContact.get(selected.contactId) ?? null : null;
   const invalidCount = Array.from(validationByContact.values()).filter((v) => !v.valid).length;
   const unreviewed = rows.filter((r) => r.message && r.message.status !== 'reviewed').length;
@@ -945,7 +950,8 @@ export function PersonalizeClient({
       </section>
 
       {/* Personalization settings */}
-      {rows.length > 0 && (
+      {/* A step that has sent cannot be re-personalized, so its settings and progress would only be noise. */}
+      {rows.length > 0 && !isSent && (
         <section className="lsq-card" aria-labelledby="msg-settings-title">
           <div className="lsq-card__header">
             <div>
@@ -958,7 +964,6 @@ export function PersonalizeClient({
                   : 'One template per step is merged for every contact. Only merge fields change per recipient.'}
               </p>
             </div>
-            <Badge color={msgMode === 'ai' ? 'blue' : 'gray'} text={msgMode === 'ai' ? 'AI Personalized' : 'Templatized'} />
           </div>
           <div className="lsq-card__body lsq-stack">
             <div className="lsq-msg-meter">
@@ -1016,6 +1021,8 @@ export function PersonalizeClient({
           </div>
         </section>
       )}
+
+      {recipientsPager}
 
       {rows.length === 0 ? (
         <section className="lsq-card" aria-labelledby="msg-empty-title">
@@ -1094,7 +1101,7 @@ export function PersonalizeClient({
                       </span>
                       {rowValidation && !rowValidation.valid ? (
                         <Badge color="error" text="Invalid" />
-                      ) : r.message?.linkStale ? (
+                      ) : r.message?.linkStale && !isSent ? (
                         <Badge color="warning" text="Old Link" />
                       ) : meta ? (
                         <Badge color={meta.color} text={meta.label} />
@@ -1197,6 +1204,15 @@ export function PersonalizeClient({
                           {view.resolvedBody}
                         </div>
                       </div>
+                    ) : isSent ? (
+                      <div className="lsq-stack lsq-stack--sm">
+                        <p className="lsq-hint">This is the copy that went out to {view.firstName}.</p>
+                        <div className="lsq-msgbox">
+                          {activeChannel === 'email' && selected.message.subject && <p className="lsq-msg-section-title">Subject: {selected.message.subject}</p>}
+                          {selected.message.body}
+                        </div>
+                        <p className="lsq-hint">{view.charCount.toLocaleString()} chars · {view.wordCount.toLocaleString()} words</p>
+                      </div>
                     ) : (
                       <>
                         {activeChannel === 'email' && (
@@ -1260,6 +1276,8 @@ export function PersonalizeClient({
                   )}
                 </section>
 
+                {/* The sent copy is already shown above exactly as it went out. */}
+                {!isSent && (
                 <section className="lsq-card" aria-labelledby="msg-preview-title">
                   <div className="lsq-card__header">
                     <div>
@@ -1305,6 +1323,7 @@ export function PersonalizeClient({
                     </div>
                   </div>
                 </section>
+                )}
 
                 <section className="lsq-card" aria-labelledby="msg-signals-title">
                   <div className="lsq-card__header">
@@ -1314,9 +1333,11 @@ export function PersonalizeClient({
                       </h2>
                       <p className="lsq-card__sub">Fields the draft for {view.firstName} is grounded in.</p>
                     </div>
-                    <Button hierarchy="secondary" size="sm" icon={<Icon name="edit" size={14} />} disabled={isSent} onClick={() => openEditContact(selected)}>
-                      Edit Contact Fields
-                    </Button>
+                    {!isSent && (
+                      <Button hierarchy="secondary" size="sm" icon={<Icon name="edit" size={14} />} onClick={() => openEditContact(selected)}>
+                        Edit Contact Fields
+                      </Button>
+                    )}
                   </div>
                   <div className="lsq-card__body">
                     <dl className="lsq-kv">

@@ -3,6 +3,8 @@ import { resolveIntegrationField } from '@/lib/integrationConfig';
 import { buildAuthorizationUrl } from '@/lib/zoom/auth';
 import { storeOAuthState } from '@/lib/zoom/oauthState';
 import { requestOrigin } from '@/lib/requestOrigin';
+import { storeOAuthReturn } from '@/lib/oauthReturn';
+import { effectiveZoomRedirectUri, zoomConnectHop, zoomRedirectProblem } from '@/lib/zoom/redirect';
 
 export const runtime = 'nodejs';
 
@@ -17,10 +19,13 @@ export async function GET(request: Request) {
   }
 
   const configuredRedirectUri = (await resolveIntegrationField('zoom', 'redirectUri')) || process.env.ZOOM_REDIRECT_URI;
-  let redirectUri = configuredRedirectUri || `${origin}/api/auth/zoom/callback`;
-  if (!redirectUri || redirectUri.includes('zoom.us')) {
-    redirectUri = `${origin}/api/auth/zoom/callback`;
-  }
+  const redirectUri = effectiveZoomRedirectUri(configuredRedirectUri, origin);
+  const problem = await zoomRedirectProblem(redirectUri, origin);
+  if (problem) return fail(problem);
+
+  // Zoom will return the person to the Redirect URI's address, so the connection has to start from there.
+  const hop = zoomConnectHop(redirectUri, origin, request.url);
+  if (hop) return Response.redirect(hop, 302);
 
   const state = randomUUID();
 
@@ -29,6 +34,13 @@ export async function GET(request: Request) {
     await storeOAuthState(state);
   } catch {
     // Non-critical: the cookie remains the primary CSRF check
+  }
+
+  // Where to send the person afterwards (the wizard step that sent them here). Validated and kept server-side.
+  try {
+    await storeOAuthReturn('zoom', state, new URL(request.url).searchParams.get('returnTo'));
+  } catch {
+    // Non-critical: without it the callback lands on Integrations as before
   }
 
   // CSRF state is bound to THIS browser via a short-lived HttpOnly cookie

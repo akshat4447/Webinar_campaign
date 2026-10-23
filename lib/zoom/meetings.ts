@@ -102,11 +102,46 @@ export async function zoomListAllPages<T extends { next_page_token?: string }>(p
   return pages;
 }
 
-/** Upcoming meetings and webinars on the connected account. */
-export async function listUpcomingMeetings(): Promise<ZoomMeeting[]> {
+/** What failed when Zoom would not answer, in terms the operator can act on. */
+export type ZoomFailureKind = 'not_found' | 'scope' | 'auth' | 'plan' | 'rate' | 'other';
+
+export function classifyZoomFailure(err: unknown): ZoomFailureKind {
+  if (!(err instanceof ZoomError)) return 'other';
+  const text = err.message;
+  if (err.code === 4711 || /does not contain scopes/i.test(text)) return 'scope';
+  if (err.status === 401 || err.code === 124) return 'auth';
+  if (err.status === 429) return 'rate';
+  // 3001 "does not exist", 300 "Invalid ... ID": there is no such event for this connection.
+  if (err.status === 404 || err.code === 3001 || err.code === 300) return 'not_found';
+  // The account has no webinar licence: whatever was asked is not a webinar here.
+  if (err.code === 3161 || /webinar plan|webinar.*(not|isn't).*(enabled|available)|Webinar plan is missing/i.test(text)) return 'plan';
+  return 'other';
+}
+
+/** A one-line, actionable reason for a Zoom failure. */
+export function describeZoomFailure(err: unknown, what: string): string {
+  const kind = classifyZoomFailure(err);
+  const raw = err instanceof Error ? err.message : String(err);
+  switch (kind) {
+    case 'scope':
+      return `Zoom did not allow reading ${what}: ${raw.replace(/^Zoom [A-Z]+ \S+ failed: \d+ /, '').slice(0, 400)}`;
+    case 'auth':
+      if (/Client ID|Client Secret|no longer accepts|renew|refresh token/i.test(raw)) return raw;
+      return `Zoom rejected the saved connection (HTTP 401) while reading ${what}. Reconnect Zoom on the Integrations page.`;
+    case 'rate':
+      return `Zoom is rate limiting this account while reading ${what}. Wait a minute and try again.`;
+    default:
+      return `Zoom could not read ${what}: ${raw.slice(0, 300)}`;
+  }
+}
+
+/** Upcoming meetings and webinars on the connected account, with a reason for anything that could not be read. */
+export async function listUpcomingMeetingsDetailed(): Promise<{ meetings: ZoomMeeting[]; warnings: string[] }> {
   if (!(await zoomIsConfigured())) throw new ZoomError('Zoom is not connected.');
 
   const results: ZoomMeeting[] = [];
+  const warnings: string[] = [];
+  const failures: unknown[] = [];
 
   // 1. Fetch Webinars from Zoom
   try {
@@ -130,8 +165,12 @@ export async function listUpcomingMeetings(): Promise<ZoomMeeting[]> {
       }
     }
   } catch (err) {
-    // If webinar scope is missing on token or account lacks webinar plan, don't fail meetings
-    console.warn('[Zoom] Could not fetch webinars:', err instanceof Error ? err.message : err);
+    // An account without the webinar add-on simply has no webinars. Anything else is a real problem, and is
+    // reported: it used to reach only the server log, so the page said "no upcoming meetings" instead.
+    if (classifyZoomFailure(err) !== 'plan') {
+      failures.push(err);
+      warnings.push(describeZoomFailure(err, 'the webinar list'));
+    }
   }
 
   // 2. Fetch Meetings from Zoom
@@ -152,170 +191,240 @@ export async function listUpcomingMeetings(): Promise<ZoomMeeting[]> {
       }
     }
   } catch (err) {
-    console.warn('[Zoom] Could not fetch meetings:', err instanceof Error ? err.message : err);
+    failures.push(err);
+    warnings.push(describeZoomFailure(err, 'the meeting list'));
   }
 
-  return results;
+  // When nothing could be read at all the caller must be able to tell that apart from an empty account.
+  if (results.length === 0 && failures.length > 0) throw new ZoomError(warnings[0], undefined, undefined);
+  return { meetings: results, warnings };
+}
+
+/** Upcoming meetings and webinars on the connected account. */
+export async function listUpcomingMeetings(): Promise<ZoomMeeting[]> {
+  return (await listUpcomingMeetingsDetailed()).meetings;
 }
 
 /**
- * Directly fetches meeting or webinar details by ID or join link.
+ * What a person typed or pasted to name a Zoom event: a numeric ID (with or without spaces or hyphens), a join
+ * link with the ID in it, or a registration link, which carries only an opaque token that is NOT the event's ID.
+ */
+export function parseEventRef(input: string): { id: string | null; token: string | null } {
+  const raw = (input ?? '').trim();
+  if (!raw) return { id: null, token: null };
+  const explicit = /\/(?:j|w|s|wc\/join|webinar\/join)\/(\d{9,11})(?![\d])/.exec(raw);
+  if (explicit) return { id: explicit[1], token: null };
+  const digits = raw.replace(/[\s-]/g, '');
+  if (/^\d{9,11}$/.test(digits)) return { id: digits, token: null };
+  const registration = /\/(?:webinar|meeting)\/register\/([A-Za-z0-9_-]+)/.exec(raw) ?? /\b(WN_[A-Za-z0-9_-]+)/.exec(raw);
+  if (registration) return { id: null, token: registration[1] };
+  const loose = /(?<!\d)(\d{9,11})(?!\d)/.exec(raw.replace(/(?<=\d)[ -](?=\d)/g, ''));
+  return { id: loose ? loose[1] : null, token: null };
+}
+
+/**
+ * Zoom's API cannot look an event up from its registration link: the token in the link is not an ID. The link
+ * is matched against the registration pages of the account's own upcoming events instead.
+ */
+async function findEventByRegistrationToken(token: string): Promise<string | null> {
+  const { meetings } = await listUpcomingMeetingsDetailed();
+  const direct = meetings.find((m) => m.registrationUrl?.includes(token));
+  if (direct) return direct.id;
+  // Neither list reliably carries registration pages, so look at each upcoming event's own details (webinars
+  // first: they are the ones that have registration pages most of the time). Bounded, so a large account cannot stall this.
+  const candidates = [...meetings.filter((x) => x.type === 'webinar'), ...meetings.filter((x) => x.type !== 'webinar')].slice(0, 40);
+  for (const m of candidates) {
+    try {
+      const d = await zoomRequest<{ registration_url?: string }>(`/${m.type === 'webinar' ? 'webinars' : 'meetings'}/${encodeURIComponent(m.id)}`);
+      if (d.registration_url?.includes(token)) return m.id;
+    } catch {
+      // one unreadable event must not stop the search
+    }
+  }
+  return null;
+}
+
+const titleCase = (s: string) => s.replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).trim();
+
+/** The host's real name (and job title and company, when Zoom has them): the contact name, else the Zoom profile, else the email. */
+async function hostProfile(hostId: string | undefined, fallbackEmail: string | undefined, contactName: string | undefined) {
+  let name = contactName?.trim() || '';
+  let title: string | null = null;
+  let company: string | null = null;
+  if (hostId) {
+    try {
+      const u = await zoomRequest<{ display_name?: string; first_name?: string; last_name?: string; job_title?: string; company?: string }>(`/users/${encodeURIComponent(hostId)}`);
+      if (!name) name = u.display_name?.trim() || `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim();
+      title = u.job_title?.trim() || null;
+      company = u.company?.trim() || null;
+    } catch {
+      // The user scope may not be granted; the contact name or email below still gives a name.
+    }
+  }
+  if (!name && fallbackEmail) name = titleCase(fallbackEmail.split('@')[0]);
+  return { name, title, company };
+}
+
+/**
+ * Directly fetches meeting or webinar details by ID, join link or registration link.
  * Automatically extracts speakers, panelists, registration links, and capacity.
+ *
+ * Returns null only when Zoom genuinely has no such event for this connection. Anything else (missing scopes, a
+ * rejected token, a rate limit, a registration link that matches nothing) is thrown with a reason, instead of
+ * collapsing into the same "could not fetch" answer.
  */
 export async function getZoomEventDetails(idOrUrl: string): Promise<ZoomMeeting | null> {
   if (!idOrUrl || !idOrUrl.trim()) return null;
-  const match = idOrUrl.match(/(\d{9,11})/);
-  const eventId = match ? match[1] : idOrUrl.trim();
-
-  // Try Webinar endpoint
-  try {
-    const w = await zoomRequest<{
-      id: number | string;
-      topic: string;
-      start_time?: string;
-      duration?: number;
-      timezone?: string;
-      join_url: string;
-      registration_url?: string;
-      agenda?: string;
-      host_email?: string;
-      settings?: {
-        contact_name?: string;
-        contact_email?: string;
-        registrants_restrict_number?: number;
-        approval_type?: number;
-        auto_recording?: string;
-        question_and_answer?: { enable?: boolean };
-        practice_session?: boolean;
-      };
-    }>(`/webinars/${eventId}`);
-
-    if (w?.id) {
-      // 1. Fetch Panelists
-      let panelists: Array<{ name?: string; email?: string; join_url?: string; name_tag_name?: string }> = [];
-      try {
-        const pJson = await zoomRequest<{ panelists?: Array<{ name?: string; email?: string; join_url?: string; name_tag_name?: string }> }>(
-          `/webinars/${eventId}/panelists`
-        );
-        panelists = pJson?.panelists ?? [];
-      } catch {
-        // Scope might be missing or no panelists, non-fatal
-      }
-
-      // 2. Build Speaker Roster (Host + Panelists)
-      const hostName = w.settings?.contact_name || (w.host_email ? w.host_email.split('@')[0] : 'Webinar Host');
-      const hostEmail = w.settings?.contact_email || w.host_email;
-
-      const speakers: ZoomSpeaker[] = [
-        {
-          name: hostName,
-          email: hostEmail,
-          title: 'Host & Keynote Speaker',
-          isPrimary: true,
-        },
-        ...panelists.map((p, idx) => ({
-          name: p.name || p.name_tag_name || `Panelist ${idx + 1}`,
-          email: p.email,
-          title: 'Panelist / Speaker',
-          isPrimary: false,
-          joinUrl: p.join_url,
-        })),
-      ];
-
-      // 3. Build Channel Registration Links
-      const regUrl = w.registration_url || null;
-      const channelLinks = regUrl ? buildZoomTrackingLinks(regUrl) : undefined;
-
-      // 4. Resolve Capacity
-      const capacity =
-        w.settings?.registrants_restrict_number && w.settings.registrants_restrict_number > 0
-          ? w.settings.registrants_restrict_number
-          : null;
-
-      return {
-        id: String(w.id),
-        topic: w.topic,
-        startTime: w.start_time ?? null,
-        duration: w.duration ?? null,
-          timezone: w.timezone,
-        joinUrl: w.join_url,
-        registrationUrl: regUrl,
-        channelRegistrationLinks: channelLinks,
-        registrationEnabled: w.settings?.approval_type !== 2,
-        capacity,
-        agenda: w.agenda ?? null,
-        type: 'webinar',
-        speakers,
-        host: {
-          name: hostName,
-          email: hostEmail || '',
-          title: 'Host & Keynote Speaker',
-        },
-        settings: {
-          approvalType: w.settings?.approval_type,
-          autoRecording: w.settings?.auto_recording,
-          questionAnswer: w.settings?.question_and_answer?.enable,
-          practiceSession: w.settings?.practice_session,
-        },
-      };
+  const ref = parseEventRef(idOrUrl);
+  let eventId = ref.id;
+  if (!eventId && ref.token) {
+    eventId = await findEventByRegistrationToken(ref.token);
+    if (!eventId) {
+      throw new ZoomError(
+        "That registration link does not match any upcoming webinar or meeting on the connected Zoom account. Zoom's API cannot look an event up from its registration link alone, so paste the numeric webinar or meeting ID, or choose the event from the list. If it is hosted by someone else, connect that Zoom account."
+      );
     }
-  } catch {
-    // Not a webinar or scope not granted
+  }
+  if (!eventId) eventId = idOrUrl.trim();
+
+  let webinarError: unknown = null;
+  try {
+    const w = await fetchWebinarDetails(eventId);
+    if (w) return w;
+  } catch (err) {
+    webinarError = err;
   }
 
-  // Try Meeting endpoint
+  let meetingError: unknown = null;
   try {
-    const m = await zoomRequest<{
-      id: number | string;
-      topic: string;
-      start_time?: string;
-      duration?: number;
-      timezone?: string;
-      join_url: string;
-      registration_url?: string;
-      agenda?: string;
-      host_email?: string;
-      settings?: {
-        contact_name?: string;
-        contact_email?: string;
-        approval_type?: number;
-      };
-    }>(`/meetings/${eventId}`);
-
-    if (m?.id) {
-      const hostName = m.settings?.contact_name || (m.host_email ? m.host_email.split('@')[0] : 'Meeting Host');
-      return {
-        id: String(m.id),
-        topic: m.topic,
-        startTime: m.start_time ?? null,
-        duration: m.duration ?? null,
-          timezone: m.timezone,
-        joinUrl: m.join_url,
-        registrationUrl: m.registration_url ?? null,
-        // approval_type 2 = "no registration required": registrant calls would all fail.
-        registrationEnabled: m.settings?.approval_type !== 2,
-        agenda: m.agenda ?? null,
-        type: 'meeting',
-        capacity: 300,
-        speakers: [
-          {
-            name: hostName,
-            email: m.host_email,
-            title: 'Meeting Host',
-            isPrimary: true,
-          },
-        ],
-        host: {
-          name: hostName,
-          email: m.host_email || '',
-        },
-      };
-    }
-  } catch {
-    // Not a meeting
+    const m = await fetchMeetingDetails(eventId);
+    if (m) return m;
+  } catch (err) {
+    meetingError = err;
   }
 
-  return null;
+  // Both said "no such event" (or "no webinar licence"): genuinely not there.
+  const benign = (e: unknown) => e === null || ['not_found', 'plan'].includes(classifyZoomFailure(e));
+  if (benign(webinarError) && benign(meetingError)) return null;
+  // Otherwise report the cause that can be acted on. A webinar-scope failure matters even when the meeting lookup
+  // says "not found", because the ID may well be a webinar.
+  const order: ZoomFailureKind[] = ['scope', 'auth', 'rate', 'other'];
+  const candidates = [webinarError, meetingError].filter((e): e is unknown => e !== null && !benign(e));
+  candidates.sort((x, y) => order.indexOf(classifyZoomFailure(x)) - order.indexOf(classifyZoomFailure(y)));
+  throw new ZoomError(describeZoomFailure(candidates[0], `event ${eventId}`), candidates[0] instanceof ZoomError ? candidates[0].status : undefined, candidates[0] instanceof ZoomError ? candidates[0].code : undefined);
+}
+
+async function fetchWebinarDetails(eventId: string): Promise<ZoomMeeting | null> {
+  const w = await zoomRequest<{
+    id: number | string;
+    host_id?: string;
+    topic: string;
+    start_time?: string;
+    duration?: number;
+    timezone?: string;
+    join_url: string;
+    registration_url?: string;
+    agenda?: string;
+    host_email?: string;
+    settings?: {
+      contact_name?: string;
+      contact_email?: string;
+      registrants_restrict_number?: number;
+      approval_type?: number;
+      auto_recording?: string;
+      question_and_answer?: { enable?: boolean };
+      practice_session?: boolean;
+    };
+  }>(`/webinars/${encodeURIComponent(eventId)}`);
+  if (!w?.id) return null;
+
+  // Panelists. Scope might be missing or there might be none: non-fatal.
+  let panelists: Array<{ name?: string; email?: string; join_url?: string; name_tag_name?: string }> = [];
+  try {
+    const pJson = await zoomRequest<{ panelists?: Array<{ name?: string; email?: string; join_url?: string; name_tag_name?: string }> }>(`/webinars/${encodeURIComponent(eventId)}/panelists`);
+    panelists = pJson?.panelists ?? [];
+  } catch {
+    // non-fatal
+  }
+
+  const hostEmail = w.settings?.contact_email || w.host_email;
+  const host = await hostProfile(w.host_id, hostEmail, w.settings?.contact_name);
+  const hostName = host.name || 'Webinar Host';
+
+  const speakers: ZoomSpeaker[] = [
+    { name: hostName, email: hostEmail, title: host.title || 'Host & Keynote Speaker', company: host.company, isPrimary: true },
+    ...panelists.map((p, idx) => ({
+      name: p.name || p.name_tag_name || `Panelist ${idx + 1}`,
+      email: p.email,
+      title: 'Panelist / Speaker',
+      isPrimary: false,
+      joinUrl: p.join_url,
+    })),
+  ];
+
+  const regUrl = w.registration_url || null;
+  const capacity = w.settings?.registrants_restrict_number && w.settings.registrants_restrict_number > 0 ? w.settings.registrants_restrict_number : null;
+
+  return {
+    id: String(w.id),
+    topic: w.topic,
+    startTime: w.start_time ?? null,
+    duration: w.duration ?? null,
+    timezone: w.timezone,
+    joinUrl: w.join_url,
+    registrationUrl: regUrl,
+    channelRegistrationLinks: regUrl ? buildZoomTrackingLinks(regUrl) : undefined,
+    registrationEnabled: w.settings?.approval_type !== 2,
+    capacity,
+    agenda: w.agenda ?? null,
+    type: 'webinar',
+    speakers,
+    host: { name: hostName, email: hostEmail || '', title: host.title || 'Host & Keynote Speaker' },
+    settings: {
+      approvalType: w.settings?.approval_type,
+      autoRecording: w.settings?.auto_recording,
+      questionAnswer: w.settings?.question_and_answer?.enable,
+      practiceSession: w.settings?.practice_session,
+    },
+  };
+}
+
+async function fetchMeetingDetails(eventId: string): Promise<ZoomMeeting | null> {
+  const m = await zoomRequest<{
+    id: number | string;
+    host_id?: string;
+    topic: string;
+    start_time?: string;
+    duration?: number;
+    timezone?: string;
+    join_url: string;
+    registration_url?: string;
+    agenda?: string;
+    host_email?: string;
+    settings?: { contact_name?: string; contact_email?: string; approval_type?: number };
+  }>(`/meetings/${encodeURIComponent(eventId)}`);
+  if (!m?.id) return null;
+
+  const host = await hostProfile(m.host_id, m.host_email, m.settings?.contact_name);
+  const hostName = host.name || 'Meeting Host';
+  return {
+    id: String(m.id),
+    topic: m.topic,
+    startTime: m.start_time ?? null,
+    duration: m.duration ?? null,
+    timezone: m.timezone,
+    joinUrl: m.join_url,
+    registrationUrl: m.registration_url ?? null,
+    // approval_type 2 = "no registration required": registrant calls would all fail.
+    registrationEnabled: m.settings?.approval_type !== 2,
+    agenda: m.agenda ?? null,
+    type: 'meeting',
+    // A meeting has no seat limit to read here (its participant ceiling comes from the host's plan). It used to
+    // report 300, a number Zoom never said, which then appeared as the webinar's capacity.
+    capacity: null,
+    speakers: [{ name: hostName, email: m.host_email, title: host.title || 'Meeting Host', company: host.company, isPrimary: true }],
+    host: { name: hostName, email: m.host_email || '' },
+  };
 }
 
 export interface CreateMeetingInput {

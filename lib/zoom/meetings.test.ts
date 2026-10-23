@@ -13,7 +13,8 @@ vi.mock('./client', () => ({
   },
 }));
 
-import { listUpcomingMeetings, zoomListAllPages, getZoomEventDetails } from './meetings';
+import { listUpcomingMeetings, zoomListAllPages, getZoomEventDetails, parseEventRef, classifyZoomFailure } from './meetings';
+import { ZoomError } from './client';
 
 // Braces matter: returning the mock from beforeEach would make vitest call it as a cleanup hook.
 beforeEach(() => {
@@ -75,5 +76,42 @@ describe('getZoomEventDetails', () => {
     });
     const d = await getZoomEventDetails('81234567890');
     expect(d?.host?.name).toBe('Webinar Host');
+  });
+});
+
+
+describe('parseEventRef', () => {
+  it('reads an ID however it was typed or linked', () => {
+    expect(parseEventRef('84920491823')).toEqual({ id: '84920491823', token: null });
+    expect(parseEventRef('849 2049 1823')).toEqual({ id: '84920491823', token: null });
+    expect(parseEventRef('849-2049-1823')).toEqual({ id: '84920491823', token: null });
+    expect(parseEventRef(' 84920491823 ')).toEqual({ id: '84920491823', token: null });
+    expect(parseEventRef('https://us02web.zoom.us/j/84920491823?pwd=abc123')).toEqual({ id: '84920491823', token: null });
+    expect(parseEventRef('https://zoom.us/w/84920491823?tk=x')).toEqual({ id: '84920491823', token: null });
+    expect(parseEventRef('https://zoom.us/wc/join/84920491823')).toEqual({ id: '84920491823', token: null });
+  });
+  it('reads a registration link as a token, never as an ID', () => {
+    expect(parseEventRef('https://zoom.us/webinar/register/WN_k8S9-2JjT82XbQ19Abcdef')).toEqual({ id: null, token: 'WN_k8S9-2JjT82XbQ19Abcdef' });
+    expect(parseEventRef('https://us02web.zoom.us/meeting/register/tZ0kd-mhqzMrGdUFsample_Tok')).toEqual({ id: null, token: 'tZ0kd-mhqzMrGdUFsample_Tok' });
+    expect(parseEventRef('WN_abc123')).toEqual({ id: null, token: 'WN_abc123' });
+  });
+  it('finds nothing in text that is not a Zoom reference', () => {
+    expect(parseEventRef('')).toEqual({ id: null, token: null });
+    expect(parseEventRef('hello')).toEqual({ id: null, token: null });
+    expect(parseEventRef('12345')).toEqual({ id: null, token: null });
+  });
+});
+
+describe('classifyZoomFailure', () => {
+  it('separates the causes an operator can act on', () => {
+    expect(classifyZoomFailure(new ZoomError('x', 400, 4711))).toBe('scope');
+    expect(classifyZoomFailure(new ZoomError('Invalid access token, does not contain scopes:[a]', 400))).toBe('scope');
+    expect(classifyZoomFailure(new ZoomError('x', 401))).toBe('auth');
+    expect(classifyZoomFailure(new ZoomError('x', 404, 3001))).toBe('not_found');
+    expect(classifyZoomFailure(new ZoomError('x', 400, 300))).toBe('not_found');
+    expect(classifyZoomFailure(new ZoomError('x', 429))).toBe('rate');
+    expect(classifyZoomFailure(new ZoomError('Webinar plan is missing', 400, 200))).toBe('plan');
+    expect(classifyZoomFailure(new ZoomError('boom', 500))).toBe('other');
+    expect(classifyZoomFailure(new Error('network'))).toBe('other');
   });
 });

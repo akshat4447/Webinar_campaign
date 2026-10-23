@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { revalidatePath } from 'next/cache';
 import { db } from '@/lib/db';
 import {
@@ -9,14 +11,13 @@ import {
   isEmailSuppressed,
 } from '@/lib/netcore';
 
-const DEFAULT_EMAIL_PROVIDER_KEY = 'default_email_provider';
-
 export async function getSuppressionListAction(options?: {
   search?: string;
   reason?: string;
   page?: number;
   pageSize?: number;
 }) {
+  await requireOperatorSession();
   return getSuppressionList(options);
 }
 
@@ -30,6 +31,7 @@ export async function addSuppressionAction(
   reason: 'bounce' | 'unsubscribe' | 'spam' | 'manual',
   detail?: string
 ) {
+  await requireOperatorSession();
   if (!email || !BASIC_EMAIL_RE.test(email.trim())) {
     return { ok: false, error: 'A valid email address is required.' };
   }
@@ -43,6 +45,7 @@ export async function addSuppressionAction(
 }
 
 export async function removeSuppressionAction(email: string) {
+  await requireOperatorSession();
   try {
     const success = await removeEmailFromSuppression(email);
     // Only clear the block when a row was actually removed — this ran
@@ -63,32 +66,9 @@ export async function removeSuppressionAction(email: string) {
 }
 
 export async function checkEmailSuppressionAction(email: string) {
+  await requireOperatorSession();
   const item = await isEmailSuppressed(email);
   return { suppressed: !!item, item };
-}
-
-export async function getDefaultEmailProviderAction(): Promise<'leadsquared' | 'netcore'> {
-  try {
-    const setting = await db.appSetting.findUnique({ where: { key: DEFAULT_EMAIL_PROVIDER_KEY } });
-    if (setting?.value === 'netcore' || setting?.value === 'leadsquared') {
-      return setting.value;
-    }
-  } catch {
-    /* fallback to default */
-  }
-  return (process.env.DEFAULT_EMAIL_PROVIDER as 'leadsquared' | 'netcore') || 'leadsquared';
-}
-
-export async function setDefaultEmailProviderAction(
-  provider: 'leadsquared' | 'netcore'
-): Promise<{ ok: boolean; provider: 'leadsquared' | 'netcore' }> {
-  await db.appSetting.upsert({
-    where: { key: DEFAULT_EMAIL_PROVIDER_KEY },
-    create: { key: DEFAULT_EMAIL_PROVIDER_KEY, value: provider },
-    update: { value: provider },
-  });
-  revalidatePath('/integrations');
-  return { ok: true, provider };
 }
 
 /**
@@ -102,6 +82,7 @@ export async function discoverNetcoreSenderAction(apiKeyOverride?: string): Prom
   allDomains?: string[];
   error?: string;
 }> {
+  await requireOperatorSession();
   const { resolveIntegrationField, saveIntegrationConfig } = await import('@/lib/integrationConfig');
   const apiKey = apiKeyOverride || (await resolveIntegrationField('netcore', 'apiKey')) || process.env.NETCORE_API_KEY;
 

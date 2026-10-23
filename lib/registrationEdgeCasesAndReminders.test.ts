@@ -43,7 +43,6 @@ vi.mock('@/lib/netcore', () => ({
 
 vi.mock('@/lib/channelDelivery', () => ({
   deliverChannelMessage: vi.fn().mockResolvedValue({ strategyUsed: 'direct', detail: 'Sent' }),
-  postSentActivityIfMapped: vi.fn().mockResolvedValue({ posted: true }),
 }));
 
 vi.mock('@/lib/broadcast', () => ({ processBroadcastJob: vi.fn().mockResolvedValue({ ok:true, sentCount:0, failedCount:0, totalEligible:2, queuedCount:2, jobId:'broadcast-job', status:'pending' }) }));

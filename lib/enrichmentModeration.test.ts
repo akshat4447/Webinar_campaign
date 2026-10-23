@@ -27,7 +27,9 @@ describe('Checkpoint 5: Moderated Enrichment Preflight & Scope', () => {
     expect(preflight.missingPhone).toBe(2);
     expect(preflight.missingTitle).toBe(1);
     expect(preflight.uniqueAccounts).toBe(2); // 'acme' and 'beta corp'
-    expect(preflight.estimatedApolloCredits).toBe(2); // Contact 2 (missing email, phone, title) and Contact 3 (missing phone)
+    // Only contact 2 (no email, no title) is looked up. A missing phone alone (contact 3) is not a reason: Apollo
+    // reveals new numbers asynchronously, which this app does not use, so asking cost a lookup and found nothing.
+    expect(preflight.estimatedApolloCredits).toBe(1);
     expect(preflight.estimatedClaudeTokens).toBe(3 * 150);
   });
 

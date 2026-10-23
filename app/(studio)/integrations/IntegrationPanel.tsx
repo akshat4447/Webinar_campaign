@@ -6,20 +6,28 @@ import { Field } from '@/components/ui/Field';
 import { Icon } from '@/components/ui/Icon';
 import { ResultBanner } from './ResultBanner';
 import { INTEGRATION_FIELDS, REFERENCE_ONLY } from '@/lib/integrationFields';
-import { getIntegrationConfigMaskedAction, saveIntegrationConfigAction, testIntegrationAction, discoverSenderAction } from '@/lib/actions/integrations';
+import { getIntegrationConfigMaskedAction, saveIntegrationConfigAction, testIntegrationAction, discoverSenderAction, getZoomRedirectInfoAction } from '@/lib/actions/integrations';
 import { discoverNetcoreSenderAction } from '@/lib/actions/netcore';
 import { SuppressionListModal } from './SuppressionListModal';
 import { useOrigin } from '@/lib/useOrigin';
+import { isLoopbackOrigin } from '@/lib/zoom/redirect';
+import { ZOOM_SCOPES } from '@/lib/zoom/auth';
 
 const EXPLANATION: Record<string, string> = {
   linkedin:
     "Outreach is manual by design — scripted LinkedIn messaging breaches their terms and risks account restriction. What the app does instead: Apollo verifies every queued contact before you reach out, and LinkedIn Events run through the official API with Lead Sync streaming registrations back in.",
 };
 
+/** The connect route, carrying the way back when there is one. */
+function connectHref(path: string, returnTo?: string | null): string {
+  return returnTo ? `${path}?returnTo=${encodeURIComponent(returnTo)}` : path;
+}
+
 export function IntegrationPanel({
   id,
   name,
   panelId,
+  returnTo,
   onClose,
   onChanged,
 }: {
@@ -27,6 +35,8 @@ export function IntegrationPanel({
   name: string;
   /** DOM id so the card's Configure button can point at this region with aria-controls. */
   panelId?: string;
+  /** A validated same-site path. When set, connecting runs in this tab and ends back there. */
+  returnTo?: string | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -47,6 +57,14 @@ export function IntegrationPanel({
   const [suppressionModalOpen, setSuppressionModalOpen] = useState(false);
   const [webhookCopied, setWebhookCopied] = useState(false);
   const origin = useOrigin();
+  // Zoom only: the Redirect URI saved earlier, which overrides this server's own address when Connect is used.
+  const [savedRedirect, setSavedRedirect] = useState<string | null>(null);
+  const [clearingRedirect, setClearingRedirect] = useState(false);
+
+  useEffect(() => {
+    if (id !== 'zoom') return;
+    void getZoomRedirectInfoAction().then((r) => setSavedRedirect(r.saved)).catch(() => undefined);
+  }, [id]);
 
   useEffect(() => {
     if (explanatoryOnly) return;
@@ -263,15 +281,66 @@ export function IntegrationPanel({
                   <p>
                     <strong>Option 2: User-managed OAuth app.</strong> In Zoom Marketplace open the app, then <strong>App Credentials, Development</strong>. Paste this exact URL into both <strong>OAuth Redirect URL</strong> and <strong>OAuth allow list</strong>, and choose <strong>Continue</strong> to save. Then use <strong>Connect With Zoom</strong>.
                   </p>
-                  <div className="lsq-code lsq-code--wrap lsq-int-select-all">
-                    https://lsq-webinar-campaign.loca.lt/api/auth/zoom/callback
+                  <div suppressHydrationWarning className="lsq-code lsq-code--wrap lsq-int-select-all">
+                    {origin ? `${origin}/api/auth/zoom/callback` : 'Loading…'}
                   </div>
+                  <p>
+                    This is the address of the server you are on now. Zoom only sends people back to addresses listed in the app&apos;s OAuth redirect URL and OAuth allow list, spelled exactly like this.
+                  </p>
                 </div>
+                {origin && isLoopbackOrigin(origin) && (
+                  <div className="lsq-banner lsq-banner--warning" role="status">
+                    <span className="lsq-banner__icon" aria-hidden="true"><Icon name="warning" size={16} /></span>
+                    <div className="lsq-grow">
+                      <p className="lsq-banner__title">Zoom May Refuse A Localhost Address</p>
+                      <p className="lsq-banner__body">
+                        This page is open on {origin}. Zoom staff say localhost is not supported as a redirect URL, and people report <strong>Invalid redirect (4,700)</strong> even with the exact address on the allow list. For a local copy, use Option 1 (Server-to-Server OAuth), which needs no redirect URL at all, or open this app through an https tunnel and add that tunnel&apos;s callback address to the Zoom app.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                <div className="lsq-int-note">
+                  <p className="lsq-int-note__title">Scopes To Add To The Zoom App</p>
+                  <p>
+                    On the app&apos;s Scopes page add these. A Server-to-Server app needs each one with <code>:admin</code> on the end (for example <code>meeting:read:list_meetings:admin</code>).
+                  </p>
+                  <div className="lsq-code lsq-code--wrap lsq-int-select-all">{ZOOM_SCOPES.join(', ')}</div>
+                </div>
+                {savedRedirect && origin && !savedRedirect.startsWith(origin) && (
+                  <div className="lsq-banner lsq-banner--warning" role="status">
+                    <span className="lsq-banner__icon" aria-hidden="true"><Icon name="warning" size={16} /></span>
+                    <div className="lsq-grow">
+                      <p className="lsq-banner__title">Saved Redirect URI Is Not This Server</p>
+                      <p className="lsq-banner__body">
+                        Connect With Zoom will send Zoom to <code>{savedRedirect}</code>. If that was a temporary tunnel that has closed, Zoom shows an error or sends you to a page that does not exist. Clear it to use the address above.
+                      </p>
+                      <div className="lsq-banner__actions">
+                        <Button
+                          hierarchy="secondary"
+                          size="sm"
+                          loading={clearingRedirect}
+                          onClick={async () => {
+                            setClearingRedirect(true);
+                            try {
+                              await saveIntegrationConfigAction('zoom', { redirectUri: '__CLEAR__' });
+                              setSavedRedirect(null);
+                              setMasked(await getIntegrationConfigMaskedAction('zoom'));
+                              onChanged();
+                            } finally {
+                              setClearingRedirect(false);
+                            }
+                          }}
+                        >
+                          Use This Server&apos;s Address
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div>
                   <a
-                    href="/api/auth/zoom/connect"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href={connectHref('/api/auth/zoom/connect', returnTo)}
+                    {...(returnTo ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
                     className="lsq-btn lsq-btn--sm lsq-btn--secondary-color lsq-int-link"
                   >
                     <Icon name="external" size={16} />
@@ -297,9 +366,8 @@ export function IntegrationPanel({
                 </div>
                 <div>
                   <a
-                    href="/api/auth/linkedin/connect"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href={connectHref('/api/auth/linkedin/connect', returnTo)}
+                    {...(returnTo ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
                     className="lsq-btn lsq-btn--sm lsq-btn--secondary-color lsq-int-link"
                   >
                     <Icon name="linkedin" size={16} />
@@ -307,7 +375,7 @@ export function IntegrationPanel({
                   </a>
                 </div>
                 <p className="lsq-hint">
-                  Authorizes the Page for Events, registration forms and Lead Sync (r_events, rw_events, leadgen automation). Tokens are stored server-side only. Opens in a new tab.
+                  Authorizes the Page for Events, registration forms and Lead Sync (r_events, rw_events, leadgen automation). Tokens are stored server-side only. {returnTo ? 'Returns to the webinar setup afterwards.' : 'Opens in a new tab.'}
                 </p>
               </div>
             )}

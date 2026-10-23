@@ -21,7 +21,10 @@
 .lsq-res-tabbar { flex-shrink: 0; background: var(--surface-card); padding: 0 var(--space-16); min-width: 0; }
 .lsq-res-tabbar .lsq-tab { min-height: 40px; }
 .lsq-tab__dot--warn { background: var(--warning-700); }
-.lsq-res-overdue { margin: var(--space-12) var(--space-16) 0; }
+.lsq-res-overdue { margin: var(--space-12) var(--space-16) 0; align-items: center; flex-wrap: wrap; }
+.lsq-res-overdue__text { flex: 1 1 0; min-width: 0; }
+.lsq-res-overdue .lsq-banner__actions { margin: 0; flex: none; }
+.lsq-res-jobs { margin: var(--space-12) var(--space-16) 0; }
 .lsq-res-errmsg { overflow-wrap: anywhere; }
 
 @media (max-width: 720px) {
@@ -29,6 +32,7 @@
   .lsq-res-shell__statuslabel { display: none; }
   .lsq-res-tabbar { padding: 0 var(--space-8); }
   .lsq-res-overdue { margin: var(--space-8) var(--space-12) 0; }
+  .lsq-res-jobs { margin: var(--space-8) var(--space-12) 0; }
 }
 
 /* ---------- results page: stats, cadence control, needs attention, log ---------- */

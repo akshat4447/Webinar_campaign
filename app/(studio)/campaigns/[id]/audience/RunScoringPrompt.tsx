@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
 import { runScoringAction } from '@/lib/actions/scoring';
+import { finishAudienceJob } from '@/lib/audienceJobClient';
 import { EnrichmentModerationModal } from '@/components/enrichment/EnrichmentModerationModal';
 import { LeadImportCard } from '../setup/LeadImportCard';
 
@@ -19,7 +20,7 @@ export function RunScoringPrompt({ campaignId, contactCount }: { campaignId: str
     setBusy(true);
     setError(null);
     try {
-      const res = await runScoringAction(campaignId);
+      const res = await finishAudienceJob(campaignId, await runScoringAction(campaignId));
       if (!res.ok) setError(res.error ?? 'Scoring failed.');
       else router.refresh();
     } catch (err) {

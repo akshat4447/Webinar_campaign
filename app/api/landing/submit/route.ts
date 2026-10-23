@@ -65,6 +65,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // A personal link that was passed on: the person filling the form typed a different address from the invitee's, so
+    // they are someone else. Register them as themselves rather than registering the invitee in their place.
+    if (contactId && email) {
+      const invitee = await db.contact.findFirst({ where: { id: contactId, campaignId: campaignId ?? undefined }, select: { email: true } });
+      if (invitee?.email && invitee.email.trim().toLowerCase() !== email.trim().toLowerCase()) contactId = null;
+    }
+
     // Validate campaign exists
     if (!campaignId) {
       return json({ ok: false, error: 'campaignId or valid registration token is required' }, 400);

@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { revalidatePath } from 'next/cache';
 import { db } from '@/lib/db';
 import { rewriteTemplate } from '@/lib/claude';
@@ -78,6 +80,7 @@ const STARTERS: Record<string, { name: string; body: string; hasSubject: boolean
 };
 
 export async function createMessageTemplateAction(channel: string, campaignId?: string) {
+  await requireOperatorSession();
   const starter = STARTERS[channel] ?? STARTERS.email;
   const created = await db.messageTemplate.create({
     data: {
@@ -95,6 +98,7 @@ export async function createMessageTemplateAction(channel: string, campaignId?: 
 }
 
 export async function saveMessageTemplateAction(id: string, draft: TemplateDraft) {
+  await requireOperatorSession();
   const now = new Date();
   const existing = await db.messageTemplate.findUniqueOrThrow({ where: { id } });
 
@@ -120,6 +124,7 @@ export async function saveMessageTemplateAction(id: string, draft: TemplateDraft
 }
 
 export async function revertMessageTemplateAction(id: string) {
+  await requireOperatorSession();
   const t = await db.messageTemplate.findUniqueOrThrow({ where: { id } });
   if (!t.savedAt) return { ok: false as const, error: 'Nothing saved to revert to yet.' };
   await db.messageTemplate.update({
@@ -131,6 +136,7 @@ export async function revertMessageTemplateAction(id: string) {
 }
 
 export async function duplicateMessageTemplateAction(id: string) {
+  await requireOperatorSession();
   const o = await db.messageTemplate.findUniqueOrThrow({ where: { id } });
   const copy = await db.messageTemplate.create({
     data: {
@@ -164,6 +170,7 @@ export async function duplicateMessageTemplateAction(id: string) {
 }
 
 export async function deleteMessageTemplateAction(id: string): Promise<{ ok: boolean; error?: string }> {
+  await requireOperatorSession();
   const { getTemplateUsageCounts } = await import('@/lib/messageTemplates');
   const t = await db.messageTemplate.findUniqueOrThrow({ where: { id }, select: { id: true, key: true, campaignId: true } });
 
@@ -189,6 +196,7 @@ export async function deleteMessageTemplateAction(id: string): Promise<{ ok: boo
 }
 
 export async function toggleMessageTemplateHiddenAction(id: string, hidden: boolean) {
+  await requireOperatorSession();
   await db.messageTemplate.update({ where: { id }, data: { hidden } });
   refresh();
   return { hidden };
@@ -196,6 +204,7 @@ export async function toggleMessageTemplateHiddenAction(id: string, hidden: bool
 
 /** WhatsApp only: Meta reviews the template before it can be used. */
 export async function submitForApprovalAction(id: string) {
+  await requireOperatorSession();
   const t = await db.messageTemplate.findUniqueOrThrow({ where: { id } });
   if (t.channel !== 'whatsapp') return { ok: false as const, error: 'Only WhatsApp templates need approval.' };
   if (!t.body.trim()) return { ok: false as const, error: 'Add a message body before submitting.' };
@@ -205,6 +214,7 @@ export async function submitForApprovalAction(id: string) {
 }
 
 export async function rewriteMessageTemplateAction(id: string) {
+  await requireOperatorSession();
   const t = await db.messageTemplate.findUniqueOrThrow({ where: { id } });
   try {
     const result = await rewriteTemplate({
@@ -237,6 +247,7 @@ export interface CampaignTemplateTargetInfo {
 
 /** Get status of all active campaigns with respect to a template's step key. */
 export async function getTemplateCampaignStatusAction(templateId: string): Promise<CampaignTemplateTargetInfo[]> {
+  await requireOperatorSession();
   const t = await db.messageTemplate.findUniqueOrThrow({ where: { id: templateId } });
   const campaigns = await db.campaign.findMany({
     where: { archived: false },
@@ -316,6 +327,7 @@ export async function copyTemplateIntoMultipleCampaignsAction({
   conflictStrategy = 'skip',
   autoLinkSteps = true,
 }: CopyMultipleCampaignsParams): Promise<CopyMultipleCampaignsResult> {
+  await requireOperatorSession();
   const o = await db.messageTemplate.findUniqueOrThrow({ where: { id: templateId } });
 
   let copiedCount = 0;
@@ -454,6 +466,7 @@ export async function copyIntoCampaignAction(
   id: string,
   campaignId: string
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  await requireOperatorSession();
   const o = await db.messageTemplate.findUniqueOrThrow({ where: { id } });
   if (o.campaignId) return { ok: false, error: 'Already a campaign copy.' };
 
@@ -501,6 +514,7 @@ export async function copyIntoCampaignAction(
 
 /** SMS segment maths for the editor's live counter. */
 export async function smsSegmentInfoAction(body: string) {
+  await requireOperatorSession();
   const check = checkSmsBody(body);
   // gsm7 false means UCS-2, which drops the per-segment budget from 160 to 70.
   return { segments: check.segments, encoding: check.gsm7 ? 'GSM-7' : 'UCS-2', issues: check.issues };
@@ -510,6 +524,7 @@ export async function smsSegmentInfoAction(body: string) {
  * Ensures a cadence step has a campaign-specific MessageTemplate (forking from library default if needed).
  */
 export async function forkTemplateForStepAction(campaignId: string, stepKey: string) {
+  await requireOperatorSession();
   const { resolveStepTemplate } = await import('@/lib/messageTemplates');
   const { revalidateCampaign } = await import('@/lib/revalidate');
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId } });
@@ -577,6 +592,7 @@ export async function updateStepBaseTemplateAction(
   stepKey: string,
   draft: { subject?: string | null; body: string }
 ) {
+  await requireOperatorSession();
   const forkRes = await forkTemplateForStepAction(campaignId, stepKey);
   if (!forkRes.ok) return forkRes;
 

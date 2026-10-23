@@ -18,9 +18,7 @@ export async function getLaunchReadiness(campaignId: string) {
   if (!steps.length) problems.push('Enable at least one cadence step.');
   const channels = new Set(steps.map(s => normalizeChannel(s.channel)));
   if (channels.has('email')) {
-    const provider = campaign.emailProvider === 'netcore' ? 'netcore' : 'lsq';
-    const required = provider === 'netcore' ? ['apiKey', 'fromEmail'] : ['accessKey', 'secretKey', 'host', 'senderEmail'];
-    for (const key of required) if (!(await resolveIntegrationField(provider, key))) problems.push(`Configure ${provider}.${key} before sending.`);
+    for (const key of ['apiKey', 'fromEmail']) if (!(await resolveIntegrationField('netcore', key))) problems.push(`Configure netcore.${key} before sending.`);
   }
   for (const channel of ['sms', 'whatsapp'] as const) {
     if (!channels.has(channel)) continue;

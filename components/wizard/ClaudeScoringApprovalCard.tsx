@@ -7,6 +7,7 @@ import { Field } from '@/components/ui/Field';
 import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { runScoringAction, updateScoringConfigAction } from '@/lib/actions/scoring';
+import { finishAudienceJob } from '@/lib/audienceJobClient';
 
 export interface ScoredContactItem {
   id: string;
@@ -31,6 +32,8 @@ interface ClaudeScoringApprovalCardProps {
   initialCriteria: string;
   contacts: ScoredContactItem[];
   onThresholdChange?: (threshold: number) => void;
+  /** The prompt or criteria were edited, so the wizard can autosave them with the rest of the draft. */
+  onConfigChange?: (config: { prompt: string; criteria: string }) => void;
   onRefreshScoring?: () => void;
 }
 
@@ -41,6 +44,7 @@ export function ClaudeScoringApprovalCard({
   initialCriteria,
   contacts: initialContacts,
   onThresholdChange,
+  onConfigChange,
   onRefreshScoring,
 }: ClaudeScoringApprovalCardProps) {
   const { showToast } = useToast();
@@ -51,6 +55,7 @@ export function ClaudeScoringApprovalCard({
   const [seenContacts, setSeenContacts] = useState(initialContacts);
   const [isCriteriaOpen, setIsCriteriaOpen] = useState(false);
   const [scoringBusy, setScoringBusy] = useState(false);
+  const [scoringProgress, setScoringProgress] = useState<{ done: number; total: number } | null>(null);
   const [savingThreshold, setSavingThreshold] = useState(false);
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -121,7 +126,7 @@ export function ClaudeScoringApprovalCard({
     setScoringBusy(true);
     try {
       await updateScoringConfigAction(campaignId, { prompt, criteria, threshold });
-      const res = await runScoringAction(campaignId);
+      const res = await finishAudienceJob(campaignId, await runScoringAction(campaignId), (done, total) => setScoringProgress({ done, total }));
       if (res.ok) {
         showToast(`Scored ${res.scoredCount} contacts with Claude.`);
         onRefreshScoring?.();
@@ -132,6 +137,7 @@ export function ClaudeScoringApprovalCard({
       showToast(err instanceof Error ? err.message : 'Failed to score contacts');
     } finally {
       setScoringBusy(false);
+      setScoringProgress(null);
     }
   }
 
@@ -159,7 +165,7 @@ export function ClaudeScoringApprovalCard({
             loading={scoringBusy}
             onClick={handleRunScoring}
           >
-            {scoringBusy ? 'Scoring With Claude' : scoredCount > 0 ? 'Re-Run Scoring' : 'Run Claude Scoring'}
+            {scoringBusy ? (scoringProgress ? `Scoring ${scoringProgress.done.toLocaleString()} of ${scoringProgress.total.toLocaleString()}` : 'Scoring With Claude') : scoredCount > 0 ? 'Re-Run Scoring' : 'Run Claude Scoring'}
           </Button>
         </div>
       </div>
@@ -174,7 +180,10 @@ export function ClaudeScoringApprovalCard({
                   className="lsq-input"
                   rows={2}
                   value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
+                  onChange={(e) => {
+                    setPrompt(e.target.value);
+                    onConfigChange?.({ prompt: e.target.value, criteria });
+                  }}
                   placeholder="e.g. Score higher for Directors and VP roles in Engineering and Infrastructure."
                 />
               )}
@@ -186,7 +195,10 @@ export function ClaudeScoringApprovalCard({
                   className="lsq-input"
                   rows={2}
                   value={criteria}
-                  onChange={(e) => setCriteria(e.target.value)}
+                  onChange={(e) => {
+                    setCriteria(e.target.value);
+                    onConfigChange?.({ prompt, criteria: e.target.value });
+                  }}
                   placeholder="e.g. Reject student or unverified contractor roles."
                 />
               )}

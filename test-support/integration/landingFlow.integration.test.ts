@@ -197,6 +197,32 @@ describe('submitting the landing page form (what the snippet sends)', () => {
     expect({ approved: c.approved, score: c.score }).toEqual({ approved: false, score: null });
   }, 70_000);
 
+  it('registers a colleague who uses a forwarded personal link under their own address, and leaves the invitee alone', async () => {
+    const invitee = await makeInvitee('forwarded-from@x.com', 'Forwarded From');
+    const p = snippetParams(await landingUrlFor(invitee.id, 'email'));
+    const { status, json } = await postSubmit({ campaignId: p.campaignId, token: p.token, email: 'forwarded-to@x.com', firstName: 'Forwarded', lastName: 'To', source: p.source });
+    expect(status).toBe(200);
+    expect(json.ok).toBe(true);
+    // The colleague gets no token for the invitee, so nothing of the invitee's reaches them.
+    expect(json.token).toBeUndefined();
+    created.contacts.push(...(await db.contact.findMany({ where: { campaignId, email: 'forwarded-to@x.com' }, select: { id: true } })).map((c) => c.id));
+
+    const colleague = await db.contact.findFirstOrThrow({ where: { campaignId, email: 'forwarded-to@x.com' } });
+    expect(colleague.registeredAt).not.toBeNull();
+    expect(colleague.registrationSource).toBe('email');
+    const after = await db.contact.findUniqueOrThrow({ where: { id: invitee.id } });
+    expect(after.registeredAt).toBeNull();
+    expect(await db.cadenceSend.count({ where: { contactId: invitee.id, status: 'queued' } })).toBe(1); // their reminders still run
+  });
+
+  it('still registers the invitee when the address matches theirs, whatever its capitalisation', async () => {
+    const invitee = await makeInvitee('same-person@x.com', 'Same Person');
+    const p = snippetParams(await landingUrlFor(invitee.id, 'sms'));
+    const { json } = await postSubmit({ campaignId: p.campaignId, token: p.token, email: 'Same-Person@X.com', firstName: 'Same', lastName: 'Person', source: p.source });
+    expect(json.ok).toBe(true);
+    expect((await db.contact.findUniqueOrThrow({ where: { id: invitee.id } })).registeredAt).not.toBeNull();
+  });
+
   it('submitting twice does not duplicate (idempotent)', async () => {
     const c = await makeInvitee('twice@x.com', 'Twice');
     const p = snippetParams(await landingUrlFor(c.id, 'email'));

@@ -71,11 +71,14 @@ export async function computePersonalizeReadiness(campaignId: string): Promise<R
   const stepKeys = pairs.map((p) => p.step.key);
   const pairByKey=new Map(pairs.map(pair=>[pair.step.key,pair]));
   const invalidByStep=new Map<string,number>();
+  // Copy that has already been sent is a record of what went out, not a draft waiting to be fixed.
+  const sentKeys=new Set<string>();
+  if(stepKeys.length){for(const s of await db.cadenceSend.findMany({where:{campaignId,status:'sent',stepKey:{in:stepKeys}},select:{stepKey:true,contactId:true}}))sentKeys.add(`${s.stepKey}:${s.contactId}`);}
   let cursor:string|undefined;
   while(stepKeys.length){
-    const batch=await db.personalizedMessage.findMany({where:{campaignId,stepKey:{in:stepKeys}},select:{id:true,stepKey:true,subject:true,body:true},orderBy:{id:'asc'},take:500,...(cursor?{cursor:{id:cursor},skip:1}:{})});
+    const batch=await db.personalizedMessage.findMany({where:{campaignId,stepKey:{in:stepKeys}},select:{id:true,stepKey:true,contactId:true,subject:true,body:true},orderBy:{id:'asc'},take:500,...(cursor?{cursor:{id:cursor},skip:1}:{})});
     generatedTotal+=batch.length;
-    for(const message of batch){const pair=pairByKey.get(message.stepKey);if(!pair)continue;const channel=normalizeChannel(pair.template.channel);if(!validateRenderedMessageForChannel(message.subject,message.body,channel==='email',link,channel).valid)invalidByStep.set(message.stepKey,(invalidByStep.get(message.stepKey)||0)+1);}
+    for(const message of batch){const pair=pairByKey.get(message.stepKey);if(!pair||sentKeys.has(`${message.stepKey}:${message.contactId}`))continue;const channel=normalizeChannel(pair.template.channel);if(!validateRenderedMessageForChannel(message.subject,message.body,channel==='email',link,channel).valid)invalidByStep.set(message.stepKey,(invalidByStep.get(message.stepKey)||0)+1);}
     if(batch.length<500)break;
     cursor=batch[batch.length-1].id;
   }

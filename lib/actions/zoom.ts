@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
 import { formatWebinarDate } from '@/lib/campaignDate';
 import { revalidateCampaign } from '@/lib/revalidate';
@@ -11,16 +13,26 @@ export type { ZoomMeeting };
 
 
 /** Upcoming meetings on the connected Zoom account, for a "pick one" list. */
-export async function listZoomMeetingsAction(): Promise<{ ok: true; meetings: ZoomMeeting[] } | { ok: false; error: string }> {
+export async function listZoomMeetingsAction(): Promise<{ ok: true; meetings: ZoomMeeting[]; warning?: string } | { ok: false; error: string }> {
+  await requireOperatorSession();
   const connectionError = await zoomConnectionError();
   if (connectionError) return { ok: false, error: connectionError };
 
-  const { listUpcomingMeetings } = await import('@/lib/zoom/meetings');
+  const { listUpcomingMeetingsDetailed } = await import('@/lib/zoom/meetings');
   try {
-    return { ok: true, meetings: await listUpcomingMeetings() };
+    const { meetings, warnings } = await listUpcomingMeetingsDetailed();
+    // One of the two lists failing still returns the other, with the reason, instead of looking like an empty account.
+    return { ok: true, meetings, ...(warnings.length ? { warning: warnings.join(' ') } : {}) };
   } catch (err) {
     return { ok: false, error: String(err instanceof Error ? err.message : err) };
   }
+}
+
+/** Who the connection belongs to, for messages like "not found on the connected account". */
+async function connectedAccountLabel(): Promise<string> {
+  const { resolveIntegrationField } = await import('@/lib/integrationConfig');
+  const email = (await resolveIntegrationField('zoom', 'connectedEmail')) || (await resolveIntegrationField('zoom', 'hostEmail'));
+  return email ? ` (${email})` : '';
 }
 
 /**
@@ -32,6 +44,7 @@ export async function listZoomMeetingsAction(): Promise<{ ok: true; meetings: Zo
  * the Cadence planner afterward if the date actually moved.
  */
 export async function fetchZoomEventDetailsAction(idOrUrl: string): Promise<{ ok: true; meeting: ZoomMeeting } | { ok: false; error: string }> {
+  await requireOperatorSession();
   const connectionError = await zoomConnectionError();
   if (connectionError) return { ok: false, error: connectionError };
 
@@ -39,7 +52,10 @@ export async function fetchZoomEventDetailsAction(idOrUrl: string): Promise<{ ok
   try {
     const meeting = await getZoomEventDetails(idOrUrl);
     if (!meeting) {
-      return { ok: false, error: 'Could not fetch details for that Zoom event. Ensure the Webinar/Meeting ID is valid and permissions are granted.' };
+      return {
+        ok: false,
+        error: `No Zoom webinar or meeting with that ID exists on the connected Zoom account${await connectedAccountLabel()}. Check the ID, or connect the Zoom account that hosts it: a connection made with a personal Zoom login only sees events that login hosts.`,
+      };
     }
     return { ok: true, meeting };
   } catch (err) {
@@ -53,6 +69,7 @@ export async function fetchZoomEventDetailsAction(idOrUrl: string): Promise<{ ok
  * time set automatically" behaviour.
  */
 export async function linkZoomMeetingAction(campaignId: string, meetingId: string) {
+  await requireOperatorSession();
   const lockedMessage = await setupLockError(campaignId);
   if (lockedMessage) return { ok: false as const, error: lockedMessage };
   const connectionError = await zoomConnectionError();
@@ -60,17 +77,22 @@ export async function linkZoomMeetingAction(campaignId: string, meetingId: strin
 
   const { getZoomEventDetails, listUpcomingMeetings } = await import('@/lib/zoom/meetings');
   // Prioritize deep event detail fetch to retrieve speakers, panelists, capacity & registration link
-  let meeting = await getZoomEventDetails(meetingId);
-  if (!meeting) {
-    const meetings = await listUpcomingMeetings();
-    meeting = meetings.find((m) => m.id === meetingId) || null;
+  let meeting: ZoomMeeting | null = null;
+  try {
+    meeting = await getZoomEventDetails(meetingId);
+    if (!meeting) {
+      const meetings = await listUpcomingMeetings();
+      meeting = meetings.find((m) => m.id === meetingId) || null;
+    }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
   }
-  if (!meeting) return { ok: false as const, error: 'That meeting/webinar was not found on your Zoom account — refresh or paste the link directly.' };
+  if (!meeting) return { ok: false as const, error: `That meeting/webinar was not found on the connected Zoom account${await connectedAccountLabel()}. Refresh the list or paste the numeric ID.` };
 
   // Personal join links belong to ONE Zoom meeting. Re-pointing the campaign at a different
   // meeting makes every stored link dead, so forget them: contacts fall back to the
   // campaign's own link, and the reconcile sweep re-registers recent registrants on the new meeting.
-  const previous = await db.campaign.findUnique({ where: { id: campaignId }, select: { zoomMeetingId: true } });
+  const previous = await db.campaign.findUnique({ where: { id: campaignId }, select: { zoomMeetingId: true, timezone: true } });
   if (previous?.zoomMeetingId && previous.zoomMeetingId !== meeting.id) {
     await db.contact.updateMany({ where: { campaignId }, data: { zoomJoinUrl: null, zoomRegistrantId: null } });
   }
@@ -83,8 +105,10 @@ export async function linkZoomMeetingAction(campaignId: string, meetingId: strin
     where: { id: campaignId },
     data: {
       name: cleanTopic,
-      date: scheduledAt ? formatWebinarDate(scheduledAt) : 'Not scheduled yet',
+      // The label is shown in the webinar's own zone, the same zone its date and time were typed in.
+      date: scheduledAt ? formatWebinarDate(scheduledAt, previous?.timezone) : 'Not scheduled yet',
       scheduledAt,
+      ...(meeting.duration && meeting.duration > 0 ? { durationMinutes: Math.min(720, Math.max(5, Math.round(meeting.duration))) } : {}),
       zoomLink: meeting.joinUrl,
       zoomMeetingId: meeting.id,
       zoomMode: 'existing',
@@ -142,6 +166,7 @@ export async function linkZoomMeetingAction(campaignId: string, meetingId: strin
 /** Creates a brand-new Zoom meeting from the campaign's own current title,
  *  date and description — for a campaign with no Zoom meeting yet at all. */
 export async function createZoomMeetingAction(campaignId: string) {
+  await requireOperatorSession();
   const lockedMessage = await setupLockError(campaignId);
   if (lockedMessage) return { ok: false as const, error: lockedMessage };
   const connectionError = await zoomConnectionError();
@@ -185,6 +210,7 @@ export async function createZoomMeetingAction(campaignId: string) {
  *  losing the URL contacts already have. No Zoom call involved, so no
  *  connection gate — there's nothing to fetch. */
 export async function unlinkZoomMeetingAction(campaignId: string) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   await db.campaign.update({ where: { id: campaignId }, data: { zoomMeetingId: null, zoomMode: null, zoomEventType: null, zoomRegistrationUrl: null } });
   revalidateCampaign(campaignId);
@@ -197,6 +223,7 @@ export type ZoomRegistrationHealth =
   | { linked: true; kind: 'meeting' | 'webinar'; registrationEnabled: boolean; registrationUrl: string | null; error?: string };
 
 export async function getZoomRegistrationHealthAction(campaignId: string): Promise<ZoomRegistrationHealth> {
+  await requireOperatorSession();
   const campaign = await db.campaign.findUnique({ where: { id: campaignId }, select: { zoomMeetingId: true, zoomEventType: true, zoomRegistrationUrl: true } });
   if (!campaign?.zoomMeetingId) return { linked: false };
   const stored = (campaign.zoomEventType as 'meeting' | 'webinar' | null) ?? 'meeting';
@@ -215,6 +242,7 @@ export async function getZoomRegistrationHealthAction(campaignId: string): Promi
 
 /** Turns registration on for the linked Zoom event (approval_type 2 -> 0). */
 export async function enableZoomRegistrationAction(campaignId: string) {
+  await requireOperatorSession();
   const connectionError = await zoomConnectionError();
   if (connectionError) return { ok: false as const, error: connectionError };
   const campaign = await db.campaign.findUnique({ where: { id: campaignId }, select: { zoomMeetingId: true, zoomEventType: true } });

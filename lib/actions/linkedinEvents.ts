@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 // Server actions for the LinkedIn Event feature — thin boundaries over
 // lib/linkedin/*, matching how every other action file wraps its lib module.
 import { db } from '@/lib/db';
@@ -9,15 +11,18 @@ import type { PublishOutcome } from '@/lib/linkedin/publishWebinar';
 import { processPendingLinkedinRegistrations } from '@/lib/linkedin/ingest';
 
 export async function publishToLinkedInAction(campaignId: string): Promise<PublishOutcome> {
+  await requireOperatorSession();
   return publishWebinarToLinkedIn(campaignId);
 }
 
 export async function cancelLinkedInEventAction(campaignId: string): Promise<PublishOutcome> {
+  await requireOperatorSession();
   return cancelLinkedInEvent(campaignId);
 }
 
 /** The human invite step — UI-only on LinkedIn's side, tracked here. */
 export async function markLinkedinInvitedAction(campaignId: string, invited: boolean): Promise<void> {
+  await requireOperatorSession();
   await db.campaign.update({
     where: { id: campaignId },
     data: { linkedinInvitedAt: invited ? new Date() : null },
@@ -32,6 +37,7 @@ export async function markLinkedinInvitedAction(campaignId: string, invited: boo
 
 /** Manual drain of the registration queue (Control Center button + retries). */
 export async function processLinkedInQueueAction(campaignId?: string): Promise<{ processed: number; failed: number; skipped: number }> {
+  await requireOperatorSession();
   const result = await processPendingLinkedinRegistrations(50, campaignId);
   await revalidateCampaign(campaignId ?? '');
   return result;

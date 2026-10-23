@@ -1,3 +1,5 @@
+import { captureBrowserFailure } from '../test-support/browserEvidence';
+import { isolatedServerEnv } from '../test-support/isolatedEnv';
 import {Client} from 'pg';
 import {spawn,spawnSync} from 'node:child_process';
 import {randomBytes,createHmac} from 'node:crypto';
@@ -5,6 +7,7 @@ import {userInfo} from 'node:os';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {chromium,expect} from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import {TEST_LOGIN_ENV,signIn} from './testSignIn';
 
 async function main(){
  const base=process.env.TEST_DATABASE_ADMIN_URL||`postgresql://${encodeURIComponent(userInfo().username)}@localhost:5432/postgres`;
@@ -12,7 +15,8 @@ async function main(){
  const name=`webinar_test_ui_${randomBytes(5).toString('hex')}`;await admin.query(`CREATE DATABASE "${name}"`);
  const target=new URL(base);target.pathname='/'+name;
  const secret='isolated-browser-registration-secret-with-32-characters';
- const env={...process.env,DATABASE_URL:target.toString(),REGISTRATION_SECRET:secret,CREDENTIALS_ENCRYPTION_KEY:'isolated-browser-encryption-key-with-32-characters',CADENCE_AUTOTICK:'false',ZOOM_AUTOSYNC:'false',NEXT_DIST_DIR:process.env.NEXT_DIST_DIR||'.next',APP_ORIGIN:'http://127.0.0.1:3100',ANTHROPIC_API_KEY:'',LSQ_ACCESS_KEY:'',LSQ_SECRET_KEY:'',LSQ_HOST:'',NETCORE_API_KEY:'',ZOOM_CLIENT_ID:'',ZOOM_CLIENT_SECRET:'',LINKEDIN_CLIENT_ID:'',LINKEDIN_CLIENT_SECRET:''};
+ const env=isolatedServerEnv({
+    PORT: '3100', HOSTNAME: '127.0.0.1',...TEST_LOGIN_ENV,DATABASE_URL:target.toString(),REGISTRATION_SECRET:secret,CREDENTIALS_ENCRYPTION_KEY:'isolated-browser-encryption-key-with-32-characters',CADENCE_AUTOTICK:'false',ZOOM_AUTOSYNC:'false',NEXT_DIST_DIR:process.env.NEXT_DIST_DIR||'.next',APP_ORIGIN:'http://127.0.0.1:3100',ANTHROPIC_API_KEY:'',LSQ_ACCESS_KEY:'',LSQ_SECRET_KEY:'',LSQ_HOST:'',NETCORE_API_KEY:'',ZOOM_CLIENT_ID:'',ZOOM_CLIENT_SECRET:'',LINKEDIN_CLIENT_ID:'',LINKEDIN_CLIENT_SECRET:''});
  let db:Client|undefined;
  let server:ReturnType<typeof spawn>|undefined,browser:Awaited<ReturnType<typeof chromium.launch>>|undefined;
  const out='artifacts/verification/browser';await mkdir(out,{recursive:true});
@@ -24,10 +28,10 @@ async function main(){
   await db.query(`INSERT INTO "Contact" ("id","campaignId","name","email","account","title","function","seniority","vertical","registeredAt","zoomJoinUrl") VALUES ('ui-attendee','ui-event','Browser Attendee','existing@example.com','Example','Director','Marketing','Director','Test',NOW(),'https://zoom.example/personal-browser')`);
   await db.query(`UPDATE "Contact" SET "approved"=true,"score"=82,"explanation"='Relevant test audience' WHERE "id"='ui-attendee'`);
   await db.query(`INSERT INTO "CadenceStep" ("id","campaignId","key","title","timing","channel","desc","group","trigger","mode","templateId") VALUES ('ui-step','ui-event','invite','Invite','Now','Email','Test invitation','Pre-registration','launch','template','ui-template')`);
-  const logs:string[]=[];server=spawn('node',['node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','3100'],{env,stdio:['ignore','pipe','pipe']});server.stdout?.on('data',d=>logs.push(String(d)));server.stderr?.on('data',d=>logs.push(String(d)));
+  const logs:string[]=[];server=spawn('node',['scripts/start-server.cjs'],{env,stdio:['ignore','pipe','pipe']});server.stdout?.on('data',d=>logs.push(String(d)));server.stderr?.on('data',d=>logs.push(String(d)));
   let ready=false;for(let i=0;i<100;i++){try{const r=await fetch('http://127.0.0.1:3100');if(r.ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,300));}if(!ready)throw new Error('Browser test server did not start: '+logs.join(''));
   browser=await chromium.launch({channel:'chrome',headless:true});
-  const context=await browser.newContext({viewport:{width:1440,height:1000}});const page=await context.newPage();
+  const context=await browser.newContext({viewport:{width:1440,height:1000}});await signIn(context,'http://127.0.0.1:3100');const page=await context.newPage();
   const errors:string[]=[],checks:string[]=[];page.on('pageerror',error=>errors.push(error.message));
   await context.route('**/*',route=>{const host=new URL(route.request().url()).hostname;return ['127.0.0.1','localhost'].includes(host)?route.continue():route.abort();});
   const paths=['/','/dashboard','/templates','/integrations','/campaigns/new','/campaigns/ui-event/overview','/campaigns/ui-event/audience','/campaigns/ui-event/messaging','/campaigns/ui-event/cadence','/campaigns/ui-event/results','/register/ui-event'];
@@ -58,6 +62,6 @@ async function main(){
   const calendar=await page.request.get('http://127.0.0.1:3100/api/calendar/ui-event?t='+token);const ics=await calendar.text();expect(ics).toContain('DTEND:20261201T133000Z');expect(ics).toContain('https://zoom.example/personal-browser');checks.push('Signed attendee hub and 90-minute personal calendar pass');
   await writeFile(out+'/results.json',JSON.stringify({checks,errors,violations},null,2));await writeFile(out+'/server.log',logs.join(''));await db.end();db=undefined;
   expect(errors,'Browser runtime errors').toEqual([]);expect(violations,'Serious or critical accessibility violations').toEqual([]);console.log(`Browser verification passed: ${checks.length} checks; desktop/mobile, registration, attendee calendar, modal focus, accessibility.`);
- }finally{await db?.end();await browser?.close();if(server && server.exitCode===null){server.kill('SIGTERM');await new Promise<void>(r=>server!.once('exit',()=>r()));}await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();}
+ } catch (error) { await captureBrowserFailure(browser, out, error); throw error; }finally{await db?.end();await browser?.close();if(server && server.exitCode===null){server.kill('SIGTERM');await new Promise<void>(r=>server!.once('exit',()=>r()));}await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();}
 }
 main().catch(err=>{console.error(err);process.exitCode=1;});

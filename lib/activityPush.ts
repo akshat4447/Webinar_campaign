@@ -1,10 +1,12 @@
 import { db } from '@/lib/db';
-import { PartialActivityPushError, bulkCreateOrUpdateLeads, createActivityType, createOrUpdateLead, pushCustomActivities, type LeadField } from '@/lib/leadsquared';
+import { PartialActivityPushError, bulkCreateOrUpdateLeads, createActivityType, createOrUpdateLead, getTenantCustomFieldNames, pushCustomActivities, type LeadField } from '@/lib/leadsquared';
 import { claimOnce, idemKey, release } from '@/lib/idempotency';
 import { awaitInflight, zoomRegistrantKey } from '@/lib/inflight';
 import { formatLsqDateTime, isValidLsqSchemaName } from '@/lib/lsqPayload';
 import { upsertAttentionItem } from '@/lib/attentionItems';
 import { resolveIntegrationField } from '@/lib/integrationConfig';
+import { ATTRIBUTION_FIELD_SCHEMA_NAME } from '@/lib/landingPage';
+import { resolveContactRegistrationChannel } from '@/lib/registrationChannels';
 
 const SETTING_KEY = 'lsq_webinar_activity_type_id';
 
@@ -193,6 +195,14 @@ function zoomRegisteredFlagField(): string | null {
   return name && isValidLsqSchemaName(name) ? name : null;
 }
 
+async function tenantHasAttributionField(): Promise<boolean> {
+  try {
+    return (await getTenantCustomFieldNames())?.has(ATTRIBUTION_FIELD_SCHEMA_NAME.toLowerCase()) ?? false;
+  } catch {
+    return false;
+  }
+}
+
 export async function postWebinarRegistrationActivity(
   campaignId: string,
   contactId: string,
@@ -233,8 +243,13 @@ export async function postWebinarRegistrationActivity(
     const flagField = zoomRegisteredFlagField();
     const zoomRegistered = Boolean(contact.zoomJoinUrl || contact.zoomRegistrantId);
 
+    // The channel goes on the lead too, once the tenant has the field for it (created once in LeadSquared), so a
+    // lead made by a one-click link carries its channel the same way one made by a landing-page form does.
+    const channel = resolveContactRegistrationChannel({ registrationSource: source, id: contactId }, new Map());
+    const attributionKnown = await tenantHasAttributionField();
+
     let leadId = contact.lsqLeadId;
-    if (!leadId || (flagField && zoomRegistered)) {
+    if (!leadId || (flagField && zoomRegistered) || attributionKnown) {
       if (!contact.email) throw new Error('Missing contact email for LeadSquared sync');
       let result;
       try {
@@ -244,6 +259,7 @@ export async function postWebinarRegistrationActivity(
           { Attribute: 'Company', Value: contact.account },
           ...(contact.phone ? [{ Attribute: 'Phone', Value: contact.phone }] : []),
           ...(flagField && zoomRegistered ? [{ Attribute: flagField, Value: 'true' }] : []),
+          ...(attributionKnown ? [{ Attribute: ATTRIBUTION_FIELD_SCHEMA_NAME, Value: channel }] : []),
         ]);
       } catch (err) {
         throw new Error(`Lead create/update failed: ${String(err)}`);

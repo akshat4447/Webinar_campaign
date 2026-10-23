@@ -9,6 +9,7 @@ import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { launchCadenceAction, getLaunchReadinessAction } from '@/lib/actions/schedule';
 import { getRegistrationOverviewAction } from '@/lib/actions/registration';
+import { ExternalRegistrationSetup, type SetupChannelLink } from '@/components/registration/ExternalRegistrationSetup';
 import type { Readiness } from '@/lib/registrationReadiness';
 import type { WizardCadenceStep } from './WizardCadenceSetupCard';
 import {
@@ -19,7 +20,6 @@ import {
 } from '@/lib/actions/wizard';
 import type { SpeakerInput } from '@/lib/speakerUtils';
 import {
-  buildChannelTrackingLinks,
   buildNormalChannelRegistrationLinks,
   generateFramerEmbedScript,
 } from '@/lib/landingPage';
@@ -41,7 +41,6 @@ interface WizardReviewLaunchCardProps {
   zoomLink?: string;
   zoomMeetingId?: string;
   speakers?: SpeakerInput[];
-  emailProvider?: string;
   validation: AudiencePreflightValidation;
   approvedCount: number;
   fieldMappings: WizardFieldMapping[];
@@ -51,7 +50,8 @@ interface WizardReviewLaunchCardProps {
   msgLength: string;
   brief: string;
   onApprovedCountChange?: (count: number) => void;
-  onFunnelModeChange?: (mode: 'normal' | 'framer', link?: string) => void;
+  /** Goes back to Step 1, where the registration page is chosen. */
+  onChangeRegistration?: () => void;
 }
 
 export function WizardReviewLaunchCard({
@@ -69,7 +69,6 @@ export function WizardReviewLaunchCard({
   zoomLink,
   zoomMeetingId,
   speakers = [],
-  emailProvider = 'leadsquared',
   validation,
   approvedCount,
   fieldMappings,
@@ -79,7 +78,7 @@ export function WizardReviewLaunchCard({
   msgLength,
   brief,
   onApprovedCountChange,
-  onFunnelModeChange,
+  onChangeRegistration,
 }: WizardReviewLaunchCardProps) {
   const router = useRouter();
   const { showToast } = useToast();
@@ -90,17 +89,16 @@ export function WizardReviewLaunchCard({
   const [confirming, setConfirming] = useState(false);
 
   // Funnel & Calendar Integration State
-  const [funnelMode, setFunnelMode] = useState<'normal' | 'framer'>(() => {
-    return registrationLink && registrationLink.trim().length > 0 ? 'framer' : 'normal';
-  });
-  const [currentLandingLink, setCurrentLandingLink] = useState(registrationLink || '');
-  const [savingFunnel, setSavingFunnel] = useState(false);
+  // How people register is chosen once, in Step 1; this step only reflects it.
+  const currentLandingLink = (registrationLink ?? '').trim();
+  const funnelMode: 'normal' | 'framer' = currentLandingLink ? 'framer' : 'normal';
+  const [sharedLinks, setSharedLinks] = useState<SetupChannelLink[] | undefined>(undefined);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // Registration readiness comes from the same rules the workspace uses, evaluated
   // against what is actually saved, so this card cannot claim "armed" for a setup that is broken.
   const [registrationReadiness, setRegistrationReadiness] = useState<Readiness | null>(null);
-  const readinessKey = JSON.stringify({ campaignId, currentApprovedCount, savingFunnel, activeSteps });
+  const readinessKey = JSON.stringify({ campaignId, currentApprovedCount, registrationLink, activeSteps });
   const [readinessResult, setReadinessResult] = useState<{ key: string; ok: boolean; problems: string[] } | null>(null);
   const launchReadiness = readinessResult?.key === readinessKey ? readinessResult : null;
   useEffect(() => {
@@ -115,7 +113,9 @@ export function WizardReviewLaunchCard({
     let cancelled = false;
     getRegistrationOverviewAction(campaignId)
       .then((res) => {
-        if (!cancelled && !('error' in res)) setRegistrationReadiness(res.readiness);
+        if (cancelled || 'error' in res) return;
+        setRegistrationReadiness(res.readiness);
+        setSharedLinks(res.channelLinks);
       })
       .catch(() => {
         /* checklist falls back to "not verified" */
@@ -123,7 +123,7 @@ export function WizardReviewLaunchCard({
     return () => {
       cancelled = true;
     };
-  }, [campaignId]);
+  }, [campaignId, registrationLink]);
 
   // Hydration-safe origin:
   // Derived from initialOrigin passed from the server page (via appOrigin()), or defaults to http://localhost:3000.
@@ -141,32 +141,20 @@ export function WizardReviewLaunchCard({
     origin
   );
 
+  // The calendar details are fetched when the pop-up opens, so the script only needs the webinar, Zoom event and origin.
   const embedScript = generateFramerEmbedScript({
     campaignId,
     zoomId: zoomMeetingId || undefined,
-    webinarTitle,
-    scheduledAt: scheduledIso,
-    durationMinutes,
-    description,
-    location: zoomLink || (funnelMode === 'framer' ? currentLandingLink : '') || 'Online Webinar',
     apiOrigin: origin,
+    landingUrl: currentLandingLink || undefined,
   });
-
-  const framerLinks = currentLandingLink.trim()
-    ? buildChannelTrackingLinks(
-        currentLandingLink.trim(),
-        { id: campaignId, name: webinarTitle, zoomMeetingId },
-        undefined,
-        origin
-      )
-    : null;
 
   const calUrls = scheduledIso
     ? buildCalendarUrls(
         {
           title: webinarTitle,
           description,
-          location: zoomLink || (funnelMode === 'framer' ? currentLandingLink : '') || 'Online Webinar',
+          location: zoomLink || 'Online Webinar',
           startTime: scheduledIso,
           durationMinutes,
           campaignId,
@@ -174,45 +162,6 @@ export function WizardReviewLaunchCard({
         origin
       )
     : null;
-
-  async function handleSwitchFunnelMode(newMode: 'normal' | 'framer') {
-    setFunnelMode(newMode);
-    setSavingFunnel(true);
-    try {
-      const linkToSave = newMode === 'framer' ? (currentLandingLink.trim() || 'https://webinar.leadsquared.com/') : '';
-      if (newMode === 'framer' && !currentLandingLink.trim()) {
-        setCurrentLandingLink('https://webinar.leadsquared.com/');
-      }
-      await updateWizardFunnelModeAction(campaignId, newMode, linkToSave);
-      onFunnelModeChange?.(newMode, linkToSave);
-      showToast(
-        newMode === 'normal'
-          ? 'Switched to one-click channel links and calendar.'
-          : 'Switched to custom landing page mode.'
-      );
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to update funnel mode');
-    } finally {
-      setSavingFunnel(false);
-    }
-  }
-
-  async function handleSaveFramerUrl() {
-    if (!currentLandingLink.trim()) {
-      showToast('Enter a valid landing page URL.');
-      return;
-    }
-    setSavingFunnel(true);
-    try {
-      await updateWizardFunnelModeAction(campaignId, 'framer', currentLandingLink.trim());
-      onFunnelModeChange?.('framer', currentLandingLink.trim());
-      showToast('Saved the landing page URL.');
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to save landing page URL');
-    } finally {
-      setSavingFunnel(false);
-    }
-  }
 
   function copyText(text: string, key: string) {
     if (navigator?.clipboard?.writeText) {
@@ -276,6 +225,12 @@ export function WizardReviewLaunchCard({
 
       showToast('Deploying campaign and queueing cadence sends…');
       const res = await launchCadenceAction(campaignId);
+      if (!res.ok) {
+        const reason = [res.error, ...(res.problems ?? [])].join(' ');
+        setLaunchError(reason);
+        showToast(res.error);
+        return;
+      }
       showToast(`Webinar launched. ${res.queued} sends queued (${res.sent} sent immediately).`);
       setTimeout(() => {
         router.push(`/campaigns/${campaignId}/overview`);
@@ -292,7 +247,6 @@ export function WizardReviewLaunchCard({
   const hasDate = Boolean(webinarDate) || Boolean(scheduledAt);
   const detailsDone = Boolean(webinarTitle) && hasDate;
   const channelsInPlan = Array.from(new Set(enabledSteps.map((s) => channelOf(s.channel))));
-  const providerLabel = emailProvider === 'netcore' ? 'Netcore Cloud' : 'LeadSquared CRM';
   const filteredOut = safeValidation.duplicateCount + safeValidation.suppressedCount;
   const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
@@ -484,7 +438,7 @@ export function WizardReviewLaunchCard({
                 {tone}, {msgLength}
               </dd>
               <dt>Dispatch</dt>
-              <dd>{providerLabel}</dd>
+              <dd>Netcore Cloud</dd>
               <dt>Registration</dt>
               <dd>{funnelMode === 'normal' ? 'One-click links and calendar' : 'Custom landing page'}</dd>
               {speakers.length > 0 && (
@@ -617,48 +571,27 @@ export function WizardReviewLaunchCard({
         <div className="lsq-card__header">
           <div>
             <h3 className="lsq-card__title" id="wiz-funnel">Registration And Calendar</h3>
-            <p className="lsq-card__sub">Choose between built-in one-click links for each channel and an external landing page.</p>
+            <p className="lsq-card__sub">How people register after they follow a message link, and how they add the webinar to their calendar.</p>
           </div>
-          {savingFunnel && (
-            <span className="lsq-hint" role="status">
-              Saving
-            </span>
-          )}
         </div>
         <div className="lsq-card__body lsq-stack lsq-stack--lg">
-          <div className="lsq-grid lsq-grid--wide" role="group" aria-label="Registration mode">
-            <button
-              type="button"
-              className="lsq-wiz-mode"
-              aria-pressed={funnelMode === 'normal'}
-              onClick={() => handleSwitchFunnelMode('normal')}
-              disabled={savingFunnel || launching}
-            >
-              <span className="lsq-wiz-mode__head">
-                <Icon name="bolt" size={18} />
-                <span className="lsq-wiz-mode__title">One-Click Channel Links</span>
-                <Badge color={funnelMode === 'normal' ? 'blue' : 'gray'} text="Default" />
-              </span>
-              <span className="lsq-wiz-mode__body">
-                Signed links for Email, WhatsApp, SMS and LinkedIn register a contact in one click, then open the attendee hub with calendar options.
-              </span>
-            </button>
-            <button
-              type="button"
-              className="lsq-wiz-mode"
-              aria-pressed={funnelMode === 'framer'}
-              onClick={() => handleSwitchFunnelMode('framer')}
-              disabled={savingFunnel || launching}
-            >
-              <span className="lsq-wiz-mode__head">
-                <Icon name="globe" size={18} />
-                <span className="lsq-wiz-mode__title">Custom Landing Page</span>
-                <Badge color={funnelMode === 'framer' ? 'blue' : 'gray'} text="Framer script" />
-              </span>
-              <span className="lsq-wiz-mode__body">
-                An external page fills the form from the link, and a ready-to-paste script registers the contact, syncs Zoom and schedules the calendar.
-              </span>
-            </button>
+          <div className="lsq-banner lsq-banner--neutral" role="status">
+            <Icon name={funnelMode === 'framer' ? 'globe' : 'bolt'} size={18} />
+            <div className="lsq-grow">
+              <p className="lsq-banner__title">
+                {funnelMode === 'framer' ? 'Custom landing page' : 'One-click registration'}
+              </p>
+              <p className="lsq-banner__body lsq-wiz-wrap">
+                {funnelMode === 'framer'
+                  ? currentLandingLink
+                  : 'Signed links for Email, WhatsApp, SMS and LinkedIn register a contact in one click, then open the attendee hub with calendar options.'}
+              </p>
+            </div>
+            {onChangeRegistration && (
+              <Button size="sm" hierarchy="secondary" onClick={onChangeRegistration} disabled={launching}>
+                Change In Step 1
+              </Button>
+            )}
           </div>
 
           {funnelMode === 'normal' && (
@@ -764,133 +697,7 @@ export function WizardReviewLaunchCard({
 
           {funnelMode === 'framer' && (
             <>
-              <div className="lsq-field">
-                <label className="lsq-label" htmlFor="wiz-landing-url">
-                  Landing page URL
-                </label>
-                <div className="lsq-cluster lsq-wiz-urlrow">
-                  <input
-                    id="wiz-landing-url"
-                    className="lsq-input lsq-grow"
-                    type="url"
-                    value={currentLandingLink}
-                    onChange={(e) => setCurrentLandingLink(e.target.value)}
-                    placeholder="https://webinar.leadsquared.com/funnel-slug"
-                    aria-describedby="wiz-landing-url-hint"
-                  />
-                  <Button hierarchy="secondary" disabled={savingFunnel || !currentLandingLink.trim()} loading={savingFunnel} onClick={handleSaveFramerUrl}>
-                    Save URL
-                  </Button>
-                </div>
-                <p className="lsq-hint" id="wiz-landing-url-hint">
-                  The Framer or external page that hosts the registration form, for example https://webinar.leadsquared.com/opd-to-ipd-funnel.
-                </p>
-              </div>
-
-              <div className="lsq-banner lsq-banner--neutral">
-                <Icon name="info" size={18} />
-                <div>
-                  <p className="lsq-banner__title">Connect Framer in three steps</p>
-                  <ol className="lsq-wiz-steps">
-                    <li>
-                      In the Framer project, open Settings, then Custom Code, then End of body. A HTML embed on the submit button also works.
-                    </li>
-                    <li>Paste the generated script and publish.</li>
-                    <li>
-                      Invitees arriving from outreach get name, email, phone and company filled in. On submit the script registers them in Webinar Studio, syncs Zoom, cancels future invite nudges, adds them to the LeadSquared suppression list, schedules the calendar and passes the lead to LeadSquared CRM.
-                    </li>
-                  </ol>
-                </div>
-              </div>
-
-              <div className="lsq-stack lsq-stack--sm">
-                <div className="lsq-cluster">
-                  <h4 className="lsq-wiz-subtitle">Calendar Links</h4>
-                  <Badge color="success" text="Google, Outlook and Apple" />
-                </div>
-                <p className="lsq-hint">Attendees choose a calendar link after registration.</p>
-                <p className="lsq-hint">Submission offers one-click invites for Google Calendar, Outlook Live, Office 365 and an Apple (.ics) download.</p>
-                {calUrls && <CalendarLinks calUrls={calUrls} campaignId={campaignId} icsAsLink={false} />}
-              </div>
-
-              <details className="lsq-wiz-details">
-                <summary>Embed Script</summary>
-                <div className="lsq-stack lsq-stack--sm lsq-wiz-details__body">
-                  <div className="lsq-cluster lsq-cluster--between">
-                    <p className="lsq-hint">Hooks the submit button to register in Webinar Studio and Zoom, and to schedule the calendar.</p>
-                    <Button
-                      size="sm"
-                      hierarchy="secondary"
-                      icon={<Icon name={copiedKey === 'script' ? 'check' : 'copy'} size={14} />}
-                      onClick={() => copyText(embedScript, 'script')}
-                    >
-                      {copiedKey === 'script' ? 'Copied' : 'Copy Script'}
-                    </Button>
-                  </div>
-                  <pre className="lsq-code lsq-wiz-script" tabIndex={0} aria-label="Framer embed script">
-                    {embedScript}
-                  </pre>
-                </div>
-              </details>
-
-              {framerLinks && (
-                <details className="lsq-wiz-details">
-                  <summary>Preview Channel Links</summary>
-                  <div className="lsq-stack lsq-stack--sm lsq-wiz-details__body">
-                    <p className="lsq-hint">Opens the landing page with channel attribution and the form pre-filled.</p>
-                    <div className="lsq-table-wrap" tabIndex={0} role="region" aria-label="Scrollable table">
-                      <table className="lsq-table">
-                        <thead>
-                          <tr>
-                            <th scope="col">Channel</th>
-                            <th scope="col">Link</th>
-                            <th scope="col">
-                              <span className="lsq-sr-only">Actions</span>
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(
-                            [
-                              { key: 'email', label: 'Email', url: framerLinks.email },
-                              { key: 'whatsapp', label: 'WhatsApp', url: framerLinks.whatsapp },
-                              { key: 'sms', label: 'SMS', url: framerLinks.sms },
-                              { key: 'linkedin', label: 'LinkedIn', url: framerLinks.linkedin },
-                            ] as const
-                          ).map((item) => (
-                            <tr key={item.key}>
-                              <th scope="row" className="lsq-cell-primary lsq-wiz-rowhead">
-                                {item.label}
-                              </th>
-                              <td>
-                                <span className="lsq-wiz-url" suppressHydrationWarning>
-                                  {item.url}
-                                </span>
-                              </td>
-                              <td>
-                                <span className="lsq-wiz-actions">
-                                  <a
-                                    className="lsq-btn lsq-btn--sm lsq-btn--secondary"
-                                    href={item.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    aria-label={`Open ${item.label} test link`}
-                                    suppressHydrationWarning
-                                  >
-                                    <Icon name="external" size={14} />
-                                    Open
-                                  </a>
-                                  <CopyButton copied={copiedKey === item.key} label={`Copy ${item.label} test link`} onCopy={() => copyText(item.url, item.key)} />
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </details>
-              )}
+              <ExternalRegistrationSetup script={embedScript} channelLinks={sharedLinks} apiOrigin={origin} />
             </>
           )}
         </div>

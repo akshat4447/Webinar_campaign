@@ -1,5 +1,5 @@
 import { decryptCredential } from '@/lib/credentialCipher';
-import { assertPublicUrl, publicDispatcher } from '@/lib/safeFetch';
+import { assertPublicUrl, dispatchingFetch, publicDispatcher } from '@/lib/safeFetch';
 import { DeliveryRejectedError } from '@/lib/deliveryGuard';
 
 import { db } from './db';
@@ -38,7 +38,7 @@ export interface ChannelActivityMapping {
   typeId?: number;
 }
 
-const MAP_CHANNELS = ['email', 'linkedin', 'sms', 'whatsapp'] as const;
+const MAP_CHANNELS = ['sms', 'whatsapp'] as const;
 
 /** Reads the operator-configurable activity map (channel → activity type). */
 export async function getActivityMap(): Promise<Record<string, ChannelActivityMapping | null>> {
@@ -272,7 +272,7 @@ export async function executeDirectSend(params: DirectSendParams): Promise<Direc
   await assertPublicUrl(endpoint);
   const dispatcher = process.env.ALLOW_PRIVATE_FETCH === '1' ? undefined : publicDispatcher();
   try {
-  const res = await fetch(endpoint, {
+  const res = await (dispatcher ? dispatchingFetch : fetch)(endpoint, {
     dispatcher,
     redirect: 'error',
     method: 'POST',
@@ -405,29 +405,4 @@ export async function deliverChannelMessage(input: ChannelDeliveryInput): Promis
 
   const detail = await deliverDirect(input);
   return { strategyUsed: 'direct', detail };
-}
-
-/**
- * Posts a "message sent" activity IF the operator mapped an activity type for
- * this channel — giving THEIR LSQ automations a hook on every stage. Returns
- * false when nothing is mapped (silently, by design).
- */
-export async function postSentActivityIfMapped(opts: {
-  channel: 'email' | 'linkedin' | 'sms' | 'whatsapp';
-  lsqLeadId: string;
-  campaignName: string;
-  stepKey: string;
-  note: string;
-}): Promise<boolean> {
-  const map = await getActivityMap();
-  const mapped = map[opts.channel]?.typeId;
-  if (!mapped) return false;
-  await pushCustomActivities([
-    {
-      RelatedProspectId: opts.lsqLeadId,
-      ActivityEvent: mapped,
-      ActivityNote: `${opts.note} — ${opts.campaignName}`.slice(0, 480),
-    },
-  ]);
-  return true;
 }

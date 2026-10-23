@@ -1,7 +1,16 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { getCampaignJobsAction, updateCampaignJobAction, confirmOperationOutcomeAction } from '@/lib/actions/jobs';
-export function CampaignJobs({ campaignId }: { campaignId: string }) {
+/** What the background-work card has to say. Quiet unless something needs a person: a job to watch, a failure, an uncertain send, a failed worker run, or a running cadence with no worker run at all. */
+export function jobsNeedAttention(
+  data: { jobs: Array<{ status: string }>; registrationFailures: number; unknownSends: number; uncertainOperations: unknown[]; heartbeat: { ok: boolean } | null },
+  cadenceRunning: boolean
+): boolean {
+  const open = data.jobs.some((j) => j.status !== 'completed' && j.status !== 'cancelled');
+  return open || data.registrationFailures > 0 || data.unknownSends > 0 || data.uncertainOperations.length > 0 || (data.heartbeat ? !data.heartbeat.ok : cadenceRunning);
+}
+
+export function CampaignJobs({ campaignId, cadenceRunning = false }: { campaignId: string; cadenceRunning?: boolean }) {
   const [data, setData] = useState<Awaited<ReturnType<typeof getCampaignJobsAction>> | null>(null);
   const [error, setError] = useState('');
   const [evidence,setEvidence] = useState<Record<string,string>>({});
@@ -15,9 +24,10 @@ export function CampaignJobs({ campaignId }: { campaignId: string }) {
   const change = async (id: string, action: 'cancel' | 'retry') => { try { await updateCampaignJobAction(campaignId, id, action); setData(await getCampaignJobsAction(campaignId)); } catch (err) { setError(err instanceof Error ? err.message : 'Job update failed.'); } };
   if (!data) return error ? <p role="alert">{error}</p> : null;
   const jobs = data.jobs.filter(j => j.status !== 'completed' && j.status !== 'cancelled');
-  return <section className="lsq-card lsq-card__body" aria-label="Background work">
+  if (!error && !jobsNeedAttention(data, cadenceRunning)) return null;
+  return <section className="lsq-card lsq-card__body lsq-res-jobs" aria-label="Background work">
 <h2 className="lsq-card__title">Background work</h2>
-    <p className="lsq-hint">{data.heartbeat ? `Last worker run: ${new Date(data.heartbeat.timestamp).toLocaleString()} · ${data.heartbeat.ok ? 'completed' : 'needs attention'}` : 'No background worker run recorded yet.'}</p>
+    <p className="lsq-hint">{data.heartbeat ? `Last worker run: ${new Date(data.heartbeat.timestamp).toLocaleString()} · ${data.heartbeat.ok ? 'completed' : 'needs attention'}` : 'No background worker run recorded yet. Messages are not sent until the worker runs.'}</p>
     {error && <p role="alert">{error}</p>}
     {data.registrationFailures > 0 && <p>{data.registrationFailures} registration sync jobs need attention. Blocked or failed jobs retry automatically; uncertain CRM outcomes require provider review.</p>}
     {data.unknownSends > 0 && <p role="alert">{data.unknownSends} messages have uncertain provider outcomes. Check the provider before retrying; see delivery history in Results.</p>}

@@ -724,9 +724,8 @@ describe('fake Zoom fault injection', () => {
 // ═════════════════════════ the app's real client against the fake ═════════════════════════
 
 describe('app Zoom client against the fake', () => {
-  let warn: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
-    warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
   afterEach(() => vi.restoreAllMocks());
@@ -832,7 +831,9 @@ describe('app Zoom client against the fake', () => {
     expect(topics).toEqual(['Upcoming 0', 'Upcoming 1', 'Upcoming 2', 'Upcoming 3', 'Upcoming 4']);
     const calls = fake.state.requestLog.filter((e) => e.area === 'api' && /\/meetings$/.test(e.path) && e.path.startsWith('/users/'));
     expect(calls).toHaveLength(3);
-    expect(warn).toHaveBeenCalled(); // webinar listing failed: add-on missing
+    // No webinar add-on is not a problem to report: the account simply has no webinars.
+    const detailed = await meetings.listUpcomingMeetingsDetailed();
+    expect(detailed.warnings).toEqual([]);
   });
 
   it('listUpcomingMeetings includes webinars when the add-on exists', async () => {

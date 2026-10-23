@@ -46,6 +46,8 @@ export interface ReadinessInput {
   };
   lsqConfigured: boolean;
   landing?: LandingReport | null;
+  /** Whether the LeadSquared lead field that records each registration's channel exists. */
+  attributionField?: 'found' | 'missing' | 'unknown';
   now?: Date;
 }
 
@@ -54,6 +56,8 @@ export interface Readiness {
   checks: ReadinessCheck[];
   ready: boolean;
   counts: Record<ReadinessStatus, number>;
+  /** The webinar went out and its time has passed: the checks describe a record, not a to-do list. */
+  takenPlace: boolean;
 }
 
 const isPublicOrigin = (o: string) => /^https:\/\//i.test(o) && !/localhost|127\.0\.0\.1|\.local\b|\b10\.|192\.168\./i.test(o);
@@ -63,20 +67,28 @@ export function computeRegistrationReadiness(input: ReadinessInput): Readiness {
   const now = input.now ?? new Date();
   const mode = registrationModeOf(c);
   const checks: ReadinessCheck[] = [];
+  // A webinar that went out and has since taken place is a record: its date, its closed registration and its Zoom
+  // registration switch are what they should be, not problems to fix before launch.
+  const endedMs = c.scheduledAt ? c.scheduledAt.getTime() + (c.durationMinutes ?? 60) * 60_000 : null;
+  const takenPlace = endedMs !== null && endedMs < now.getTime() && (c.status === 'live' || c.status === 'completed');
   const add = (x: ReadinessCheck) => checks.push(x);
 
   // ── event ──
   if (!c.scheduledAt) {
     add({ id: 'date', group: 'event', label: 'Date and time', status: 'fail', detail: 'No date or time is set.', fix: 'Set the webinar date and time.' });
+  } else if (takenPlace) {
+    add({ id: 'date', group: 'event', label: 'Date and time', status: 'pass', detail: 'The webinar has taken place.' });
   } else if (c.scheduledAt.getTime() < now.getTime()) {
-    add({ id: 'date', group: 'event', label: 'Date and time', status: 'warn', detail: 'The webinar date has already passed. Invites and reminders scheduled around it will not send.', fix: 'Move the webinar to a future date, or archive it.' });
+    add({ id: 'date', group: 'event', label: 'Date and time', status: 'warn', detail: 'The webinar date has already passed. Invites and reminders scheduled around it will not send.', fix: 'Set a date that is still ahead: in Step 1 of the setup for a draft, or with Reschedule Webinar on the Results tab for a launched webinar. Or archive it.' });
   } else {
     add({ id: 'date', group: 'event', label: 'Date and time', status: 'pass', detail: 'The webinar is scheduled for a future time.' });
   }
 
   const avail = registrationAvailability(c, now);
   add(
-    avail.open
+    takenPlace && !avail.open && avail.reason === 'ended'
+      ? { id: 'open', group: 'event', label: 'Registration', status: 'pass', detail: 'Registration closed when the webinar ended.' }
+      : avail.open
       ? { id: 'open', group: 'event', label: 'Registration is open', status: 'pass', detail: 'People can register right now.' }
       : { id: 'open', group: 'event', label: 'Registration is open', status: 'fail', detail: `Registration is closed (${avail.reason}).`, fix: avail.reason === 'full' ? 'Raise the capacity or end registration deliberately.' : 'Registration cannot be reopened for a webinar that has ended.' }
   );
@@ -124,11 +136,15 @@ export function computeRegistrationReadiness(input: ReadinessInput): Readiness {
   if (!c.zoomMeetingId) {
     add({ id: 'zoom-link', group: 'zoom', label: 'Zoom event', status: 'warn', detail: 'No Zoom event is linked. Registrations are recorded in Studio, but attendees get no personal join link and attendance cannot be imported.', fix: 'Link or create a Zoom event.' });
   } else if (!zoom.connected) {
-    add({ id: 'zoom-connected', group: 'zoom', label: 'Zoom connection', status: 'fail', detail: 'A Zoom event is linked but Zoom is not connected, so registrants cannot be created.', fix: 'Connect Zoom on the Integrations page.' });
+    add(takenPlace
+      ? { id: 'zoom-connected', group: 'zoom', label: 'Zoom connection', status: 'warn', detail: 'Zoom is not connected, so attendance cannot be imported from the linked Zoom event.', fix: 'Connect Zoom on the Integrations page, or import attendance from a CSV.' }
+      : { id: 'zoom-connected', group: 'zoom', label: 'Zoom connection', status: 'fail', detail: 'A Zoom event is linked but Zoom is not connected, so registrants cannot be created.', fix: 'Connect Zoom on the Integrations page.' });
   } else if (!zoom.health) {
     add({ id: 'zoom-health', group: 'zoom', label: 'Zoom registration', status: 'warn', detail: 'The Zoom event could not be checked.', fix: 'Reload and try again.' });
   } else if (zoom.health.error) {
     add({ id: 'zoom-health', group: 'zoom', label: 'Zoom registration', status: 'warn', detail: zoom.health.error, fix: 'Check the Zoom connection and that the event still exists.' });
+  } else if (!zoom.health.registrationEnabled && takenPlace) {
+    add({ id: 'zoom-registration', group: 'zoom', label: 'Zoom registration', status: 'pass', detail: 'Registration is off on the Zoom event, which is fine now that the webinar has taken place.' });
   } else if (!zoom.health.registrationEnabled) {
     add({ id: 'zoom-registration', group: 'zoom', label: 'Zoom registration', status: 'fail', detail: 'Registration is switched off on the Zoom event, so every add-registrant call will be refused.', fix: 'Use "Enable registration" (needs the update scope and a Licensed host).' });
   } else {
@@ -152,6 +168,14 @@ export function computeRegistrationReadiness(input: ReadinessInput): Readiness {
       : { id: 'lsq', group: 'crm', label: 'LeadSquared', status: 'warn', detail: 'LeadSquared is not connected, so registrations will not appear in the CRM.', fix: 'Connect LeadSquared on the Integrations page.' }
   );
 
+  if (lsqConfigured && input.attributionField && input.attributionField !== 'unknown') {
+    add(
+      input.attributionField === 'found'
+        ? { id: 'attribution-field', group: 'crm', label: 'Channel Source field', status: 'pass', detail: "LeadSquared has the mx_Channel_Source field, so each registration's channel is saved on the lead." }
+        : { id: 'attribution-field', group: 'crm', label: 'Channel Source field', status: 'warn', detail: "LeadSquared has no mx_Channel_Source field yet, so registrations are counted here but their channel is not saved on the lead.", fix: 'In LeadSquared add a lead field with the schema name mx_Channel_Source (single line text), then check again on the Registration tab.' }
+    );
+  }
+
   // People who register must stop receiving invites everywhere. This app cancels its own pending sends; the
   // LeadSquared suppression list is what keeps the CRM's own automations from emailing them too, and without
   // a chosen list the sync is skipped silently.
@@ -172,5 +196,5 @@ export function computeRegistrationReadiness(input: ReadinessInput): Readiness {
 
   const counts = { pass: 0, warn: 0, fail: 0 } as Record<ReadinessStatus, number>;
   for (const k of checks) counts[k.status]++;
-  return { mode, checks, ready: counts.fail === 0, counts };
+  return { mode, checks, ready: counts.fail === 0, counts, takenPlace };
 }

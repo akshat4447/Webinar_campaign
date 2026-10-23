@@ -5,14 +5,14 @@ The canonical repository is `akshat4447/Webinar_campaign`, branch `main`. The ro
 ## Shared release requirements
 
 1. Use Node **24.x**, persistent PostgreSQL 16 or newer, and the committed lockfile (`npm ci`).
-2. Set `DATABASE_URL`, the final HTTPS `APP_ORIGIN`, and two independent persistent secrets: `REGISTRATION_SECRET` and `CREDENTIALS_ENCRYPTION_KEY`, each at least 32 characters. Render supplies the origin automatically through `RENDER_EXTERNAL_URL`; set `APP_ORIGIN` explicitly for a custom domain. Generate each key separately with `openssl rand -hex 32`. Keep these values in hosting environment settings, never in GitHub files.
+2. Set `DATABASE_URL`, the final HTTPS `APP_ORIGIN`, and two independent persistent secrets: `REGISTRATION_SECRET` and `CREDENTIALS_ENCRYPTION_KEY`, each at least 32 characters, a separate 32+ character `CRON_SECRET`, and the operator sign-in `APP_USERNAME` and `APP_PASSWORD`. Render supplies the origin automatically through `RENDER_EXTERNAL_URL`; set `APP_ORIGIN` explicitly for a custom domain. Generate each key separately with `openssl rand -hex 32`. Keep these values in hosting environment settings, never in GitHub files.
 3. Back up the existing database and both keys. An empty hosting database does not contain the existing local campaigns or integration settings. Restore the intended backup before migration if moving existing data.
 4. Apply `npm run db:migrate:deploy` against the intended database before serving the release. The approval correction migration revokes only unreviewed, unscored website registrations; it preserves manual and scored decisions.
 5. For older installations with plaintext saved credentials, run `npm run credentials:encrypt` once with the persistent encryption key. The operation is idempotent. Retain both keys across releases; replacing them can invalidate credentials or attendee links.
 6. Configure the actual providers in Integrations, sender identity, webhook secrets, provider callback URLs, and CRM activity/automation mapping. Do not run demo seed/reset scripts as deployment steps.
 7. Check `GET /api/health` returns HTTP 200, open the studio and a public registration page, and test a designated attendee's registration, confirmation, personal calendar and join link. Check worker heartbeat and provider delivery records before launching audience outreach.
 
-The operator studio and worker endpoint have **no authentication or authorization**, by request. Anyone who can reach those endpoints can operate the app, export contacts and initiate provider actions. Signed attendee links and provider webhook signatures remain enforced.
+The operator studio is behind a **sign-in page**: one username and password, set with `APP_USERNAME` and `APP_PASSWORD` in the hosting environment (never in the repository). With either missing nobody can sign in, so set both before the first start. Sessions last seven days and end when the password changes. Left open on purpose, because the people or services calling them have no login: attendee registration and confirmation pages, `/api/landing/submit` (registration from a landing page), provider webhooks (each checks its own signature), signed calendar links, `/api/health`, and the scheduler URL `/api/cron/*`, which requires its own `Authorization: Bearer <CRON_SECRET>` header. Missing or incorrect scheduler credentials are rejected before a worker runs. Every operator server action also independently verifies the operator session. There is a single shared account, with no roles or audit trail.
 
 ## Render: `render.yaml`
 
@@ -37,11 +37,21 @@ The current template creates **one free full-stack Next.js web service and one f
 
 ### Free-tier scheduling and lifetime
 
-`CADENCE_AUTOTICK=false` and `ZOOM_AUTOSYNC=false` keep process timers disabled during setup. **Scheduled cadence jobs, queued background work and automatic Zoom synchronization do not run unattended with this default configuration.** For a controlled cadence test, call `GET https://YOUR_ORIGIN/api/cron/cadence`; this can make real provider calls. Zoom synchronization also requires `ZOOM_AUTOSYNC=true`. A dependable scheduler must be deliberately configured before expecting automatic campaigns to work; sleeping process timers are insufficient.
+`CADENCE_AUTOTICK=false` and `ZOOM_AUTOSYNC=false` keep process timers disabled during setup. **Scheduled cadence jobs, queued background work and automatic Zoom synchronization do not run unattended with this default configuration.** For a controlled cadence test, call `GET https://YOUR_ORIGIN/api/cron/cadence` with the scheduler bearer header; this can make real provider calls. Zoom synchronization also requires `ZOOM_AUTOSYNC=true`. A dependable scheduler must be deliberately configured before expecting automatic campaigns to work; sleeping process timers are insufficient.
 
 Free web services sleep after **15 minutes** without inbound traffic and typically take about a minute to wake. Free PostgreSQL has **1 GB** storage, expires after **30 days**, and has no managed backups. Back up or upgrade before expiry. These limits make this a temporary test deployment, not the production configuration described in the original audit. See [Render's free-tier limits](https://render.com/docs/free), [default public URL variables](https://render.com/docs/environment-variables), [deployment commands](https://render.com/docs/deploys#pre-deploy-command), and the [Blueprint specification](https://render.com/docs/blueprint-spec).
 
 For ongoing production, upgrade the web and database plans and commit matching paid plan values to the Blueprint so future syncs preserve them. Move migrations to `preDeployCommand`, use `startCommand: npm start`, and deliberately enable one scheduler owner after provider verification. Retain the existing database and keys.
+
+## Production Render: `render.production.yaml`
+
+A reviewed paid configuration is supplied separately so a preview Blueprint sync cannot silently create new recurring charges. It retains the existing resource names, uses `1c-2g` web compute and `0.5c-1g` PostgreSQL with 5 GB storage, runs migrations as a pre-deploy step and starts the packaged standalone server. Set the Blueprint path to this file only after approving the selected plans. Render must preserve the existing database and signing/encryption keys.
+
+The always-on web process runs the single database-leased worker every five minutes (`CADENCE_AUTOTICK=true`). `ZOOM_AUTOSYNC=true` includes Zoom synchronization in that worker; there is no second independent timer. An external scheduler is optional for this deployment and must supply the bearer header if used. Free sleeping instances cannot provide this guarantee.
+
+`npm run build` generates Prisma, builds Next and packages static/public assets into the standalone directory. It removes traced dotenv files from the deployable bundle. `npm start` validates required settings and starts that bundle; it refuses missing operator credentials, weak/shared signing and encryption keys, and a non-HTTPS Render origin.
+
+Before deployment, take a consistent source database dump and restore it to a disposable database. The recovery script compares timestamps in UTC and sorts using C collation so managed/local locale differences cannot create false hash failures. Preserve the pre-release dump and keys outside the repository. After migration and deployment, verify health, login, attendee privacy, the rejected anonymous worker call, and worker heartbeat.
 
 ## Vercel: `vercel.json`
 
@@ -59,7 +69,7 @@ npm run db:migrate:deploy
 
 Vercel does not run Render's pre-deploy command. Database credentials supplied to a release job must match the intended environment. Take a backup before migration; rolling back application code does not reverse a data migration.
 
-**Configure a five-minute scheduler.** The base configuration intentionally has no native cron entry: Vercel Hobby accepts only daily cron schedules. Use an external scheduler to call `GET https://YOUR_ORIGIN/api/cron/cadence` every five minutes, or on Vercel Pro add this root property:
+**Configure a five-minute scheduler.** The base configuration intentionally has no native cron entry: Vercel Hobby accepts only daily cron schedules. Use an external scheduler with `Authorization: Bearer <CRON_SECRET>` to call `GET https://YOUR_ORIGIN/api/cron/cadence` every five minutes, or on Vercel Pro add this root property:
 
 ```json
 "crons": [{ "path": "/api/cron/cadence", "schedule": "*/5 * * * *" }]

@@ -2,7 +2,7 @@ import { db } from '@/lib/db';
 import { enrichContacts } from '@/lib/claude';
 import { upsertAttentionItem } from '@/lib/attentionItems';
 import { resolveIntegrationField } from '@/lib/integrationConfig';
-import { enrichContactsViaApollo, type ApolloEnrichedContact } from '@/lib/apolloVerify';
+import { enrichContactsViaApollo, type ApolloEnrichedContact, type ApolloLookup } from '@/lib/apolloVerify';
 
 export interface EnrichmentFieldSelection {
   apolloEmail: boolean;
@@ -86,9 +86,16 @@ export interface EnrichmentResult {
    *  persona update. Distinct from a full Claude outage: some contacts may
    *  still have been enriched normally in other batches. */
   claudeFailedBatches?: number;
+  /** Contacts Apollo could not be asked about (rate limit, outage). They were left untouched, not guessed at. */
+  apolloDeferred?: number;
+  /** Seconds Apollo asked to wait before trying again, when it rate limited this run. */
+  apolloRetryAfterSec?: number;
+  /** Apollo's problem will not fix itself by retrying (rejected key, refused request). */
+  apolloFatal?: boolean;
+  /** Apollo emails that exist but are not verified: held back from sending until a person approves them. */
+  emailsUnverified?: number;
+  apolloCredits?: number;
 }
-
-const COMPANY_SUFFIXES = /\b(inc|llc|ltd|limited|corp|corporation|co|company|group|holdings|technologies|technology|labs|plc|pvt|private|gmbh|sa|bv)\b/gi;
 
 function inferEmail(name: string, account: string, knownDomains: Map<string, string>): string | null {
   const parts = name
@@ -98,20 +105,9 @@ function inferEmail(name: string, account: string, knownDomains: Map<string, str
     .filter(Boolean);
   if (parts.length === 0) return null;
 
-  const observed = knownDomains.get(account.trim().toLowerCase());
-  const domain =
-    observed ??
-    (() => {
-      const slug = account
-        .replace(COMPANY_SUFFIXES, '')
-        .replace(/[^a-zA-Z0-9\s]/g, '')
-        .trim()
-        .toLowerCase()
-        .split(/\s+/)
-        .filter(Boolean)
-        .join('');
-      return slug ? `${slug}.example` : null;
-    })();
+  // Only a domain actually seen on a colleague's address counts. The old fallback invented one ("acme.example",
+  // a reserved name that can never receive mail), which produced addresses that could only ever bounce.
+  const domain = knownDomains.get(account.trim().toLowerCase());
   if (!domain) return null;
 
   const local = parts.length === 1 ? parts[0].toLowerCase() : `${parts[0].toLowerCase()}.${parts[parts.length - 1].toLowerCase()}`;
@@ -160,9 +156,7 @@ export async function getEnrichmentPreflight(
   if (fields.apolloEmail || fields.apolloPhone || fields.apolloTitle) {
     const needingApollo = contacts.filter(
       (c) =>
-        (fields.apolloEmail && !hasUsableEmail(c.email)) ||
-        (fields.apolloPhone && (!c.phone || c.phone.trim().length === 0)) ||
-        (fields.apolloTitle && (!c.title || c.title === '—'))
+        (fields.apolloEmail && !hasUsableEmail(c.email)) || (fields.apolloTitle && (!c.title || c.title === '—'))
     ).length;
     estimatedApolloCredits = needingApollo;
   }
@@ -190,13 +184,18 @@ export async function runEnrichment(
 ): Promise<EnrichmentResult> {
   const fields: EnrichmentFieldSelection = { ...DEFAULT_FIELD_SELECTION, ...config?.fields };
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId } });
-  let contacts = await db.contact.findMany({ where: { campaignId } });
-  if (contacts.length === 0) return { ok: false, error: 'No contacts imported yet — import a contact list on the Audience tab first.' };
+  // A batch of the audience job names its contacts, so only those are loaded: reading the whole campaign for
+  // every batch of five made enriching a few thousand contacts quadratic.
+  const scopedIds = config?.contactIds && config.contactIds.length > 0 ? config.contactIds : null;
+  let contacts = await db.contact.findMany({ where: { campaignId, ...(scopedIds ? { id: { in: scopedIds } } : {}) }, orderBy: { id: 'asc' } });
+  if (contacts.length === 0) {
+    const any = scopedIds ? await db.contact.count({ where: { campaignId } }) : 0;
+    if (!scopedIds || any === 0) return { ok: false, error: 'No contacts imported yet — import a contact list on the Audience tab first.' };
+    return { ok: true, personasEnriched: 0, emailsFoundReal: 0, emailsInferred: 0, couldNotEnrich: 0, phonesFound: 0, titlesUpdated: 0 };
+  }
 
-  // If specific contact IDs requested:
-  if (config?.contactIds && config.contactIds.length > 0) {
-    const filterIds = new Set(config.contactIds);
-    contacts = contacts.filter((c) => filterIds.has(c.id));
+  if (scopedIds) {
+    // already narrowed by the query
   } else if (config?.sampleOnly) {
     // Pick 3-5 representative sample contacts, prioritizing those with gaps
     const sampleSize = config.sampleSize || 3;
@@ -245,35 +244,58 @@ export async function runEnrichment(
     const apolloKey = await resolveIntegrationField('apollo', 'apiKey');
     let apolloResults = new Map<string, ApolloEnrichedContact>();
 
+    // Colleagues' addresses reveal each company's real web domain, which makes Apollo's match far more reliable
+    // than a company name alone. A light read of the whole campaign (account and email only), once per run.
+    const domainSource = await db.contact.findMany({ where: { campaignId, email: { not: null } }, select: { account: true, email: true } });
+    const knownDomains = learnDomains(domainSource);
+
+    // Who Apollo is asked about: people missing an email or a title. A missing phone alone is NOT a reason: Apollo
+    // only returns a phone through an asynchronous reveal this app does not use, so asking for one cost a lookup
+    // (and rate limit) per contact and found nothing. A phone is still taken when Apollo happens to return one.
     const needingApollo = contacts.filter(
-      (c) =>
-        (fields.apolloEmail && !hasUsableEmail(c.email)) ||
-        (fields.apolloPhone && (!c.phone || c.phone.trim().length === 0)) ||
-        (fields.apolloTitle && (!c.title || c.title === '—'))
+      (c) => (fields.apolloEmail && !hasUsableEmail(c.email)) || (fields.apolloTitle && (!c.title || c.title === '—'))
     );
 
     let apolloApiError: string | undefined;
-    if (apolloKey && needingApollo.length > 0 && (fields.apolloEmail || fields.apolloPhone || fields.apolloTitle)) {
-      const { results, apiError } = await enrichContactsViaApollo(
-        needingApollo.map((c) => ({ id: c.id, name: c.name, title: c.title, account: c.account })),
+    let apolloDeferred = new Set<string>();
+    let apolloRetryAfterSec: number | undefined;
+    let apolloFatal = false;
+    let apolloCredits = 0;
+    if (apolloKey && needingApollo.length > 0 && (fields.apolloEmail || fields.apolloTitle || fields.apolloPhone)) {
+      const lookups: ApolloLookup[] = needingApollo.map((c) => ({
+        id: c.id,
+        name: c.name,
+        title: c.title,
+        account: c.account,
+        domain: knownDomains.get(c.account.trim().toLowerCase()),
+        linkedinUrl: /linkedin\.com\//i.test(c.linkedinId ?? '') ? (c.linkedinId as string) : undefined,
+        email: hasUsableEmail(c.email) ? (c.email as string) : undefined,
+      }));
+      const outcome = await enrichContactsViaApollo(lookups, {
+        apiKey: apolloKey,
         // Only pay for Apollo's separately-billed email reveal when the
         // operator actually asked for emails in the moderation modal.
-        { apiKey: apolloKey, revealEmails: fields.apolloEmail }
-      );
-      apolloResults = results;
-      apolloApiError = apiError;
+        revealEmails: fields.apolloEmail,
+      });
+      apolloResults = outcome.results;
+      apolloApiError = outcome.apiError;
+      apolloDeferred = new Set(outcome.deferred);
+      apolloRetryAfterSec = outcome.retryAfterSec;
+      apolloFatal = !!outcome.fatal;
+      apolloCredits = outcome.creditsConsumed;
     }
 
     let emailsFoundReal = 0;
+    let emailsUnverified = 0;
     let emailsInferred = 0;
     let phonesFound = 0;
     let titlesUpdated = 0;
     let couldNotEnrich = 0;
-    const knownDomains = learnDomains(contacts);
-
     const samplePreviews: SampleEnrichmentPreview[] = [];
 
-    const updates = contacts.map((c) => {
+    // Contacts Apollo could not be asked about stay exactly as they were: no guess, no "enriched" stamp, so the
+    // next run picks them up.
+    const updates = contacts.filter((c) => !apolloDeferred.has(c.id)).map((c) => {
       const e = byId.get(c.id);
       let newEmail: string | null = null;
       let emailSimulated = false;
@@ -284,9 +306,13 @@ export async function runEnrichment(
       if (fields.apolloEmail && !hasUsableEmail(c.email)) {
         if (apolloMatch?.found && apolloMatch.email) {
           newEmail = apolloMatch.email;
-          emailSimulated = false;
-          emailVerified = true;
+          // Apollo's own verdict decides. Anything short of "verified" is real but unproven, so it waits for a
+          // person like any other unverified address instead of being sent to straight away.
+          const verified = apolloMatch.emailStatus === 'verified';
+          emailSimulated = !verified;
+          emailVerified = verified;
           emailsFoundReal++;
+          if (!verified) emailsUnverified++;
         } else {
           const guessed = inferEmail(c.name, c.account, knownDomains);
           if (guessed) {
@@ -381,10 +407,7 @@ export async function runEnrichment(
         });
       }
 
-      return db.contact.update({
-        where: { id: c.id },
-        data: updateData,
-      });
+      return { id: c.id, data: updateData };
     });
 
     // Sample mode's whole point is a look-before-you-leap preview — the real
@@ -404,13 +427,46 @@ export async function runEnrichment(
         titlesUpdated,
         samplePreviews,
         claudeFailedBatches,
+        apolloApiError,
+        apolloDeferred: apolloDeferred.size,
+        apolloRetryAfterSec,
+        apolloFatal,
+        emailsUnverified,
       };
     }
 
-    // Chunk updates into batches of 50 to prevent Prisma transaction timeout on large contact lists
+    // Chunk updates into batches of 50 to prevent Prisma transaction timeout on large contact lists.
+    //
+    // A campaign cannot hold the same email twice. An address Apollo returns, or one inferred from a name and a
+    // colleague's domain, can belong to another contact already ("John Smith" twice at one company), and one such
+    // clash used to fail the whole batch, and with it the whole job. Such a contact keeps everything else the run
+    // learned and just does not get that address.
+    let emailClashes = 0;
     const DB_CHUNK_SIZE = 50;
+    const isEmailClash = (err: unknown) => (err as { code?: string })?.code === 'P2002';
     for (let i = 0; i < updates.length; i += DB_CHUNK_SIZE) {
-      await db.$transaction(updates.slice(i, i + DB_CHUNK_SIZE));
+      const chunk = updates.slice(i, i + DB_CHUNK_SIZE);
+      try {
+        await db.$transaction(chunk.map((u) => db.contact.update({ where: { id: u.id }, data: u.data })));
+      } catch (err) {
+        if (!isEmailClash(err)) throw err;
+        for (const u of chunk) {
+          try {
+            await db.contact.update({ where: { id: u.id }, data: u.data });
+          } catch (inner) {
+            if (!isEmailClash(inner)) throw inner;
+            const { email: _email, emailSimulated: _s, emailVerified: _v, missingInfo: _m, ...rest } = u.data as Record<string, unknown>;
+            void _email; void _s; void _v; void _m;
+            await db.contact.update({ where: { id: u.id }, data: rest });
+            emailClashes++;
+          }
+        }
+      }
+    }
+    if (emailClashes > 0) {
+      await db.activityLogEntry.create({
+        data: { campaignId, text: `${emailClashes} contact${emailClashes === 1 ? '' : 's'} matched an email address already held by another contact in this campaign, so that address was not applied. Everything else found for them was saved.`, dot: 'var(--warning-700)' },
+      });
     }
 
     const logLines: { campaignId: string; text: string; dot: string }[] = [];
@@ -422,23 +478,22 @@ export async function runEnrichment(
       });
     }
     if (apolloApiError) {
-      // Without this the run read as "Apollo found 0 real emails — guessed 500
-      // more where Apollo had no match", which is indistinguishable from Apollo
-      // genuinely having no data. Apollo was never successfully reached at all,
-      // and that's a credential the operator has to go fix.
+      // A run that Apollo cut short must read as that, not as "Apollo has no data": the contacts it did not
+      // answer for were left untouched (no guess, no enriched stamp) and are waiting for another run.
       logLines.push({
         campaignId,
-        text: `Apollo enrichment did not run: ${apolloApiError}${
-          emailsInferred > 0 ? ` ${emailsInferred} email(s) fell back to a pattern guess and stay unverified until a human approves them.` : ''
+        text: `Apollo enrichment ${apolloDeferred.size > 0 && emailsFoundReal + phonesFound + titlesUpdated > 0 ? 'stopped early' : 'did not run'}: ${apolloApiError}${
+          apolloDeferred.size > 0 ? ` ${apolloDeferred.size} contact${apolloDeferred.size === 1 ? ' is' : 's are'} waiting and were left unchanged.` : ''
         }`,
         dot: 'var(--danger-500)',
       });
-    } else if (apolloKey && (fields.apolloEmail || fields.apolloPhone || fields.apolloTitle)) {
+    }
+    if (!apolloApiError && apolloKey && (fields.apolloEmail || fields.apolloPhone || fields.apolloTitle)) {
       logLines.push({
         campaignId,
-        text: `Apollo found ${emailsFoundReal} real email(s), ${phonesFound} phone(s), ${titlesUpdated} title update(s)${
-          emailsInferred > 0 ? ` — guessed ${emailsInferred} more email(s) where Apollo had no match` : ''
-        }`,
+        text: `Apollo found ${emailsFoundReal} real email(s)${emailsUnverified > 0 ? ` (${emailsUnverified} not verified by Apollo, held until reviewed)` : ''}, ${phonesFound} phone(s), ${titlesUpdated} title update(s)${
+          emailsInferred > 0 ? ` — inferred ${emailsInferred} more email(s) from colleagues' domains where Apollo had no match` : ''
+        }${apolloCredits > 0 ? `. Credits used: ${apolloCredits}` : ''}`,
         dot: emailsFoundReal > 0 || phonesFound > 0 ? 'var(--success-500)' : 'var(--warning-700)',
       });
     } else if (emailsInferred > 0) {
@@ -473,10 +528,10 @@ export async function runEnrichment(
     if (apolloApiError) {
       await upsertAttentionItem(campaignId, {
         icon: 'ErrorProperty1Outline',
-        color: 'error',
-        title: 'Apollo enrichment could not run',
+        color: apolloFatal ? 'error' : 'warning',
+        title: apolloFatal ? 'Apollo enrichment could not run' : 'Apollo enrichment is waiting',
         detail: apolloApiError,
-        actionsCsv: 'fix',
+        actionsCsv: apolloFatal ? 'fix' : 'retry',
       });
     }
     if (claudeFailedBatches > 0) {
@@ -498,6 +553,11 @@ export async function runEnrichment(
       phonesFound,
       titlesUpdated,
       apolloApiError,
+      apolloDeferred: apolloDeferred.size,
+      apolloRetryAfterSec,
+      apolloFatal,
+      emailsUnverified,
+      apolloCredits,
       claudeFailedBatches,
     };
   } catch (err) {

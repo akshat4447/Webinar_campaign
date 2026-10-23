@@ -17,7 +17,7 @@ export interface RateLimitResult {
   retryAfterSec: number;
 }
 
-export async function allowRequest(opts: { scope: string; key: string; limit: number; windowMs: number; nowMs?: number }): Promise<RateLimitResult> {
+export async function allowRequest(opts: { scope: string; key: string; limit: number; windowMs: number; nowMs?: number; failurePolicy?: 'open' | 'closed' }): Promise<RateLimitResult> {
   const now = opts.nowMs ?? Date.now();
   const bucket = Math.floor(now / opts.windowMs);
   const retryAfterSec = Math.max(1, Math.ceil(((bucket + 1) * opts.windowMs - now) / 1000));
@@ -27,8 +27,9 @@ export async function allowRequest(opts: { scope: string; key: string; limit: nu
     }
     return { allowed: false, retryAfterSec };
   } catch (err) {
-    console.warn('[rateLimit] ledger unavailable, allowing request:', err instanceof Error ? err.message : err);
-    return { allowed: true, retryAfterSec };
+    const allowed = opts.failurePolicy !== 'closed';
+    console.warn(`[rateLimit] ledger unavailable, ${allowed ? 'allowing' : 'refusing'} request:`, err instanceof Error ? err.message : err);
+    return { allowed, retryAfterSec };
   }
 }
 

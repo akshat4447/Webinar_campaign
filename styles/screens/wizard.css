@@ -113,6 +113,16 @@
 .lsq-wiz-footer__hint { grid-column: 2; text-align: right; }
 .lsq-wiz-footer__next { grid-column: 3; }
 
+/* Autosave status: one quiet line that says whether the work is safe, with a button when the person can act. */
+.lsq-draft-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-4) var(--space-8); min-height: 32px; }
+.lsq-draft-status__text { margin: 0; font-size: var(--fs-label-1); line-height: var(--lh-normal); color: var(--text-secondary); }
+.lsq-draft-status[data-tone='warn'] .lsq-draft-status__text { color: var(--warning-700); }
+.lsq-draft-status[data-tone='bad'] .lsq-draft-status__text { color: var(--text-danger); }
+.lsq-draft-status__actions { gap: var(--space-4); }
+
+/* Stepper steps that are not reachable yet. */
+.lsq-wiz-step__btn[data-locked='true'] { cursor: not-allowed; color: var(--text-tertiary); }
+
 /* Pressable option cards (Zoom source, email gateway). */
 .lsq-wiz-options { display: grid; gap: var(--space-8); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 .lsq-wiz-options--two { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
@@ -183,16 +193,31 @@
 
 /* Attribution channel picker. */
 .lsq-wiz-channels { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-8); grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.lsq-wiz-channels--pair { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
 .lsq-wiz-channel { display: flex; align-items: flex-start; gap: var(--space-12); height: 100%; padding: var(--space-12); border-radius: var(--radius-md); background: var(--surface-card); box-shadow: inset 0 0 0 1px var(--border-default); cursor: pointer; }
 .lsq-wiz-channel[data-checked='true'] { background: var(--accent-50); box-shadow: inset 0 0 0 1px var(--accent-500); }
 .lsq-wiz-channel[data-disabled='true'] { cursor: not-allowed; color: var(--text-tertiary); }
 .lsq-wiz-channel:focus-within { box-shadow: var(--focus-ring); }
 .lsq-wiz-channel input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent-500); flex: none; }
 .lsq-wiz-channel__body { display: flex; flex: 1 1 0; flex-direction: column; gap: var(--space-4); min-width: 0; }
-.lsq-wiz-channel__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-8); }
 .lsq-wiz-channel__name { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--fs-label-1); font-weight: var(--fw-bold); }
 .lsq-wiz-channel__desc { font-size: var(--fs-label-1); color: var(--text-secondary); line-height: var(--lh-normal); }
-.lsq-wiz-channel .lsq-wiz-code-inline { align-self: flex-start; }
+
+/* Channels Studio adds links for itself: a quiet read-only strip, not a choice. */
+.lsq-wiz-auto { display: flex; flex-direction: column; gap: var(--space-8); padding: var(--space-12) var(--space-16); border-radius: var(--radius-md); background: var(--surface-subtle); }
+.lsq-wiz-auto__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-4) var(--space-12); }
+.lsq-wiz-auto__list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-8); }
+.lsq-wiz-auto__item { display: inline-flex; align-items: center; gap: var(--space-6); padding: var(--space-4) var(--space-12); border-radius: var(--radius-full); background: var(--surface-card); box-shadow: inset 0 0 0 1px var(--border-default); font-size: var(--fs-label-1); font-weight: var(--fw-semibold); }
+.lsq-wiz-auto__item svg:last-child { color: var(--success-700); }
+.lsq-wiz-group-label { font-size: var(--fs-label-1); font-weight: var(--fw-bold); color: var(--text-primary); }
+.lsq-wiz-group-legend { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-4) var(--space-12); padding: 0; width: 100%; }
+
+/* Connecting an external landing page: numbered steps. */
+.lsq-reg-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-16); }
+.lsq-reg-step { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--space-12); align-items: start; }
+.lsq-reg-step__n { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-full); background: var(--accent-50); color: var(--accent-700); font-size: var(--fs-label-1); font-weight: var(--fw-bold); }
+.lsq-reg-step__body { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
+.lsq-reg-step__title { margin: 0; font-size: var(--fs-label-1); font-weight: var(--fw-bold); color: var(--text-primary); }
 
 /* Checkbox lists (enrichment fields, exclusion lists). */
 .lsq-wiz-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }

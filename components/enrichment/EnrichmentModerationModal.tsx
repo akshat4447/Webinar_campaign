@@ -6,6 +6,7 @@ import { Field } from '@/components/ui/Field';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
+import { finishAudienceJob } from '@/lib/audienceJobClient';
 import {
   getEnrichmentPreflightAction,
   runEnrichmentSampleAction,
@@ -47,6 +48,7 @@ export function EnrichmentModerationModal({
   const [loadingPreflight, setLoadingPreflight] = useState(false);
   const [sampleLoading, setSampleLoading] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const [samples, setSamples] = useState<SampleEnrichmentPreview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -143,7 +145,7 @@ export function EnrichmentModerationModal({
     setBulkLoading(true);
     setError(null);
     try {
-      const res = await runEnrichmentAction(campaignId, { fields });
+      const res = await finishAudienceJob(campaignId, await runEnrichmentAction(campaignId, { fields }), (done, total) => setBulkProgress({ done, total }));
       if (res.ok) {
         onComplete(res);
         handleClose();
@@ -154,6 +156,7 @@ export function EnrichmentModerationModal({
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBulkLoading(false);
+      setBulkProgress(null);
     }
   }
 
@@ -179,7 +182,7 @@ export function EnrichmentModerationModal({
       title: 'Direct mobile or phone number',
       badge: { color: apolloConfigured ? 'blue light' : 'gray', text: apolloConfigured ? 'Apollo' : 'Apollo offline' },
       description: apolloConfigured
-        ? 'Extracts mobile numbers for SMS and WhatsApp countdown reminders.'
+        ? 'Saves a phone number when Apollo returns one with the email or title lookup. A missing phone alone does not trigger a lookup: Apollo reveals new numbers asynchronously, which is not used here.'
         : 'Requires a connected Apollo API to search phone numbers (skipped while offline).',
     },
     {
@@ -221,7 +224,7 @@ export function EnrichmentModerationModal({
             {sampleLoading ? 'Testing 3 Contacts' : 'Test on 3 Sample Contacts'}
           </Button>
           <Button hierarchy="primary" onClick={handleRunBulk} loading={bulkLoading} disabled={sampleLoading || loadingPreflight}>
-            {bulkLoading ? 'Enriching Audience' : 'Enrich All Contacts'}
+            {bulkLoading ? (bulkProgress ? `Enriching ${bulkProgress.done.toLocaleString()} of ${bulkProgress.total.toLocaleString()}` : 'Enriching Audience') : 'Enrich All Contacts'}
           </Button>
         </>
       }

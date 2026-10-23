@@ -73,7 +73,7 @@ export default async function SchedulePage({ params, searchParams }: { params: P
     );
   }
 
-  const [steps, approvedContacts, sendCounts, linkedinTemplate, speakers, suppressionCount, registeredCount, campaignSuppressionCount] = await Promise.all([
+  const [steps, approvedContacts, sendCounts, linkedinTemplate, speakers, suppressionCount, registeredCount, campaignSuppressionCount, removedSteps] = await Promise.all([
     db.cadenceStep.findMany({ where: { campaignId: id, removedAt: null } }).then((rows) => rows.sort(compareCadenceSteps)),
     db.contact.findMany({ where, orderBy: [{ score: {sort:'desc',nulls:'last'} }, { name: 'asc' }, {id:'asc'}], take:CONTACT_PAGE_SIZE,skip:(page-1)*CONTACT_PAGE_SIZE }),
     db.cadenceSend.groupBy({ by: ['stepKey', 'status'], where: { campaignId: id }, _count: true }),
@@ -82,6 +82,7 @@ export default async function SchedulePage({ params, searchParams }: { params: P
     db.emailSuppression.count(),
     db.contact.count({ where: { campaignId: id, registeredAt: { not: null } } }),
     db.campaignSuppression.count({ where: { campaignId: id } }),
+    db.cadenceStep.findMany({ where: { campaignId: id, removedAt: { not: null }, createdByUser: false }, select: { id: true, title: true, group: true, channel: true } }),
   ]);
   const speakersSummary = formatSpeakersSummary(speakers) || campaign.speakerName || '';
   // Personalized LinkedIn drafts win over the shared template, same as email.
@@ -203,8 +204,10 @@ export default async function SchedulePage({ params, searchParams }: { params: P
 
   return (
     <main style={{ flex: 1, overflowY: 'auto' }}>
-      <ContactPagination path={`/campaigns/${id}/cadence`} page={page} total={matching} q={q} label="LinkedIn recipients" />
+      {/* The search only narrows the LinkedIn queue, so it appears when the queue is long enough to need it. */}
+      {(matching > CONTACT_PAGE_SIZE || q) && <ContactPagination path={`/campaigns/${id}/cadence`} page={page} total={matching} q={q} label="LinkedIn queue contacts" />}
       <CadenceGroups
+        cadenceStatus={campaign.cadenceStatus}
         campaignId={id}
         webinarName={campaign.name}
         steps={steps}
@@ -219,6 +222,7 @@ export default async function SchedulePage({ params, searchParams }: { params: P
         registeredCount={registeredCount}
         suppressionCount={suppressionCount}
         campaignSuppressionCount={campaignSuppressionCount}
+        removedSteps={removedSteps}
         linkedinQueue={linkedinQueue}
         initialLinkedInProgress={linkedinProgress}
         automationRules={{

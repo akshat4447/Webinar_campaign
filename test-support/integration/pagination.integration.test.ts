@@ -1,6 +1,5 @@
 import {it,expect,afterAll,vi} from 'vitest';
 vi.mock('@/lib/revalidate',()=>({revalidateCampaign:vi.fn()}));
-vi.mock('@/lib/channelDelivery',async original=>({...await original<typeof import('@/lib/channelDelivery')>(),postSentActivityIfMapped:vi.fn()}));
 import {db} from '@/lib/db';
 import {getOverviewData} from '@/lib/overviewData';
 import {getCampaignRegistrationChannels,resolveContactRegistrationChannel} from '@/lib/registrationChannelsServer';
@@ -40,4 +39,18 @@ it('keeps approval comparisons scoped to scored contacts and attendance rates sc
 it('counts SMS registrations and invitations separately from SDR/Sales',async()=>{
  const id=await campaign();const sms=await contact(id,1,{registeredAt:new Date(),registrationSource:'sms'});await contact(id,2,{registeredAt:new Date(),registrationSource:'sdr_sales'});await db.cadenceSend.create({data:{campaignId:id,contactId:sms.id,stepKey:'smsInvite',dueAt:new Date(),status:'sent'}});
  const data=await getCampaignRegistrationChannels(id);expect(data.channels.find(c=>c.key==='sms')).toMatchObject({registeredCount:1,invitedCount:1,conversionRate:100});expect(data.channels.find(c=>c.key==='sdr_sales')).toMatchObject({registeredCount:1,invitedCount:0,conversionRate:null});
+});
+it('every attribution channel link round-trips into the right analytics bucket (real registration, real SQL)',async()=>{
+ const {registerContact}=await import('@/lib/registerContact');const {buildAllChannelTrackingUrls,DEFAULT_SELECTED_CHANNELS}=await import('@/lib/registrationChannels');const {buildInviteLink}=await import('@/lib/inviteLink');
+ const sourceOf=(url:string)=>new URL(url).searchParams.get('source')as string;
+ const id=await campaign();const keys=[...DEFAULT_SELECTED_CHANNELS];
+ // The shareable tracking links (website, partners, SDRs, LinkedIn event page...) carry source=<channel key>, in all three modes.
+ const modes=[{registrationLink:'https://pages.example.com/webinar'},{zoomMeetingId:'84920491823',zoomLink:'https://us02web.zoom.us/webinar/register/abc'},{}];
+ let n=0;for(const mode of modes){const urls=buildAllChannelTrackingUrls({id,...mode},'https://studio.example.com');for(const key of keys){const c=await contact(id,n++);expect((await registerContact(id,c.id,sourceOf(urls[key]))).ok).toBe(true);}}
+ const data=await getCampaignRegistrationChannels(id);expect(data.totalRegistered).toBe(keys.length*modes.length);
+ for(const key of keys)expect(data.channels.find(c=>c.key===key),key).toMatchObject({registeredCount:modes.length});
+ // The per-person links Studio puts in outreach messages: email, SMS, WhatsApp and LinkedIn land in their own buckets.
+ const id2=await campaign();const outreach:Array<[string,string]>=[['email','email_campaign'],['sms','sms'],['whatsapp','whatsapp'],['linkedin','linkedin']];let m=0;
+ for(const [channel] of outreach){const c=await contact(id2,m++);const link=buildInviteLink({campaign:{id:id2,registrationMode:'zoom',oneClickSignup:true},contact:{id:c.id},channel,appOrigin:'https://studio.example.com'});await registerContact(id2,c.id,sourceOf(link));}
+ const data2=await getCampaignRegistrationChannels(id2);for(const [,key] of outreach)expect(data2.channels.find(c=>c.key===key),key).toMatchObject({registeredCount:1});
 });

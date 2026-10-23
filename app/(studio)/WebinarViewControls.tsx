@@ -9,6 +9,7 @@ import { CampaignCardMenu } from './CampaignCardMenu';
 import { NewCampaignButton } from './NewCampaignButton';
 import { statusMeta } from '@/lib/demo-data';
 import { formatLsqDateTime, timeZoneLabel } from '@/lib/dateFormat';
+import { wizardProgressPercent, wizardResumeHref, wizardStepLabel } from '@/lib/wizardDraft';
 import {
   campaignCadenceHref,
   campaignLandingHref,
@@ -30,6 +31,11 @@ interface CampaignCardItem {
     speakerName?: string | null;
     speakers?: Array<{ name: string }>;
     registrations?: number | null;
+    /** Where an unfinished draft was left, and when it was last worked on. */
+    wizardStep?: number;
+    wizardFurthestStep?: number;
+    draftTouchedAt?: Date | string | null;
+    updatedAt?: Date | string | null;
   };
   stats: Array<{ label: string; value: string | number }>;
 }
@@ -40,6 +46,8 @@ interface WebinarViewControlsProps {
   /** Server-rendered status filter (links), placed at the start of the toolbar. */
   /** Plain data (not JSX): an element array built on the server and passed as a prop trips React's list-key check. */
   statusViews?: { id: string; label: string; href: string; count: number; active: boolean }[];
+  /** A recently touched draft, offered when someone starts a new webinar. */
+  recentDraft?: { id: string; name: string; wizardStep: number } | null;
 }
 
 /** `21 Oct 2026 | 03:00 PM IST` in the webinar's own timezone; the legacy free-text date for drafts without a real one. */
@@ -51,7 +59,19 @@ function whenLabel(c: CampaignCardItem['campaign']): string {
   return c.date || 'No date set';
 }
 
-export function WebinarViewControls({ cards, currentView, statusViews }: WebinarViewControlsProps) {
+/** A draft that is still being set up reopens in the wizard, not on its Overview. */
+function isResumable(c: CampaignCardItem['campaign']): boolean {
+  return c.status === 'draft' && !c.archived;
+}
+
+function editedLabel(c: CampaignCardItem['campaign']): string | null {
+  const at = c.draftTouchedAt ?? c.updatedAt;
+  if (!at) return null;
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? null : `Edited ${formatLsqDateTime(d)}`;
+}
+
+export function WebinarViewControls({ cards, currentView, statusViews, recentDraft }: WebinarViewControlsProps) {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [search, setSearch] = useState('');
   const [verticalFilter, setVerticalFilter] = useState('all');
@@ -211,7 +231,7 @@ export function WebinarViewControls({ cards, currentView, statusViews }: Webinar
               <>
                 <h2 className="lsq-empty__title">No Webinars Yet</h2>
                 <p className="lsq-empty__body">Create a webinar to start building an audience and a cadence.</p>
-                <NewCampaignButton />
+                <NewCampaignButton recentDraft={recentDraft} />
               </>
             ) : (
               <>
@@ -247,6 +267,18 @@ export function WebinarViewControls({ cards, currentView, statusViews }: Webinar
                     </p>
                   </div>
 
+                  {isResumable(c) && (
+                    <div className="lsq-home-card__progress">
+                      <div className="lsq-progress" role="img" aria-label={`Setup progress: ${wizardStepLabel(c.wizardFurthestStep)}`}>
+                        <div className="lsq-progress__bar" style={{ width: `${wizardProgressPercent(c.wizardFurthestStep)}%` }} />
+                      </div>
+                      <p className="lsq-home-card__progress-note">
+                        {wizardStepLabel(c.wizardStep)}
+                        {editedLabel(c) ? ` | ${editedLabel(c)}` : ''}
+                      </p>
+                    </div>
+                  )}
+
                   <dl className="lsq-home-card__stats">
                     {stats.map((s) => (
                       <div key={s.label} className="lsq-home-card__stat">
@@ -259,9 +291,15 @@ export function WebinarViewControls({ cards, currentView, statusViews }: Webinar
                   </dl>
 
                   <div className="lsq-home-card__actions">
-                    <Link href={campaignLandingHref(c)} className="lsq-btn lsq-btn--sm lsq-btn--primary lsq-home-linkbtn">
-                      {campaignPrimaryCta(c.status)}
-                    </Link>
+                    {isResumable(c) ? (
+                      <Link href={wizardResumeHref(c)} className="lsq-btn lsq-btn--sm lsq-btn--primary lsq-home-linkbtn">
+                        {`Continue Setup | ${wizardStepLabel(c.wizardStep)}`}
+                      </Link>
+                    ) : (
+                      <Link href={campaignLandingHref(c)} className="lsq-btn lsq-btn--sm lsq-btn--primary lsq-home-linkbtn">
+                        {campaignPrimaryCta(c.status)}
+                      </Link>
+                    )}
                     <Link href={campaignOverviewHref(c.id)} className="lsq-btn lsq-btn--sm lsq-btn--secondary lsq-home-linkbtn">
                       Overview
                     </Link>
@@ -318,9 +356,15 @@ export function WebinarViewControls({ cards, currentView, statusViews }: Webinar
                       </td>
                       <td>
                         <div className="lsq-home-rowactions">
-                          <Link href={campaignLandingHref(c)} className="lsq-btn lsq-btn--sm lsq-btn--primary lsq-home-linkbtn">
-                            {campaignPrimaryCta(c.status)}
-                          </Link>
+                          {isResumable(c) ? (
+                            <Link href={wizardResumeHref(c)} className="lsq-btn lsq-btn--sm lsq-btn--primary lsq-home-linkbtn">
+                              {`Continue Setup | ${wizardStepLabel(c.wizardStep)}`}
+                            </Link>
+                          ) : (
+                            <Link href={campaignLandingHref(c)} className="lsq-btn lsq-btn--sm lsq-btn--primary lsq-home-linkbtn">
+                              {campaignPrimaryCta(c.status)}
+                            </Link>
+                          )}
                           <Link href={campaignOverviewHref(c.id)} className="lsq-btn lsq-btn--sm lsq-btn--secondary lsq-home-linkbtn">
                             Overview
                           </Link>

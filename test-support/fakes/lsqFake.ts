@@ -67,16 +67,6 @@ export interface FakeSentEmail {
   ts: number;
 }
 
-export interface FakeWebhook {
-  id: string;
-  description: string;
-  url: string;
-  method: string;
-  contentType: string;
-  webhookEvent: string;
-  raw: Record<string, unknown>;
-}
-
 export interface FakeUser {
   id: string;
   email: string;
@@ -157,6 +147,31 @@ export interface FakeLsqOptions {
   apiCallerEnabled?: boolean;
   /** Reject activities whose ActivityEvent is not a known activity type. Default false. */
   strictActivityTypes?: boolean;
+  /**
+   * LeadSquared documents "API calls exceeded the limit of 25 in 5 second(s)". With this set, a request that
+   * would be the (limit + 1)th inside the window answers 429 and is counted in `state.throttled`. Default: off.
+   */
+  rateLimit?: { limit: number; windowMs: number };
+  /** Simulated server time per request, in milliseconds. Default 0. */
+  latencyMs?: number;
+  /**
+   * How Leads/Retrieve/BySearchParameter behaves on big lists. The public docs state no maximum page size, no
+   * total cap and are not explicit about whether RecordCount is the list's total or the page's size, so each
+   * reading can be simulated.
+   */
+  listPaging?: {
+    /** Pages larger than this are silently cut to it. */
+    maxPageSize?: number;
+    /** Nothing beyond this many leads is ever returned. `deep: 'error'` answers 500 instead of an empty page. */
+    maxDepth?: number;
+    deep?: 'empty' | 'error';
+    /** Honour Sorting.Direction ('1' newest first, '0' oldest first). Off by default: the list is returned in insertion order. */
+    honorSorting?: boolean;
+    /** RecordCount is the number of leads on this page rather than the list's total. */
+    recordCountIsPageCount?: boolean;
+    /** A request whose page would take longer than this many leads times pageSize fails with a 500 timeout. */
+    maxPageSizeBeforeTimeout?: number;
+  };
 }
 
 export interface FakeLsqState {
@@ -169,10 +184,13 @@ export interface FakeLsqState {
   /** Lists keyed by ListId. */
   lists: Map<string, FakeList>;
   sentEmails: FakeSentEmail[];
-  webhooks: FakeWebhook[];
   users: FakeUser[];
   requestLog: FakeRequestLogEntry[];
   faults: FaultState[];
+  /** Requests refused by the simulated rate limit. */
+  throttled: number;
+  /** Request timestamps inside the simulated rate-limit window. */
+  recentRequests: number[];
   /** Mutable tenant config; changes take effect immediately. */
   config: {
     customFields: string[];
@@ -296,10 +314,11 @@ export async function startFakeLsq(opts: FakeLsqOptions = {}): Promise<FakeLsq> 
     activityTypes: [],
     lists: new Map(),
     sentEmails: [],
-    webhooks: [],
     users: [],
     requestLog: [],
     faults: [],
+    throttled: 0,
+    recentRequests: [],
     config: { customFields: [], apiCallerEnabled: true, strictActivityTypes: false },
   };
 
@@ -308,7 +327,6 @@ export async function startFakeLsq(opts: FakeLsqOptions = {}): Promise<FakeLsq> 
   let activitySeq = 0;
   let activityTypeSeq = 200;
   let emailSeq = 0;
-  let webhookSeq = 0;
   let userSeq = 0;
 
   function seedUsers(): void {
@@ -337,7 +355,6 @@ export async function startFakeLsq(opts: FakeLsqOptions = {}): Promise<FakeLsq> 
     state.activityTypes.length = 0;
     state.lists.clear();
     state.sentEmails.length = 0;
-    state.webhooks.length = 0;
     state.users.length = 0;
     state.requestLog.length = 0;
     state.faults.length = 0;
@@ -349,7 +366,6 @@ export async function startFakeLsq(opts: FakeLsqOptions = {}): Promise<FakeLsq> 
     activitySeq = 0;
     activityTypeSeq = 200;
     emailSeq = 0;
-    webhookSeq = 0;
     userSeq = 0;
     seedUsers();
   }
@@ -501,12 +517,20 @@ export async function startFakeLsq(opts: FakeLsqOptions = {}): Promise<FakeLsq> 
     const listId = typeof params.ListId === 'string' ? params.ListId : '';
     const paging = isRecord(body.Paging) ? body.Paging : {};
     const pageIndex = Math.max(1, Number(paging.PageIndex ?? 1) || 1);
-    const pageSize = Math.max(1, Number(paging.PageSize ?? 25) || 25);
+    const lp = opts.listPaging ?? {};
+    let pageSize = Math.max(1, Number(paging.PageSize ?? 25) || 25);
+    if (lp.maxPageSizeBeforeTimeout && pageSize > lp.maxPageSizeBeforeTimeout) throw mxError('MXTimeoutException', 'The request timed out while retrieving leads.', 500);
+    if (lp.maxPageSize) pageSize = Math.min(pageSize, lp.maxPageSize);
     const cols = isRecord(body.Columns) && typeof body.Columns.Include_CSV === 'string' ? body.Columns.Include_CSV.split(',').map((c) => c.trim()).filter(Boolean) : null;
 
     const list = state.lists.get(listId);
-    const memberIds = list ? list.members : [];
-    const page = memberIds.slice((pageIndex - 1) * pageSize, pageIndex * pageSize);
+    const sorting = isRecord(body.Sorting) ? body.Sorting : {};
+    const stored = list ? list.members : [];
+    const memberIds = lp.honorSorting && String(sorting.Direction ?? '1') === '1' ? [...stored].reverse() : stored;
+    const start = (pageIndex - 1) * pageSize;
+    if (lp.maxDepth !== undefined && start >= lp.maxDepth && lp.deep === 'error') throw mxError('MXInvalidInputException', 'Requested page is beyond the retrievable range.', 500);
+    const reachable = lp.maxDepth !== undefined ? memberIds.slice(0, lp.maxDepth) : memberIds;
+    const page = reachable.slice(start, pageIndex * pageSize);
     const Leads = page.flatMap((id) => {
       const lead = state.leads.get(id);
       if (!lead) return [];
@@ -519,7 +543,7 @@ export async function startFakeLsq(opts: FakeLsqOptions = {}): Promise<FakeLsq> 
         .map((n) => ({ Attribute: n, Value: n in flat ? flat[n] : null }));
       return [{ LeadPropertyList }];
     });
-    return ok({ RecordCount: memberIds.length, Leads });
+    return ok({ RecordCount: lp.recordCountIsPageCount ? Leads.length : memberIds.length, Leads });
   });
 
   // --- lists
@@ -684,23 +708,6 @@ export async function startFakeLsq(opts: FakeLsqOptions = {}): Promise<FakeLsq> 
     ok(state.users.map((u) => ({ UserId: u.id, EmailAddress: u.email, FirstName: u.firstName, LastName: u.lastName, Role: u.role, StatusCode: u.statusCode })))
   );
 
-  // --- webhooks
-  route('/Webhook.svc/Create', 'POST', ({ body }) => {
-    if (!isRecord(body) || typeof body.URL !== 'string' || body.URL === '') throw mxError('MXMandatoryAttributeMissingException', 'URL is required.');
-    webhookSeq++;
-    const wh: FakeWebhook = {
-      id: `wh_${webhookSeq}`,
-      description: typeof body.Description === 'string' ? body.Description : '',
-      url: body.URL,
-      method: typeof body.Method === 'string' ? body.Method : 'POST',
-      contentType: typeof body.ContentType === 'string' ? body.ContentType : 'application/json',
-      webhookEvent: String(body.WebhookEvent ?? ''),
-      raw: body,
-    };
-    state.webhooks.push(wh);
-    return ok({ Status: 'Success', Message: { Id: wh.id } });
-  });
-
   // ----- faults ------------------------------------------------------------
 
   /** Finds and consumes the first live rule matching this request (and `predicate`). */
@@ -801,6 +808,19 @@ export async function startFakeLsq(opts: FakeLsqOptions = {}): Promise<FakeLsq> 
     for (const [k, v] of url.searchParams) if (k !== 'accessKey' && k !== 'secretKey') query[k] = v;
     const entry: FakeRequestLogEntry = { method, path, query, body: parsedBody, ts: Date.now() };
     state.requestLog.push(entry);
+
+    if (opts.latencyMs) await wait(opts.latencyMs, res);
+    if (opts.rateLimit) {
+      const now = Date.now();
+      state.recentRequests = state.recentRequests.filter((t) => now - t < opts.rateLimit!.windowMs);
+      if (state.recentRequests.length >= opts.rateLimit.limit) {
+        state.throttled++;
+        entry.faulted = true;
+        write(res, 429, { Status: 'Error', ExceptionType: 'MXThrottlingException', ExceptionMessage: `API calls exceeded the limit of ${opts.rateLimit.limit} in ${Math.round(opts.rateLimit.windowMs / 1000)} second(s).` }, {}, entry);
+        return;
+      }
+      state.recentRequests.push(now);
+    }
 
     // Fault injection runs first, like a flaky gateway in front of LSQ.
     const fault = takeFault(method, path, (r) => !r.mailDelivery);

@@ -3,11 +3,13 @@ import { db } from '@/lib/db';
 import { resolveStepTemplates } from '@/lib/messageTemplates';
 import { getAttendeeChannelBreakdown } from '@/lib/attendeeChannels';
 import { formatSpeakersSummary } from '@/lib/speakers';
-import { getServerNow } from '@/lib/actions/clock';
 import { ATTENDANCE_RATE_LABEL, ATTENDANCE_RATE_SUBLABEL, formatAttendanceRate } from '@/lib/attendanceRate';
 import { getCampaignRegistrationChannels } from '@/lib/registrationChannelsServer';
 import { appOrigin } from '@/lib/appOrigin';
-import { isCampaignCompleted } from '@/lib/campaignLifecycle';
+import { isCampaignCompleted, isSetupLocked } from '@/lib/campaignLifecycle';
+import { redirect } from 'next/navigation';
+import { getServerNow } from '@/lib/actions/clock';
+import { wizardResumeHref } from '@/lib/wizardDraft';
 import { DashboardClient } from './DashboardClient';
 import { HistoricalSummary } from './HistoricalSummary';
 
@@ -20,17 +22,19 @@ export default async function DashboardPage({
 }) {
   const { id } = await params;
   const resolvedSearchParams = searchParams ? await searchParams : {};
-  const initialEditOpen = resolvedSearchParams.edit === '1' || resolvedSearchParams.edit === 'true';
+  const wantsEdit = resolvedSearchParams.edit === '1' || resolvedSearchParams.edit === 'true';
 
-  const [campaign, data, sendCounts, steps, serverNow, registrationChannels, openIssues] = await Promise.all([
+  const [campaign, data, sendCounts, steps, registrationChannels, openIssues] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id }, include: { speakers: { orderBy: { order: 'asc' } } } }),
     getOverviewData(id),
     db.cadenceSend.groupBy({ by: ['stepKey', 'status'], where: { campaignId: id }, _count: true }),
     db.cadenceStep.findMany({ where: { campaignId: id, removedAt: null }, select: { key: true } }),
-    getServerNow(),
     getCampaignRegistrationChannels(id, appOrigin()),
     db.attentionItem.findMany({ where: { campaignId: id, resolvedAt: null, color: 'error' }, select: { title: true } }),
   ]);
+
+  // The old Edit Setup dialog is gone: a draft is edited in the creation wizard, and a launched one is read-only.
+  if (wantsEdit && campaign.status === 'draft' && !isSetupLocked(campaign)) redirect(wizardResumeHref(campaign));
 
   const hasHistorical =
     campaign.invites != null || campaign.registrations != null || campaign.attendance != null || campaign.demoRequests != null;
@@ -56,8 +60,6 @@ export default async function DashboardPage({
       <main className="lsq-ov-main">
         <HistoricalSummary
           campaign={campaign}
-          serverNow={serverNow}
-          initialEditOpen={initialEditOpen}
           registrationChannels={registrationChannels}
           drawers={historicalDrawers}
         />
@@ -130,7 +132,7 @@ export default async function DashboardPage({
       label: 'CRM synced',
       value: total ? `${Math.round((synced / total) * 100)}%` : '—',
       // A card that says "good" while the sync is failing is exactly what the audit caught (L-13).
-      sub: crmSyncFailing ? `${synced.toLocaleString()} leads written back · sync failing, see Results` : `${synced.toLocaleString()} leads written back`,
+      sub: crmSyncFailing ? `${synced.toLocaleString()} of ${total.toLocaleString()} contacts written back · sync failing, see Results` : `${synced.toLocaleString()} of ${total.toLocaleString()} contacts written back`,
       tone: crmSyncFailing ? ('warn' as const) : ('good' as const),
     },
   ];
@@ -255,6 +257,8 @@ export default async function DashboardPage({
         scoreBands={scoreBands}
         stepBreakdown={stepBreakdown}
         channelBreakdown={channelBreakdown}
+        eventOver={Boolean(campaign.scheduledAt && campaign.scheduledAt.getTime() + (campaign.durationMinutes ?? 60) * 60_000 < (await getServerNow()))}
+        queuedNote={campaign.cadenceStatus === 'running' ? 'queued' : campaign.cadenceStatus === 'paused' ? 'queued, cadence paused' : campaign.cadenceStatus === 'not_started' ? 'queued, cadence not started' : 'will not send, cadence stopped'}
         breakdownData={breakdownData}
         accountBreakdown={accountBreakdown}
         attended={attended}
@@ -264,8 +268,6 @@ export default async function DashboardPage({
         attendeeChannelBreakdown={attendeeChannelBreakdown}
         drawers={drawers}
         campaign={campaign}
-        serverNow={serverNow}
-        initialEditOpen={initialEditOpen}
         registrationChannels={registrationChannels}
       />
     </main>

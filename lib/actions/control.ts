@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
 import { processDueSends } from '@/lib/cadence';
 import { diagnoseAttentionItem, type DiagnoseResult } from '@/lib/claude';
@@ -9,6 +11,7 @@ import { z } from 'zod';
 const campaignIdSchema = z.string().min(1);
 const attentionIdSchema = z.string().min(1);
 export async function togglePauseResumeAction(campaignId: string) {
+  await requireOperatorSession();
   const validId = campaignIdSchema.parse(campaignId);
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: validId } });
   if (campaign.status === 'completed' || campaign.archived || !['running', 'paused'].includes(campaign.cadenceStatus)) throw new Error('Only a running or paused cadence can be resumed.');
@@ -18,12 +21,14 @@ export async function togglePauseResumeAction(campaignId: string) {
 }
 
 export async function stopCadenceAction(campaignId: string) {
+  await requireOperatorSession();
   const validId = campaignIdSchema.parse(campaignId);
   await db.campaign.update({ where: { id: validId }, data: { cadenceStatus: 'stopped' } });
   revalidateCampaign(validId);
 }
 
 export async function retryFailedSendsAction(campaignId: string) {
+  await requireOperatorSession();
   const validId = campaignIdSchema.parse(campaignId);
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: validId }, select: { cadenceStatus: true } });
 
@@ -79,6 +84,7 @@ export async function retryFailedSendsAction(campaignId: string) {
 }
 
 export async function resolveAttentionAction(attentionId: string, campaignId: string) {
+  await requireOperatorSession();
   const validAttentionId = attentionIdSchema.parse(attentionId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   await db.attentionItem.update({ where: { id: validAttentionId, campaignId: validCampaignId }, data: { resolvedAt: new Date() } });
@@ -91,6 +97,7 @@ export async function resolveAttentionAction(attentionId: string, campaignId: st
 // (Retry, which only touches failed sends) that happened to call processDueSends
 // as a side effect. Wired to the new "Run due sends now" button.
 export async function runDueSendsNowAction(campaignId: string) {
+  await requireOperatorSession();
   const validId = campaignIdSchema.parse(campaignId);
   const result = await processDueSends(validId);
   revalidateCampaign(validId);
@@ -110,6 +117,7 @@ export interface DiagnoseResponse {
  * item's own recorded error and explain it plus a concrete next step instead.
  */
 export async function diagnoseAttentionItemAction(attentionId: string): Promise<DiagnoseResponse> {
+  await requireOperatorSession();
   const validAttentionId = attentionIdSchema.parse(attentionId);
   const item = await db.attentionItem.findUniqueOrThrow({ where: { id: validAttentionId } });
   const campaign = await db.campaign.findUnique({ where: { id: item.campaignId } });

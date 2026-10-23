@@ -11,6 +11,7 @@ import { enableZoomRegistrationAction } from '@/lib/actions/zoom';
 import type { RegistrationMode } from '@/lib/inviteLink';
 import type { ReadinessCheck, ReadinessStatus } from '@/lib/registrationReadiness';
 import type { LandingReport } from '@/lib/landingVerify';
+import { ExternalRegistrationSetup } from '@/components/registration/ExternalRegistrationSetup';
 
 const STATUS_BADGE: Record<ReadinessStatus, { color: string; text: string }> = {
   pass: { color: 'success', text: 'Ready' },
@@ -70,8 +71,8 @@ export function RegistrationClient({
   const headline = readiness.ready
     ? readiness.counts.warn > 0
       ? { color: 'warning', text: 'Ready With Notes' }
-      : { color: 'success', text: 'Ready To Launch' }
-    : { color: 'error', text: 'Not Ready' };
+      : { color: 'success', text: locked ? 'All Clear' : 'Ready To Launch' }
+    : { color: 'error', text: locked ? 'Needs Attention' : 'Not Ready' };
 
   function save() {
     setError(null);
@@ -118,7 +119,7 @@ export function RegistrationClient({
   }
 
   const zoomCheck = readiness.checks.find((c) => c.group === 'zoom' && /registration/i.test(c.label));
-  const zoomNeedsEnable = zoomLinked && zoomCheck?.status === 'fail';
+  const zoomNeedsEnable = zoomLinked && zoomCheck?.status === 'fail' && !readiness.takenPlace;
 
   return (
     <div className="lsq-page lsq-page--form">
@@ -189,7 +190,7 @@ export function RegistrationClient({
               </label>
               <div className="lsq-field">
                 <span className="lsq-label">Public Registration Page</span>
-                <code className="lsq-code lsq-code--wrap">{overview.channelLinks[0]?.url ?? `${overview.appOrigin}/register/${campaignId}`}</code>
+                <code className="lsq-code lsq-code--wrap">{`${overview.appOrigin}/register/${campaignId}`}</code>
               </div>
             </div>
           ) : (
@@ -268,18 +269,17 @@ export function RegistrationClient({
         </div>
       </section>
 
-      {/* External snippet */}
+      {/* External page: script, attribution field, what people see */}
       {overview.mode === 'external' && overview.snippet && (
         <section className="lsq-card" aria-labelledby="reg-snippet-title">
           <div className="lsq-card__header">
             <div>
-              <h2 className="lsq-card__title" id="reg-snippet-title">Landing Page Script</h2>
-              <p className="lsq-card__sub">Paste once before the closing body tag of the landing page, then point the form submit button at it.</p>
+              <h2 className="lsq-card__title" id="reg-snippet-title">Connect Your Page</h2>
+              <p className="lsq-card__sub">The script registers each person, records their channel and shows the calendar pop-up on your thank-you page.</p>
             </div>
-            <Button hierarchy="secondary" size="sm" onClick={() => copy(overview.snippet as string, showToast, 'Script')}>Copy Script</Button>
           </div>
           <div className="lsq-card__body">
-            <pre className="lsq-code lsq-code--wrap" tabIndex={0} aria-label="Landing page script" style={{ maxHeight: 220, overflow: 'auto' }}>{overview.snippet}</pre>
+            <ExternalRegistrationSetup script={overview.snippet} apiOrigin={overview.appOrigin} />
           </div>
         </section>
       )}
@@ -298,9 +298,13 @@ export function RegistrationClient({
               <div>
                 <p className="lsq-banner__title">No Zoom Event Linked</p>
                 <p className="lsq-banner__body">Link or create a Zoom meeting or webinar so registrations can receive join links.</p>
-                <div className="lsq-banner__actions">
-                  <Link href={`/campaigns/${campaignId}/overview?edit=1`} className="lsq-btn lsq-btn--sm lsq-btn--secondary">Open Webinar Setup</Link>
-                </div>
+                {locked ? (
+                  <p className="lsq-banner__body">Setup is locked once a webinar has launched, so a Zoom event can no longer be linked to this one.</p>
+                ) : (
+                  <div className="lsq-banner__actions">
+                    <Link href={`/campaigns/new?id=${campaignId}&step=0`} className="lsq-btn lsq-btn--sm lsq-btn--secondary">Open Webinar Setup</Link>
+                  </div>
+                )}
               </div>
             </div>
           ) : zoomNeedsEnable ? (
@@ -314,7 +318,9 @@ export function RegistrationClient({
               </div>
             </div>
           ) : (
-            <p className="lsq-hint">The linked Zoom event accepts registrations.</p>
+            <p className="lsq-hint">
+              {readiness.takenPlace ? 'The webinar has taken place, so the Zoom event is no longer taking registrations.' : 'The linked Zoom event accepts registrations.'}
+            </p>
           )}
         </div>
       </section>
@@ -323,13 +329,16 @@ export function RegistrationClient({
       <section className="lsq-card" aria-labelledby="reg-links-title">
         <div className="lsq-card__header">
           <div>
-            <h2 className="lsq-card__title" id="reg-links-title">Links By Channel</h2>
-            <p className="lsq-card__sub">Use one link per channel so registrations are attributed correctly. These links contain no personal data.</p>
+            <h2 className="lsq-card__title" id="reg-links-title">Links To Share</h2>
+            <p className="lsq-card__sub">
+              Studio adds the right link to every email, SMS, WhatsApp and LinkedIn message it sends or drafts. For anywhere else you share
+              this webinar, use the link for that place so its registrations are credited to it. These links contain no personal data.
+            </p>
           </div>
         </div>
         <div className="lsq-card__body">
           {overview.channelLinks.length === 0 ? (
-            <p className="lsq-hint">No channels are selected for this webinar.</p>
+            <p className="lsq-hint">No shared channels are turned on. Turn them on in Step 1 of the webinar setup to get a link for each.</p>
           ) : (
             <div className="lsq-table-wrap" tabIndex={0} role="region" aria-label="Scrollable table">
               <table className="lsq-table">
@@ -355,7 +364,7 @@ export function RegistrationClient({
       <section className="lsq-card" aria-labelledby="reg-ready-title">
         <div className="lsq-card__header">
           <div>
-            <h2 className="lsq-card__title" id="reg-ready-title">Launch Readiness</h2>
+            <h2 className="lsq-card__title" id="reg-ready-title">{locked ? 'Registration Health' : 'Launch Readiness'}</h2>
             <p className="lsq-card__sub">
               {readiness.counts.fail} to fix, {readiness.counts.warn} to review, {readiness.counts.pass} ready.
             </p>

@@ -214,6 +214,8 @@ export interface SeedMeetingInput {
   approval_type?: number;
   registration_type?: number;
   registrants_restrict_number?: number;
+  /** IANA zone the event is held in. Default UTC. */
+  timezone?: string;
 }
 
 export interface SendWebhookOptions {

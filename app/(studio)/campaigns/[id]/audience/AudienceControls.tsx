@@ -29,6 +29,7 @@ export function AudienceControls({
   band,
   bands,
   total,
+  allCount,
   threshold,
   page,
   pageSize,
@@ -40,6 +41,8 @@ export function AudienceControls({
   band: string;
   bands: Band[];
   total: number;
+  /** Every contact in the webinar, whatever filter or search is on: the "All" chip and the import card count from this. */
+  allCount: number;
   threshold: number;
   page: number;
   pageSize: number;
@@ -79,11 +82,11 @@ export function AudienceControls({
   const from = total === 0 ? 0 : page * pageSize + 1;
   const to = page * pageSize + shown;
 
-  const filters = [{ id: 'all', label: `All ${total.toLocaleString()}` }, ...bands.map((b) => ({ id: b.id, label: `${b.label} (${b.count.toLocaleString()})` }))];
+  const filters = [{ id: 'all', label: `All ${allCount.toLocaleString()}` }, ...bands.map((b) => ({ id: b.id, label: `${b.label} (${b.count.toLocaleString()})` }))];
 
   return (
     <>
-      {!completed && importOpen && <LeadImportCard campaignId={campaignId} existingContactCount={total} existingScoredCount={scoredTotal} />}
+      {!completed && importOpen && <LeadImportCard campaignId={campaignId} existingContactCount={allCount} existingScoredCount={scoredTotal} />}
 
       {scoredTotal > 0 && (
         <section className="lsq-card" aria-labelledby="aud-distribution">

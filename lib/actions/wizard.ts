@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
 import { provisionCampaignDefaults } from '@/lib/campaignDefaults';
 import { formatWebinarDate } from '@/lib/campaignDate';
@@ -31,7 +33,6 @@ export interface WizardDetails {
   zoomLink: string;
   zoomMeetingId?: string;
   speakers?: SpeakerInput[];
-  emailProvider?: 'leadsquared' | 'netcore';
   selectedChannels?: string[];
   /** IANA zone the date and time are typed in. Defaults to the webinar's saved zone (Asia/Kolkata for new ones). */
   timezone?: string;
@@ -42,6 +43,8 @@ export interface WizardDetails {
 import type { WizardFieldMapping } from '@/lib/wizardFields';
 import { assertSetupEditable } from '@/lib/setupLock';
 import { after } from 'next/server';
+import { applyMessagingPatch } from '@/lib/wizardMessagingPersist';
+import { landingLinkError } from '@/lib/wizardValidation';
 import { wallClockToDate, safeTimeZone } from '@/lib/dateFormat';
 export type { WizardFieldMapping };
 
@@ -67,8 +70,8 @@ export interface WizardMessaging {
   aiInstructions: string;
   brief: string;
   oneClickSignup: boolean;
-  channels: Record<string, boolean>;
-  emailProvider?: 'leadsquared' | 'netcore';
+  /** Omit to leave the cadence's channel switches as Step 3 set them. */
+  channels?: Record<string, boolean>;
   personalizationFields?: string[];
   stepConfigs?: Record<
     string,
@@ -95,6 +98,9 @@ function cleanDuration(minutes: number | undefined): number | undefined {
 
 /** Step 0 → creates the draft campaign and provisions its defaults. */
 export async function createCampaignFromWizardAction(details: WizardDetails) {
+  await requireOperatorSession();
+  const linkError = landingLinkError(details.registrationLink);
+  if (linkError) throw new Error(linkError);
   const timezone = safeTimeZone(details.timezone);
   const durationMinutes = cleanDuration(details.durationMinutes);
   const scheduledAt = combineDateTime(details.date, details.time, timezone);
@@ -119,10 +125,15 @@ export async function createCampaignFromWizardAction(details: WizardDetails) {
       capacity: Number.isFinite(capacity) && capacity > 0 ? capacity : null,
       registrationLink: details.registrationLink.trim() || null,
       oneClickSignup: !details.registrationLink.trim(),
+      // Same rule as autosave and the Review step, so every path leaves the same mode behind.
+      registrationMode: details.registrationLink.trim() ? 'external' : 'zoom',
       zoomLink: details.zoomLink.trim() || null,
       zoomMeetingId: details.zoomMeetingId ? details.zoomMeetingId.trim() : null,
-      emailProvider: details.emailProvider ?? 'leadsquared',
       selectedChannels: selectedChannelsSerialized,
+      // Continue moves on to the audience step, so that is where the draft reopens.
+      wizardStep: 1,
+      wizardFurthestStep: 1,
+      draftTouchedAt: new Date(),
     },
   });
 
@@ -144,7 +155,10 @@ export async function createCampaignFromWizardAction(details: WizardDetails) {
 
 /** Step 0 edits after the draft exists (the wizard allows going Back). */
 export async function updateWizardDetailsAction(campaignId: string, details: WizardDetails) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
+  const linkError = landingLinkError(details.registrationLink);
+  if (linkError) throw new Error(linkError);
   const existing = await db.campaign.findUnique({ where: { id: campaignId }, select: { timezone: true } });
   const timezone = safeTimeZone(details.timezone ?? existing?.timezone);
   const durationMinutes = cleanDuration(details.durationMinutes);
@@ -175,10 +189,12 @@ export async function updateWizardDetailsAction(campaignId: string, details: Wiz
       capacity: Number.isFinite(capacity) && capacity > 0 ? capacity : null,
       registrationLink: details.registrationLink.trim() || null,
       oneClickSignup: !details.registrationLink.trim(),
+      // Same rule as autosave and the Review step, so every path leaves the same mode behind.
+      registrationMode: details.registrationLink.trim() ? 'external' : 'zoom',
       zoomLink: details.zoomLink.trim() || null,
       ...(details.zoomMeetingId !== undefined ? { zoomMeetingId: details.zoomMeetingId ? details.zoomMeetingId.trim() : null } : {}),
-      ...(details.emailProvider ? { emailProvider: details.emailProvider } : {}),
       ...selectedChannelsData,
+      draftTouchedAt: new Date(),
     },
   });
 
@@ -199,9 +215,12 @@ export async function updateWizardFunnelModeAction(
   mode: 'normal' | 'framer',
   registrationLink?: string
 ) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   const isFramer = mode === 'framer';
   const cleanLink = isFramer ? (registrationLink || '').trim() : '';
+  const linkError = cleanLink ? landingLinkError(cleanLink) : null;
+  if (linkError) throw new Error(linkError);
 
   await db.campaign.update({
     where: { id: campaignId },
@@ -224,117 +243,11 @@ export async function saveWizardMessagingAction(
   messaging: WizardMessaging,
   opts: { autoDraftInvite?: boolean } = {}
 ) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
-  const instructions = [
-    messaging.aiInstructions?.trim(),
-    messaging.tone ? `Tone: ${messaging.tone}.` : null,
-    messaging.msgLength ? `Length: ${messaging.msgLength}.` : null,
-  ].filter(Boolean).join(' ');
-
-  await db.campaign.update({
-    where: { id: campaignId },
-    data: {
-      msgMode: messaging.msgMode,
-      tone: messaging.tone,
-      msgLength: messaging.msgLength,
-      aiInstructions: messaging.aiInstructions,
-      brief: messaging.brief,
-      oneClickSignup: messaging.oneClickSignup,
-      emailProvider: messaging.emailProvider || 'leadsquared',
-      personalizationFields:
-        messaging.personalizationFields && messaging.personalizationFields.length > 0
-          ? messaging.personalizationFields.join(',')
-          : undefined,
-      personalizationPrompt: instructions || undefined,
-    },
-  });
-
-  // If templatized mode with custom copy, persist into a campaign-specific MessageTemplate override for invite
-  if (messaging.msgMode === 'templatized' && messaging.brief?.trim()) {
-    const customTemplate = await db.messageTemplate.upsert({
-      where: { campaignId_key: { campaignId, key: 'invite' } },
-      update: { body: messaging.brief.trim() },
-      create: {
-        campaignId,
-        key: 'invite',
-        name: 'Initial invite (Custom)',
-        channel: 'email',
-        hasSubject: true,
-        subject: "You're invited: {{topic}}",
-        body: messaging.brief.trim(),
-        status: 'ready',
-      },
-    });
-    await db.cadenceStep.updateMany({
-      where: { campaignId, key: 'invite' },
-      data: { templateId: customTemplate.id },
-    });
-  }
-
-  // Channel choice is expressed by enabling/disabling that channel's steps —
-  // the same switch the planner uses, so the two can never disagree. But this
-  // action re-fires on every "Finish setup" click, including a revisit where
-  // the operator changed nothing about channels — only touch a channel's
-  // steps when its on/off state actually flipped, so a per-step customization
-  // already made in the Cadence Planner (e.g. disabling one email step while
-  // keeping the rest on) survives an unrelated wizard re-save.
-  const steps = await db.cadenceStep.findMany({
-    where: { campaignId, removedAt: null },
-    select: { id: true, channel: true, enabled: true },
-  });
-  const { normalizeChannel } = await import('@/lib/channels');
-  const wasChannelOn = new Map<string, boolean>();
-  for (const s of steps) {
-    const ch = normalizeChannel(s.channel);
-    wasChannelOn.set(ch, (wasChannelOn.get(ch) ?? false) || s.enabled);
-  }
-  const flippedStepUpdates = steps
-    .filter((s) => {
-      const ch = normalizeChannel(s.channel);
-      const nowOn = messaging.channels[ch] ?? false;
-      return (wasChannelOn.get(ch) ?? false) !== nowOn;
-    })
-    .map((s) =>
-      db.cadenceStep.update({
-        where: { id: s.id },
-        data: { enabled: messaging.channels[normalizeChannel(s.channel)] ?? false },
-      })
-    );
-  if (flippedStepUpdates.length > 0) await db.$transaction(flippedStepUpdates);
-
-  // Persist per-step configuration (template vs AI, selected templateId, custom instructions)
-  if (messaging.stepConfigs) {
-    for (const [key, cfg] of Object.entries(messaging.stepConfigs)) {
-      await db.cadenceStep.updateMany({
-        where: { campaignId, key },
-        data: {
-          ...(cfg.mode ? { mode: cfg.mode } : {}),
-          ...(cfg.instruction !== undefined ? { instruction: cfg.instruction } : {}),
-          ...(cfg.templateId !== undefined ? { templateId: cfg.templateId } : {}),
-        },
-      });
-      if (cfg.customBody && cfg.mode === 'template') {
-        const customTemplate = await db.messageTemplate.upsert({
-          where: { campaignId_key: { campaignId, key } },
-          update: { body: cfg.customBody, ...(cfg.customSubject ? { subject: cfg.customSubject } : {}) },
-          create: {
-            campaignId,
-            key,
-            name: `${key} (Custom)`,
-            channel: 'email',
-            hasSubject: !!cfg.customSubject,
-            subject: cfg.customSubject || "Update for {{topic}}",
-            body: cfg.customBody,
-            status: 'ready',
-          },
-        });
-        await db.cadenceStep.updateMany({
-          where: { campaignId, key },
-          data: { templateId: customTemplate.id },
-        });
-      }
-    }
-  }
+  // The database half is shared with the draft autosave (lib/wizardMessagingPersist.ts); only the AI
+  // drafting below is specific to an explicit Continue.
+  await applyMessagingPatch(campaignId, messaging);
 
   // When AI mode is chosen (either globally or per-step), auto-generate reviewed drafts for approved contacts for the active steps
   const hasAiSteps = messaging.msgMode === 'ai' || Object.values(messaging.stepConfigs || {}).some((c) => c.mode === 'ai');
@@ -400,6 +313,7 @@ export async function saveWizardMessagingAction(
 
 /** Counts the wizard shows after an import, without loading every contact. */
 export async function getWizardAudienceSummaryAction(campaignId: string) {
+  await requireOperatorSession();
   const [total, withEmail, withLinkedin, missingTitle, scored, approved] = await Promise.all([
     db.contact.count({ where: { campaignId } }),
     db.contact.count({ where: { campaignId, email: { not: null } } }),
@@ -419,6 +333,7 @@ export async function getWizardAudienceSummaryAction(campaignId: string) {
  * 4. Duplicate / suppressed
  */
 export async function getAudiencePreflightValidationAction(campaignId: string): Promise<AudiencePreflightValidation> {
+  await requireOperatorSession();
   const contacts = await db.contact.findMany({
     where: { campaignId },
     select: {
@@ -565,6 +480,7 @@ export async function saveWizardFieldMappingsAction(
   mappings: WizardFieldMapping[],
   syncWithLsq?: boolean
 ) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   await db.campaign.update({
     where: { id: campaignId },
@@ -593,6 +509,7 @@ export async function saveWizardFieldMappingsAction(
 
 /** Get full scored contacts for the wizard's interactive table and approval slider. */
 export async function getScoredContactsForWizardAction(campaignId: string) {
+  await requireOperatorSession();
   const rows = await db.contact.findMany({
     where: { campaignId },
     orderBy: [{ score: 'desc' }, { name: 'asc' }],
@@ -617,6 +534,7 @@ export async function getScoredContactsForWizardAction(campaignId: string) {
 
 /** Top scored contacts, for the wizard's score preview. */
 export async function getWizardScorePreviewAction(campaignId: string, take = 6) {
+  await requireOperatorSession();
   const rows = await db.contact.findMany({
     where: { campaignId, score: { not: null } },
     orderBy: { score: 'desc' },
@@ -641,6 +559,7 @@ export async function fetchLeadSquaredTenantFieldsAction(): Promise<{
   fields: LsqTenantField[];
   error?: string;
 }> {
+  await requireOperatorSession();
   try {
     const { getLeadsMetadata } = await import('@/lib/leadsquared');
     const metadata = await getLeadsMetadata();
@@ -678,6 +597,7 @@ export async function addWizardCadenceStepAction(
     anchor?: string;
   }
 ) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   const { normalizeChannel } = await import('@/lib/channels');
   const routable = normalizeChannel(data.channel);
@@ -732,6 +652,7 @@ export async function addWizardCadenceStepAction(
  * Approve all clean, unsuppressed contacts for the campaign to unlock launch.
  */
 export async function approveAllCleanContactsAction(campaignId: string) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   const suppressedRows = await db.emailSuppression.findMany({ select: { email: true } });
   const suppressedSet = new Set(suppressedRows.map((s) => s.email.toLowerCase()));
@@ -763,6 +684,7 @@ export async function approveAllCleanContactsAction(campaignId: string) {
  * from; here the topic is simply what the operator has typed so far.
  */
 export async function improveDraftDescriptionAction(topic: string, current: string) {
+  await requireOperatorSession();
   const { improveDescription } = await import('@/lib/claude');
   if (!topic.trim()) return { ok: false as const, error: 'Add a title first — it is what the description is written from.' };
   try {

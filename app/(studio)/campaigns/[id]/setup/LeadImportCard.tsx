@@ -25,6 +25,7 @@ export function LeadImportCard({
   const [mode, setMode] = useState<'csv' | 'lsq'>('csv');
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [fetchProgress, setFetchProgress] = useState<{ fetched: number; total: number | null } | null>(null);
   const [result, setResult] = useState<CsvImportResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -181,14 +182,23 @@ export function LeadImportCard({
     setConfirmingLsq(false);
     setBusy(true);
     setResult(null);
+    setFetchProgress(null);
     try {
       const list = lists?.find((l) => l.ListId === selectedListId);
-      const res = await importFromLsqListAction(campaignId, selectedListId, list?.ListName ?? selectedListId);
+      const name = list?.ListName ?? selectedListId;
+      // A long list is read in slices; each call returns where to carry on, so the page shows real progress and
+      // no single request has to outlast the server's time limit.
+      let res = await importFromLsqListAction(campaignId, selectedListId, name);
+      while (res.ok && res.done === false && res.cursor) {
+        setFetchProgress({ fetched: res.rowCount ?? 0, total: res.cursor.expectedTotal });
+        res = await importFromLsqListAction(campaignId, selectedListId, name, res.cursor);
+      }
       setResult(res);
       router.refresh();
     } catch (err) {
       setResult({ ok: false, error: err instanceof Error ? err.message : String(err) });
     } finally {
+      setFetchProgress(null);
       setBusy(false);
     }
   }
@@ -539,6 +549,13 @@ export function LeadImportCard({
                 <Button hierarchy="secondary" onClick={requestFetchList} disabled={busy || !selectedListId || refreshingLists}>
                   {busy ? 'Fetching' : 'Fetch Contacts'}
                 </Button>
+                {fetchProgress && (
+                  <p className="lsq-hint" role="status" aria-live="polite">
+                    {fetchProgress.total
+                      ? `Fetched ${fetchProgress.fetched.toLocaleString()} of about ${fetchProgress.total.toLocaleString()} leads. Large lists are read in stages.`
+                      : `Fetched ${fetchProgress.fetched.toLocaleString()} leads so far. Large lists are read in stages.`}
+                  </p>
+                )}
               </div>
             )}
 
@@ -564,7 +581,8 @@ export function LeadImportCard({
                   <Icon name={result.ok ? 'check-circle' : 'error'} size={16} />
                 </span>
                 <p className="lsq-banner__body">
-                  {result.ok ? `${result.rowCount} contacts fetched from LeadSquared` : result.error}
+                  {result.ok ? `${(result.rowCount ?? 0).toLocaleString()} contacts fetched from LeadSquared` : result.error}
+                  {result.ok && result.warning ? ` ${result.warning}` : ''}
                 </p>
               </div>
             )}

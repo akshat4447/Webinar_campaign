@@ -1,8 +1,11 @@
 'use server';
+
+import { requireOperatorSession } from '@/lib/operatorSession';
 import { db } from '@/lib/db';
 import { revalidateCampaign } from '@/lib/revalidate';
 import { z } from 'zod';
 export async function getCampaignJobsAction(campaignId: string) {
+  await requireOperatorSession();
   const jobs = await db.operationJob.findMany({ where: { campaignId }, orderBy: { updatedAt: 'desc' }, take: 10, select: { id: true, kind: true, status: true, cursor: true, total: true, error: true } });
   const registrationFailures = await db.registrationJob.count({ where: { campaignId, status: { in: ['failed', 'blocked', 'unknown'] } } });
   const unknownSends = await db.cadenceSend.count({ where: { campaignId, status: 'unknown' } });
@@ -10,7 +13,21 @@ export async function getCampaignJobsAction(campaignId: string) {
   const uncertainOperations = await db.deliveryAttempt.findMany({where:{campaignId,status:'unknown'},orderBy:{startedAt:'desc'},take:20,select:{key:true,provider:true,sendId:true,error:true}});
   return { jobs, registrationFailures, unknownSends, uncertainOperations, heartbeat: heartbeat ? JSON.parse(heartbeat.value) as {timestamp:string;ok:boolean;errors:string[]} : null };
 }
+/**
+ * Carries a scoring or enrichment job on from where it stopped, for about 40 seconds, and says how far it got.
+ * The browser calls it again until nothing is left; a job that hits a provider limit stops with its error.
+ */
+export async function continueAudienceJobAction(campaignId: string, jobId: string) {
+  await requireOperatorSession();
+  const job = await db.operationJob.findFirst({ where: { id: jobId, campaignId, kind: { in: ['scoring', 'enrichment'] } }, select: { id: true } });
+  if (!job) return { ok: false as const, error: 'That job no longer exists.' };
+  const { advanceAudienceJob } = await import('@/lib/audienceJobs');
+  const result = await advanceAudienceJob(job.id);
+  revalidateCampaign(campaignId);
+  return result;
+}
 export async function updateCampaignJobAction(campaignId: string, jobId: string, action: 'cancel' | 'retry') {
+  await requireOperatorSession();
   z.enum(['cancel', 'retry']).parse(action);
   const statuses = action === 'cancel' ? ['pending', 'processing', 'failed', 'needs_attention'] : ['failed'];
   const changed = await db.operationJob.updateMany({ where: { id: jobId, campaignId, status: { in: statuses } }, data: { status: action === 'cancel' ? 'cancelled' : 'pending', error: null, claimedAt: null } });
@@ -18,6 +35,7 @@ export async function updateCampaignJobAction(campaignId: string, jobId: string,
   revalidateCampaign(campaignId);
 }
 export async function confirmDeliveryOutcomeAction(campaignId: string, sendId: string, outcome: 'accepted' | 'rejected', evidence: string) {
+  await requireOperatorSession();
   z.enum(['accepted', 'rejected']).parse(outcome);
   const note = z.string().trim().min(8).max(500).parse(evidence);
   await db.$transaction(async tx => {
@@ -37,6 +55,7 @@ export async function confirmDeliveryOutcomeAction(campaignId: string, sendId: s
 
 /** Resolve a lost provider response only with externally checked evidence. */
 export async function confirmOperationOutcomeAction(campaignId: string, attemptKey: string, outcome: 'accepted' | 'rejected', evidence: string) {
+  await requireOperatorSession();
   z.enum(['accepted', 'rejected']).parse(outcome);
   const note = z.string().trim().min(8).max(500).parse(evidence);
   const attempt = await db.deliveryAttempt.findUniqueOrThrow({where:{key:attemptKey,campaignId}});

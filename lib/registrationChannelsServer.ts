@@ -2,7 +2,7 @@ import { db } from '@/lib/db';
 import { appOrigin } from '@/lib/appOrigin';
 import { registrationModeOf, buildPublicLandingUrl, publicRegistrationUrl } from '@/lib/inviteLink';
 import { registrationChannelSql, registrationSourceSql } from '@/lib/registrationChannelSql';
-import { DEFAULT_SELECTED_CHANNELS,CHANNEL_DEFINITIONS,parseSelectedChannels,type RegistrationChannelKey,type ChannelRegistrationStat,type CampaignRegistrationOverview } from './registrationChannels';
+import { AUTOMATIC_CHANNELS,DEFAULT_SELECTED_CHANNELS,CHANNEL_DEFINITIONS,parseSelectedChannels,withAutomaticChannels,type RegistrationChannelKey,type ChannelRegistrationStat,type CampaignRegistrationOverview } from './registrationChannels';
 export * from './registrationChannels';
 
 export async function getCampaignRegistrationChannels(campaignId:string,origin=appOrigin()):Promise<CampaignRegistrationOverview>{
@@ -20,12 +20,14 @@ export async function getCampaignRegistrationChannels(campaignId:string,origin=a
  const recordedRegistered=[...counts.values()].reduce((sum,n)=>sum+n,0);
  const totalRegistered=recordedRegistered||((campaign.status==='completed'||campaign.status==='ended')?campaign.registrations||0:0);
  const selectedKeys=parseSelectedChannels(campaign.selectedChannels);
- const activeKeys=[...selectedKeys,...DEFAULT_SELECTED_CHANNELS.filter(k=>!selectedKeys.includes(k)&&(counts.get(k)||0)>0)];
+ // The channels Studio links itself are always tracked, whatever an older selection says; a shared channel shows when it is on or has registrations.
+ const listed=withAutomaticChannels(selectedKeys);
+ const activeKeys=[...listed,...DEFAULT_SELECTED_CHANNELS.filter(k=>!listed.includes(k)&&(counts.get(k)||0)>0)];
  const stepByChannel:Partial<Record<RegistrationChannelKey,string>>={email_campaign:'invite',whatsapp:'waInvite',linkedin:'linkedin',sms:'smsInvite'};
  const mode=registrationModeOf(campaign);
  const channels:ChannelRegistrationStat[]=activeKeys.map(key=>{
   const def=CHANNEL_DEFINITIONS[key];const registeredCount=counts.get(key)||0;const invitedCount=invites.find(i=>i.stepKey===stepByChannel[key])?.count||0;
-  return {key,label:def.label,icon:def.icon,color:def.color,description:def.description,category:def.category,registeredCount,pctOfTotal:totalRegistered?Math.round(registeredCount/totalRegistered*100):0,invitedCount,conversionRate:invitedCount?Math.round(registeredCount/invitedCount*100):null,trackingUrl:mode==='external'&&campaign.registrationLink?buildPublicLandingUrl({landingPageUrl:campaign.registrationLink,campaign,channel:key,appOrigin:origin}):publicRegistrationUrl(origin,campaign.id,key),contacts:samples.filter(c=>c.channel===key).map(c=>({id:c.id,name:c.name,email:c.email,phone:c.phone,account:c.account,title:c.title,registeredAt:c.registeredAt,score:c.score,zoomJoinUrl:c.zoomJoinUrl}))};
+  return {key,label:def.label,icon:def.icon,color:def.color,description:def.description,category:def.category,registeredCount,pctOfTotal:totalRegistered?Math.round(registeredCount/totalRegistered*100):0,invitedCount,conversionRate:invitedCount?Math.round(registeredCount/invitedCount*100):null,trackingUrl:AUTOMATIC_CHANNELS.includes(key)?null:mode==='external'&&campaign.registrationLink?buildPublicLandingUrl({landingPageUrl:campaign.registrationLink,campaign,channel:key,appOrigin:origin}):publicRegistrationUrl(origin,campaign.id,key),contacts:samples.filter(c=>c.channel===key).map(c=>({id:c.id,name:c.name,email:c.email,phone:c.phone,account:c.account,title:c.title,registeredAt:c.registeredAt,score:c.score,zoomJoinUrl:c.zoomJoinUrl}))};
  });
  return {totalRegistered,untrackedRegistered:Math.max(0,totalRegistered-recordedRegistered),selectedChannels:selectedKeys,channels,topChannel:[...channels].filter(c=>c.registeredCount>0).sort((a,b)=>b.registeredCount-a.registeredCount)[0]||null};
 }

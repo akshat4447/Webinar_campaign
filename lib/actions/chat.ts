@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
 import { chatReply } from '@/lib/claude';
 import { z } from 'zod';
@@ -21,6 +23,7 @@ const chatReplySchema = z.object({
 // whenever there's a campaign to attach them to (the table requires one; the
 // landing-page-level chat with no campaignId stays session-only, same as before).
 export async function getChatHistoryAction(campaignId: string): Promise<{ from: 'agent' | 'user'; text: string }[]> {
+  await requireOperatorSession();
   const validatedId = getChatHistorySchema.parse(campaignId);
   const messages = await db.chatMessage.findMany({
     where: { campaignId: validatedId },
@@ -31,6 +34,7 @@ export async function getChatHistoryAction(campaignId: string): Promise<{ from: 
 }
 
 export async function chatReplyAction(campaignId: string | null, history: { from: 'agent' | 'user'; text: string }[], message: string): Promise<string> {
+  await requireOperatorSession();
   const parsed = chatReplySchema.parse({ campaignId, history, message });
   const validCampaignId = parsed.campaignId;
   const validHistory = parsed.history;

@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
 import { revalidateCampaign } from '@/lib/revalidate';
 import { normalizeLinkedInSlug, resolveLinkedInDestination } from '@/lib/linkedinUrl';
@@ -22,6 +24,7 @@ const STEP_KEY = 'linkedin';
 // it either: sends happen when a human confirms them in the queue, after Apollo
 // verification has labeled each recipient.
 export async function markLinkedInSendAction(campaignId: string, contactId: string, status: 'sent' | 'skipped'): Promise<{ ok: boolean; error?: string }> {
+  await requireOperatorSession();
   const contact = await db.contact.findUnique({ where: { id: contactId, campaignId }, select: { id: true } });
   if (!contact) return { ok: false, error: 'Contact no longer exists.' };
 
@@ -32,27 +35,6 @@ export async function markLinkedInSendAction(campaignId: string, contactId: stri
     update: { status, sentAt: status === 'sent' ? new Date() : null, error: null },
     create: { campaignId, contactId, stepKey: STEP_KEY, dueAt: new Date(), status, sentAt: status === 'sent' ? new Date() : null, error: null },
   });
-
-  // Optional mapped-activity hook on manual LinkedIn confirmation too.
-  if (status === 'sent') {
-    {
-      try {
-        const contact = await db.contact.findUnique({ where: { id: contactId }, select: { lsqLeadId: true, name: true } });
-        if (contact?.lsqLeadId) {
-          const { postSentActivityIfMapped } = await import('@/lib/channelDelivery');
-          await postSentActivityIfMapped({
-            channel: 'linkedin',
-            lsqLeadId: contact.lsqLeadId,
-            campaignName: '',
-            stepKey: STEP_KEY,
-            note: `LinkedIn touch confirmed sent to ${contact.name}`,
-          });
-        }
-      } catch {
-        /* mapping hook is best-effort */
-      }
-    }
-  }
 
   revalidateCampaign(campaignId);
   return { ok: true };
@@ -69,6 +51,7 @@ export async function setLinkedInProfileAction(
   contactId: string,
   raw: string
 ): Promise<{ ok: true; slug: string } | { ok: false; error: string }> {
+  await requireOperatorSession();
   const slug = normalizeLinkedInSlug(raw);
   if (!slug) {
     return { ok: false, error: "That doesn't look like a profile URL — expected something like linkedin.com/in/their-name" };
@@ -79,6 +62,7 @@ export async function setLinkedInProfileAction(
 }
 
 export async function getLinkedInProgressAction(campaignId: string, contactIds?: string[]) {
+  await requireOperatorSession();
   const sends = await db.cadenceSend.findMany({ where: { campaignId, stepKey: STEP_KEY, ...(contactIds ? {contactId:{in:contactIds}} : {}) }, select: { contactId: true, status: true } });
   return Object.fromEntries(sends.map((s) => [s.contactId, s.status]));
 }
@@ -95,6 +79,7 @@ const CHECK_TTL_MS = 7 * 24 * 60 * 60 * 1000; // re-verify anything older than a
 export async function verifyLinkedInQueueAction(
   campaignId: string
 ): Promise<{ ok: boolean; verified?: number; mismatch?: number; notFound?: number; errors?: number; skippedAlreadyFresh?: number; usedLiveApi?: boolean; apiError?: string; error?: string }> {
+  await requireOperatorSession();
   try {
     const sent = await db.cadenceSend.findMany({ where: { campaignId, stepKey: STEP_KEY, status: 'sent' }, select: { contactId: true } });
     const sentIds = new Set(sent.map((s) => s.contactId));
@@ -191,6 +176,7 @@ export async function verifyLinkedInQueueAction(
 export async function dispatchAutomatedLinkedInAction(
   campaignId: string, contactIds?: string[]
 ): Promise<{ ok: boolean; dispatchedCount: number; error?: string }> {
+  await requireOperatorSession();
   try {
     if(contactIds && (contactIds.length > 50 || contactIds.some(id=>typeof id!=='string' || !id)))throw new Error('Confirm at most 50 selected contacts at a time.');
     const campaign = await db.campaign.findUnique({
@@ -222,7 +208,6 @@ export async function dispatchAutomatedLinkedInAction(
     }
 
     const now = new Date();
-    const { postSentActivityIfMapped } = await import('@/lib/channelDelivery');
 
     // Batch update / upsert CadenceSend records
     for (const contact of candidates) {
@@ -239,21 +224,6 @@ export async function dispatchAutomatedLinkedInAction(
           error: null,
         },
       });
-
-      // Best effort LeadSquared push
-      if (contact.lsqLeadId) {
-        try {
-          await postSentActivityIfMapped({
-            channel: 'linkedin',
-            lsqLeadId: contact.lsqLeadId,
-            campaignName: campaign.name,
-            stepKey: STEP_KEY,
-            note: `Automated LinkedIn personalized outreach dispatched to ${contact.name}`,
-          });
-        } catch {
-          /* best effort */
-        }
-      }
     }
 
     await db.activityLogEntry.create({
@@ -319,6 +289,7 @@ export interface LinkedInToolParticipant {
  * Returns all campaigns with summary counters for the global LinkedIn tool.
  */
 export async function getLinkedInToolEventsAction(): Promise<{ ok: boolean; events: LinkedInToolEventSummary[]; error?: string }> {
+  await requireOperatorSession();
   try {
     const campaigns = await db.campaign.findMany({
       select: {
@@ -404,6 +375,7 @@ export async function getLinkedInToolQueueAction(
   counts: { total: number; sent: number; skipped: number; pending: number; verified: number };
   error?: string;
 }> {
+  await requireOperatorSession();
   try {
     const campaign = await db.campaign.findUnique({
       where: { id: campaignId },
@@ -535,6 +507,7 @@ export async function getLinkedInToolQueueAction(
 export async function bulkResolveLinkedInProfilesAction(
   campaignId: string
 ): Promise<{ ok: boolean; summary?: string; error?: string }> {
+  await requireOperatorSession();
   try {
     const result = await runLinkedInProfileResolver(campaignId);
     if (!result.ok) {

@@ -1,14 +1,14 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
-import { getLists, getLeadsInList, type RawLsqLead } from '@/lib/leadsquared';
+import { getLists, readLeadsInList, LeadSquaredError, type ListReadCursor, type RawLsqLead } from '@/lib/leadsquared';
 import { classifyContact, pickCol, functionFor, seniorityFor } from '@/lib/importHeuristics';
 import { syncContactsToLeadSquared } from '@/lib/leadSync';
 import { upsertAttentionItem, resolveAttentionItems } from '@/lib/attentionItems';
-import { formatWebinarDate } from '@/lib/campaignDate';
 import { revalidateCampaign } from '@/lib/revalidate';
 import { parseCsvText } from '@/lib/csv';
-import { applyOffset } from '@/lib/stepSchedule';
 import { normalizeE164 } from '@/lib/csvPreflight';
 import { syncSpeakersForCampaign } from '@/lib/speakersServer';
 import type { SpeakerInput } from '@/lib/speakers';
@@ -19,8 +19,9 @@ import {
   type RegistrationChannelKey,
 } from '@/lib/registrationChannels';
 import { assertSetupEditable, setupLockError } from '@/lib/setupLock';
-import { wallClockToDate, DEFAULT_TIMEZONE } from '@/lib/dateFormat';
 import { z } from 'zod';
+import { writeWebinarSchedule } from '@/lib/webinarSchedule';
+import { plainError } from '@/lib/plainError';
 
 
 const campaignIdSchema = z.string().min(1);
@@ -45,6 +46,7 @@ const speakerInputSchema = z.object({
 const speakersSchema = z.array(speakerInputSchema).max(20, 'A campaign supports at most 20 speakers');
 
 export async function updateCampaignSpeakersAction(campaignId: string, speakers: SpeakerInput[]) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const validSpeakers = speakersSchema.parse(speakers);
@@ -57,55 +59,15 @@ export async function updateCampaignSpeakersAction(campaignId: string, speakers:
 }
 
 export async function updateCampaignName(campaignId: string, name: string) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   await db.campaign.update({ where: { id: validCampaignId }, data: { name } });
   revalidateCampaign(validCampaignId);
 }
 
-/** What editing the webinar's core details would clear — computed so the
- *  confirmation dialog can name real numbers instead of a generic warning. */
-export interface SetupEditImpact {
-  scoredCount: number;
-  approvedCount: number;
-  personalizedCount: number;
-  cadenceSendCount: number;
-}
-
-export async function getSetupEditImpactAction(campaignId: string): Promise<SetupEditImpact> {
-  const validCampaignId = campaignIdSchema.parse(campaignId);
-  const [scoredCount, approvedCount, personalizedCount, cadenceSendCount] = await Promise.all([
-    db.contact.count({ where: { campaignId: validCampaignId, score: { not: null } } }),
-    db.contact.count({ where: { campaignId: validCampaignId, approved: true } }),
-    db.personalizedMessage.count({ where: { campaignId: validCampaignId } }),
-    db.cadenceSend.count({ where: { campaignId: validCampaignId } }),
-  ]);
-  return { scoredCount, approvedCount, personalizedCount, cadenceSendCount };
-}
-
-/**
- * Editing the webinar's topic, date or Zoom event after real audience work
- * has happened invalidates that work — Claude scored/wrote copy against the
- * old details, and cadence timing was computed from the old date. Rather
- * than leave stale scores, drafts and queued sends sitting around looking
- * current, editing clears them — but the imported contact *list* (name,
- * email, company, title, enrichment...) is never touched, since re-importing
- * a CSV is the expensive step to avoid repeating.
- */
-export async function resetCampaignForEditAction(campaignId: string) {
-  await assertSetupEditable(campaignId);
-  const validCampaignId = campaignIdSchema.parse(campaignId);
-  await db.$transaction([
-    db.contact.updateMany({ where: { campaignId: validCampaignId }, data: { score: null, explanation: null, approved: false, approvedManually: false } }),
-    db.personalizedMessage.deleteMany({ where: { campaignId: validCampaignId } }),
-    db.cadenceSend.deleteMany({ where: { campaignId: validCampaignId } }),
-    db.campaign.update({ where: { id: validCampaignId }, data: { cadenceStatus: 'not_started', launchedAt: null } }),
-  ]);
-  revalidateCampaign(validCampaignId);
-  return { ok: true as const };
-}
-
 export async function updateCampaignDescription(campaignId: string, description: string) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   await db.campaign.update({ where: { id: validCampaignId }, data: { description } });
@@ -120,6 +82,7 @@ const ZOOM_HOSTS = /(^|\.)(zoom\.us|zoomgov\.com)$/i;
  * check reports what it recognised instead of blocking.
  */
 export async function updateCampaignZoomLink(campaignId: string, zoomLink: string) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const trimmed = zoomLink.trim();
@@ -153,6 +116,7 @@ export async function updateCampaignZoomLink(campaignId: string, zoomLink: strin
  * only rejects empty/whitespace input, not anything that isn't a strict URL.
  */
 export async function updateCampaignRegistrationLink(campaignId: string, link: string) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const trimmed = link.trim();
@@ -175,6 +139,7 @@ export async function updateCampaignRegistrationFunnelAction(
     zoomLink?: string | null;
   }
 ) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const trimmed = params.registrationLink ? params.registrationLink.trim() : null;
@@ -216,31 +181,8 @@ export async function updateCampaignRegistrationFunnelAction(
   return { ok: true as const };
 }
 
-export async function updateCampaignEmailProviderAction(campaignId: string, emailProvider: 'leadsquared' | 'netcore') {
-  await assertSetupEditable(campaignId);
-  const validCampaignId = campaignIdSchema.parse(campaignId);
-  if (emailProvider !== 'leadsquared' && emailProvider !== 'netcore') {
-    return { ok: false as const, error: 'Invalid email provider.' };
-  }
-
-  await db.campaign.update({
-    where: { id: validCampaignId },
-    data: { emailProvider },
-  });
-
-  await db.activityLogEntry.create({
-    data: {
-      campaignId: validCampaignId,
-      text: `Email delivery gateway switched to ${emailProvider === 'netcore' ? 'Netcore Cloud' : 'LeadSquared'}`,
-      dot: 'var(--accent-500)',
-    },
-  });
-
-  revalidateCampaign(validCampaignId);
-  return { ok: true as const };
-}
-
 export async function updateCampaignCapacityAction(campaignId: string, capacity: number | null) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const validCapacity = capacity === null || capacity === undefined ? null : z.number().int().min(1).max(100000).parse(capacity);
@@ -266,6 +208,7 @@ export async function updateCampaignSelectedChannelsAction(
   campaignId: string,
   channels: RegistrationChannelKey[]
 ) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const serialized = serializeSelectedChannels(channels);
@@ -289,49 +232,12 @@ export async function updateCampaignSelectedChannelsAction(
   return { ok: true as const };
 }
 
-/**
- * Takes a datetime-local value ("2026-08-28T15:00") and stores both forms.
- * This is the *only* place `scheduledAt` is ever written — keep it that way.
- * `date` (display string) and `scheduledAt` (real timestamp) only stay in sync
- * because every write happens here, together, in one call; a second write site
- * for `scheduledAt` that forgot to also set `date` would silently desync them.
- * Historical/seeded campaigns (see prisma/seed.ts) predate this picker and can
- * hold a `date` string with no `scheduledAt` at all — that's expected for them,
- * not drift.
- */
+/** The wizard's date picker: a draft's date, written together with its display form (see lib/webinarSchedule.ts). */
 export async function updateCampaignSchedule(campaignId: string, dateTimeLocal: string) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   const validCampaignId = campaignIdSchema.parse(campaignId);
-  if (!dateTimeLocal) {
-    await db.campaign.update({ where: { id: validCampaignId }, data: { scheduledAt: null, date: 'Not scheduled yet' } });
-    revalidateCampaign(validCampaignId);
-    return { ok: true as const, display: 'Not scheduled yet' };
-  }
-
-  const zoneRow = await db.campaign.findUnique({ where: { id: validCampaignId }, select: { timezone: true } });
-  const timezone = zoneRow?.timezone ?? DEFAULT_TIMEZONE;
-  // The picker value is wall-clock time in the webinar's zone, not the server's.
-  const parsed = wallClockToDate(dateTimeLocal, timezone);
-  if (!parsed) return { ok: false as const, error: 'That date could not be read.' };
-
-  const display = formatWebinarDate(parsed, timezone);
-  await db.campaign.update({ where: { id: validCampaignId }, data: { scheduledAt: parsed, date: display } });
-
-  // Rescheduling anchor synchronization: update dueAt for all queued sends anchored to the webinar
-  const webinarSteps = await db.cadenceStep.findMany({
-    where: { campaignId: validCampaignId, anchor: 'webinar' },
-    select: { key: true, offsetValue: true, offsetUnit: true },
-  });
-  for (const s of webinarSteps) {
-    const newDue = applyOffset(parsed, s.offsetValue, s.offsetUnit);
-    await db.cadenceSend.updateMany({
-      where: { campaignId: validCampaignId, stepKey: s.key, status: 'queued' },
-      data: { dueAt: newDue },
-    });
-  }
-
-  revalidateCampaign(validCampaignId);
-  return { ok: true as const, display };
+  return writeWebinarSchedule(validCampaignId, dateTimeLocal);
 }
 
 async function upsertContacts(campaignId: string, rows: (ReturnType<typeof classifyContact> & { lsqLeadId?: string })[]) {
@@ -454,6 +360,17 @@ export interface ImportIssue {
   message: string;
 }
 
+/** Where a long LeadSquared list import carries on from; the browser hands it back unchanged. */
+export interface LsqImportCursor {
+  list: ListReadCursor;
+  phase: 'forward' | 'reverse';
+  /** Leads read so far in the pass that ran from newest to oldest, and in the one that ran back from the other end. */
+  forwardCount: number;
+  reverseCount: number;
+  /** The list's size according to LeadSquared (the list's own count, or a clearly-total RecordCount). */
+  expectedTotal: number | null;
+}
+
 export interface CsvImportResult {
   ok: boolean;
   error?: string;
@@ -468,9 +385,15 @@ export interface CsvImportResult {
   headers?: string[];
   columnMap?: { role: string; header: string }[];
   logLines?: string[];
+  /** LeadSquared list imports run in slices: false means call again with `cursor`. */
+  done?: boolean;
+  cursor?: LsqImportCursor;
+  /** Set when LeadSquared handed back fewer leads than the list holds. */
+  warning?: string;
 }
 
 export async function importCsvAction(campaignId: string, formData: FormData): Promise<CsvImportResult> {
+  await requireOperatorSession();
   const lockedMessage = await setupLockError(campaignId);
   if (lockedMessage) return { ok: false, error: lockedMessage };
   const file = formData.get('file') as File | null;
@@ -589,8 +512,8 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
   const logLines = [
     `Read ${file.name} — ${headersRaw.length} columns, ${rows.length - 1} data rows${skippedBlank ? ` (${skippedBlank} blank skipped)` : ''}`,
     `Mapped columns: ${mapped || 'none matched'}`,
-    `${dupes} duplicate rows merged by email/company match`,
-    `${classified.length - withEmail} contacts have no usable email — queued for Apollo enrichment`,
+    `${dupes} duplicate ${dupes === 1 ? 'row' : 'rows'} merged by email/company match`,
+    `${classified.length - withEmail} ${classified.length - withEmail === 1 ? 'contact has' : 'contacts have'} no usable email — queued for Apollo enrichment`,
   ];
 
   const sync = await syncContactsToLeadSquared(campaignId, { createList: false });
@@ -626,6 +549,7 @@ export interface FetchLsqListsResponse {
 }
 
 export async function fetchLsqListsAction(): Promise<FetchLsqListsResponse> {
+  await requireOperatorSession();
   try {
     const host = (await resolveIntegrationField('lsq', 'host')) || '';
     const senderEmail = (await resolveIntegrationField('lsq', 'senderEmail')) || '';
@@ -699,53 +623,133 @@ function rawLeadToContact(row: RawLsqLead) {
   };
 }
 
-export async function importFromLsqListAction(campaignId: string, listId: string, listName: string): Promise<CsvImportResult> {
+/** How long one slice of a list import may keep fetching before it saves what it has and asks to be called again. */
+const LSQ_IMPORT_SLICE_MS = 40_000;
+const importSliceMs = () => (Number(process.env.LSQ_IMPORT_SLICE_MS) > 0 ? Number(process.env.LSQ_IMPORT_SLICE_MS) : LSQ_IMPORT_SLICE_MS);
+
+/**
+ * Imports a LeadSquared list, in slices. A big list cannot be read inside one request (LeadSquared allows 25
+ * calls per 5 seconds, so 20,000 leads at 500 per page is a minute or more), so each call reads for about
+ * {@link LSQ_IMPORT_SLICE_MS}, stores what it read, and returns a cursor. The caller keeps calling with that
+ * cursor until `done`; stopping part-way leaves a valid partial import that can be resumed by importing again.
+ */
+export async function importFromLsqListAction(campaignId: string, listId: string, listName: string, cursor?: LsqImportCursor): Promise<CsvImportResult> {
+  await requireOperatorSession();
   const lockedMessage = await setupLockError(campaignId);
   if (lockedMessage) return { ok: false, error: lockedMessage };
   try {
-    // Explicitly bind campaign to the selected LeadSquared list so no new duplicate list is created.
-    await db.campaign.update({
-      where: { id: campaignId },
-      data: { lsqListId: listId },
-    });
+    let state: LsqImportCursor;
+    if (cursor) {
+      state = cursor;
+    } else {
+      // Explicitly bind campaign to the selected LeadSquared list so no new duplicate list is created.
+      await db.campaign.update({ where: { id: campaignId }, data: { lsqListId: listId } });
+      let expectedTotal: number | null = null;
+      try {
+        const listed = (await getLists()).find((l) => l.ListId === listId);
+        if (listed && Number.isFinite(listed.MemberCount) && listed.MemberCount > 0) expectedTotal = listed.MemberCount;
+      } catch {
+        // The count only decides whether to warn; the import itself does not depend on it.
+      }
+      state = { list: { nextPage: 1, pageSize: 500, direction: 'newest' }, phase: 'forward', forwardCount: 0, reverseCount: 0, expectedTotal };
+    }
 
-    const rawLeads = await getLeadsInList(listId);
-    const classified = rawLeads.map(rawLeadToContact);
+    // On the second pass only as much as is still missing is worth reading.
+    const stillMissing = state.expectedTotal !== null ? Math.max(0, state.expectedTotal - state.forwardCount - state.reverseCount) : undefined;
+    let read: Awaited<ReturnType<typeof readLeadsInList>>;
+    try {
+      read = await readLeadsInList(listId, {
+        pageSize: state.list.pageSize,
+        startPage: state.list.nextPage,
+        direction: state.list.direction,
+        budgetMs: importSliceMs(),
+        ...(state.phase === 'reverse' && stillMissing !== undefined ? { maxLeads: stillMissing } : {}),
+      });
+    } catch (err) {
+      // A page deeper than LeadSquared will serve (it answers an error rather than an empty page) is the end of
+      // what this pass can reach. Rate limiting and authentication problems are not: those are reported.
+      const refused = err instanceof LeadSquaredError && ![401, 403, 429].includes(err.status);
+      if (!(state.phase === 'forward' && state.forwardCount > 0 && refused)) throw err;
+      read = { leads: [], cursor: null, reportedTotal: null, pages: 0 };
+    }
+    const classified = read.leads.map(rawLeadToContact);
     await upsertContacts(campaignId, classified);
 
-    const withEmail = classified.filter((c) => !c.missingInfo).length;
+    const expectedTotal = read.reportedTotal !== null ? Math.max(state.expectedTotal ?? 0, read.reportedTotal) : state.expectedTotal;
+    const next: LsqImportCursor = {
+      ...state,
+      expectedTotal,
+      forwardCount: state.forwardCount + (state.phase === 'forward' ? read.leads.length : 0),
+      reverseCount: state.reverseCount + (state.phase === 'reverse' ? read.leads.length : 0),
+    };
+    const seen = next.forwardCount + next.reverseCount;
+
+    // The second pass only reads what is still missing; once that is reached it is finished even though the
+    // list itself has more pages.
+    const secondPassDone = next.phase === 'reverse' && expectedTotal !== null && seen >= expectedTotal;
+    if (read.cursor && !secondPassDone) {
+      return { ok: true, done: false, cursor: { ...next, list: read.cursor }, rowCount: seen };
+    }
+
+    // End of the pass. If LeadSquared stopped returning pages before the list's own count was reached (a cap on
+    // how deep it pages), read the list again from the other end: together the two passes cover up to twice what
+    // one pass can reach, and the overlap is harmless because contacts are merged by email.
+    const missing = expectedTotal !== null ? expectedTotal - seen : 0;
+    if (next.phase === 'forward' && expectedTotal !== null && missing > Math.max(50, Math.round(expectedTotal * 0.02))) {
+      return {
+        ok: true,
+        done: false,
+        cursor: { ...next, phase: 'reverse', list: { nextPage: 1, pageSize: 500, direction: 'oldest' } },
+        rowCount: seen,
+      };
+    }
+
+    const distinct = expectedTotal !== null ? Math.min(seen, expectedTotal) : seen;
+    const stillShort = expectedTotal !== null ? Math.max(0, expectedTotal - seen) : 0;
+    const warning =
+      stillShort > Math.max(50, Math.round((expectedTotal ?? 0) * 0.02))
+        ? `LeadSquared returned ${distinct.toLocaleString()} of the ${expectedTotal!.toLocaleString()} leads LeadSquared reports for "${listName}". Its API stopped returning pages after that, or the count it shows is out of date. If leads are missing, split the list in LeadSquared into smaller lists and import them one at a time.`
+        : undefined;
+
+    const withEmail = await db.contact.count({ where: { campaignId, email: { not: null } } });
     const logLines = [
       `Bound campaign to LeadSquared list "${listName}" (${listId})`,
-      `Fetched ${classified.length} contacts from LeadSquared list "${listName}"`,
-      `${classified.length - withEmail} contacts have no usable email on file`,
+      `Fetched ${distinct.toLocaleString()} contacts from LeadSquared list "${listName}"${next.phase === 'reverse' ? ' (read from both ends of the list)' : ''}`,
+      ...(warning ? [warning] : []),
     ];
 
-    const sync = await syncContactsToLeadSquared(campaignId, { createList: false });
-    if (sync.error) {
-      logLines.push(`LeadSquared list sync failed: ${sync.error.slice(0, 200)}`);
-      await upsertAttentionItem(campaignId, {
-        icon: 'ErrorProperty1Outline',
-        color: 'error',
-        title: 'LeadSquared lead sync failed',
-        detail: sync.error.slice(0, 600),
-        actionsCsv: 'retry',
-      });
+    // The leads came from this list, so they are already in it: only contacts that were not LeadSquared leads
+    // yet (CSV rows imported earlier) need creating, and only those are added to the list.
+    const unsynced = await db.contact.count({ where: { campaignId, email: { not: null }, lsqLeadId: null } });
+    let syncError: string | undefined;
+    if (unsynced > 0) {
+      const sync = await syncContactsToLeadSquared(campaignId, { createList: false, addToList: 'created' });
+      syncError = sync.error;
+      if (sync.error) {
+        logLines.push(`LeadSquared list sync failed: ${sync.error.slice(0, 200)}`);
+        await upsertAttentionItem(campaignId, {
+          icon: 'ErrorProperty1Outline',
+          color: 'error',
+          title: 'LeadSquared lead sync failed',
+          detail: sync.error.slice(0, 600),
+          actionsCsv: 'retry',
+        });
+      } else {
+        logLines.push(`Synced ${unsynced.toLocaleString()} new contacts to LeadSquared list "${listName}" (${listId})`);
+        await resolveAttentionItems(campaignId, ['LeadSquared lead sync failed']);
+      }
     } else {
-      logLines.push(`Synced contacts to LeadSquared list "${listName}" (${listId})`);
       await resolveAttentionItems(campaignId, ['LeadSquared lead sync failed']);
     }
 
-    await db.activityLogEntry.createMany({ data: logLines.map((text) => ({ campaignId, text, dot: sync.error ? 'var(--warning-700)' : 'var(--accent-500)' })) });
+    await db.activityLogEntry.createMany({ data: logLines.map((text) => ({ campaignId, text, dot: syncError || warning ? 'var(--warning-700)' : 'var(--accent-500)' })) });
 
     revalidateCampaign(campaignId);
-    return { ok: true, rowCount: classified.length, withEmail, logLines };
+    return { ok: true, done: true, rowCount: distinct, withEmail, logLines, warning };
   } catch (err) {
-    return { ok: false, error: String(err) };
+    return { ok: false, error: String(err instanceof Error ? err.message : err) };
   }
 }
-
-
-
 
 /**
  * Pre-import safety net: pairs the CSV's headers with real LeadSquared fields
@@ -757,6 +761,7 @@ export async function importFromLsqListAction(campaignId: string, listId: string
  * confident-sounding model can never wave bad data into the CRM.
  */
 export async function analyzeCsvMappingAction(headers: string[], sampleRows: Array<Record<string, string>>) {
+  await requireOperatorSession();
   try {
     const { getLeadsMetadata } = await import('@/lib/leadsquared');
     const { mapCsvColumnsToLsqFields } = await import('@/lib/claude');
@@ -781,6 +786,7 @@ export async function analyzeCsvMappingAction(headers: string[], sampleRows: Arr
  * Passing null restores the default of auto-creating a per-campaign list.
  */
 export async function setCampaignListAction(campaignId: string, listId: string | null) {
+  await requireOperatorSession();
   await assertSetupEditable(campaignId);
   await db.campaign.update({ where: { id: campaignId }, data: { lsqListId: listId } });
   revalidateCampaign(campaignId);
@@ -789,6 +795,7 @@ export async function setCampaignListAction(campaignId: string, listId: string |
 
 /** Static lists only — the ones that can actually receive leads. */
 export async function getStaticListsAction() {
+  await requireOperatorSession();
   try {
     const lists = await getLists();
     return {
@@ -801,4 +808,24 @@ export async function getStaticListsAction() {
   } catch (err) {
     return { ok: false as const, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
   }
+}
+
+/**
+ * Runs the LeadSquared lead sync again for a webinar whose last sync failed. It does what "Retry" says: the failed item
+ * is cleared only when this sync succeeds, and a failure replaces the item's detail with the new reason. The reason
+ * is returned as a sentence rather than thrown, because production hides the message of a thrown server error.
+ */
+export async function retryLeadSquaredSyncAction(campaignId: string): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  await requireOperatorSession();
+  const id = campaignIdSchema.parse(campaignId);
+  const sync = await syncContactsToLeadSquared(id, { createList: false });
+  if (sync.error) {
+    const error = plainError(sync.error).slice(0, 600);
+    await upsertAttentionItem(id, { icon: 'ErrorProperty1Outline', color: 'error', title: 'LeadSquared lead sync failed', detail: error, actionsCsv: 'retry' });
+    return { ok: false, error };
+  }
+  await resolveAttentionItems(id, ['LeadSquared lead sync failed']);
+  await db.activityLogEntry.create({ data: { campaignId: id, text: `Synced to LeadSquared: ${sync.leadsCreated} leads created, ${sync.leadsUpdated} updated`, dot: 'var(--success-500)' } });
+  revalidateCampaign(id);
+  return { ok: true, message: `Synced to LeadSquared: ${sync.leadsCreated} created, ${sync.leadsUpdated} updated.` };
 }

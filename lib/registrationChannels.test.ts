@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+  AUTOMATIC_CHANNELS,
+  SHARED_CHANNELS,
+  withAutomaticChannels,
   resolveContactRegistrationChannel,
   parseSelectedChannels,
   serializeSelectedChannels,
@@ -56,6 +59,19 @@ describe('registrationChannels', () => {
 
       // Backward compatibility with legacy channel names
       expect(parseSelectedChannels('email,sms,framer')).toEqual(['email_campaign', 'sms', 'website']);
+    });
+  });
+
+  describe('automatic and shared channels', () => {
+    it('splits every channel into exactly one of the two groups', () => {
+      expect([...AUTOMATIC_CHANNELS, ...SHARED_CHANNELS].sort()).toEqual([...DEFAULT_SELECTED_CHANNELS].sort());
+      expect(AUTOMATIC_CHANNELS.filter((k) => SHARED_CHANNELS.includes(k))).toEqual([]);
+    });
+
+    it('always keeps the automatic channels and only the shared ones that were turned on, in registry order', () => {
+      expect(withAutomaticChannels([])).toEqual(['email_campaign', 'sms', 'whatsapp', 'linkedin']);
+      expect(withAutomaticChannels(['website', 'sdr_sales'])).toEqual(['email_campaign', 'sms', 'whatsapp', 'linkedin', 'sdr_sales', 'website']);
+      expect(withAutomaticChannels(['sms', 'website'])).toEqual(['email_campaign', 'sms', 'whatsapp', 'linkedin', 'website']);
     });
   });
 
@@ -195,11 +211,10 @@ describe('registrationChannels', () => {
       expect(siteStat).toBeDefined();
       expect(siteStat?.registeredCount).toBe(1);
 
-      const emailStat = result.channels.find((c) => c.key === 'email_campaign');
-      expect(emailStat?.trackingUrl).toContain('utm_source=email_campaign');
-
-      const waStat = result.channels.find((c) => c.key === 'whatsapp');
-      expect(waStat?.trackingUrl).toContain('utm_source=whatsapp');
+      // Studio puts the right link in every message it sends, so the channels it sends on need no link to copy.
+      for (const key of ['email_campaign', 'sms', 'whatsapp', 'linkedin']) {
+        expect(result.channels.find((c) => c.key === key)?.trackingUrl, key).toBeNull();
+      }
 
       const thirdStat = result.channels.find((c) => c.key === 'third_parties');
       expect(thirdStat?.trackingUrl).toContain('utm_source=third_parties');
@@ -229,13 +244,20 @@ describe('registrationChannels', () => {
 
       const result = await getCampaignRegistrationChannels('camp_zoom', 'https://studio.example.com');
 
-      for (const key of ['email_campaign', 'whatsapp', 'sdr_sales', 'third_parties', 'linkedin_event']) {
+      for (const key of ['sdr_sales', 'third_parties', 'linkedin_event']) {
         const url = result.channels.find((c) => c.key === key)?.trackingUrl as string;
         expect(url).toBe(`https://studio.example.com/register/camp_zoom?c=${key}`);
         expect(url).not.toContain('zoom.us');
       }
     });
   });
+});
+
+it('always lists the channels Studio sends on, even for a webinar saved before SMS was one of them',async()=>{
+ vi.mocked(db.campaign.findUnique).mockResolvedValue({id:'old',name:'Old',registrationLink:null,registrationMode:'zoom',oneClickSignup:true,zoomMeetingId:null,zoomLink:null,registrations:0,status:'live',selectedChannels:'email_campaign,whatsapp,linkedin,sdr_sales,third_parties,linkedin_event,website'} as unknown as never);
+ vi.mocked(db.$queryRaw).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+ const result=await getCampaignRegistrationChannels('old','https://studio.example.com');
+ expect(result.channels.map(c=>c.key)).toEqual(['email_campaign','sms','whatsapp','linkedin','sdr_sales','third_parties','linkedin_event','website']);
 });
 
 it('keeps SMS distinct from sales and deduplicates aliases',()=>{

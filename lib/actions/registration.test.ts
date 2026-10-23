@@ -13,10 +13,12 @@ const zoomConnectionError = vi.fn();
 vi.mock('@/lib/zoom/client', () => ({ zoomConnectionError: () => zoomConnectionError() }));
 const health = vi.fn();
 vi.mock('@/lib/actions/zoom', () => ({ getZoomRegistrationHealthAction: (...a: unknown[]) => health(...a) }));
+const tenantFields = vi.fn();
+vi.mock('@/lib/leadsquared', () => ({ getTenantCustomFieldNames: () => tenantFields(), resetLeadSchemaCache: vi.fn() }));
 const verify = vi.fn();
 vi.mock('@/lib/landingVerify', () => ({ verifyLandingPage: (...a: unknown[]) => verify(...a) }));
 
-import { getRegistrationOverviewAction, saveRegistrationSettingsAction, verifyLandingPageAction } from './registration';
+import { checkAttributionFieldAction, getRegistrationOverviewAction, saveRegistrationSettingsAction, verifyLandingPageAction } from './registration';
 
 const camp = (over: Record<string, unknown> = {}) => ({
   id: 'c1', name: 'AI Lending', description: 'd', status: 'draft', archived: false, scheduledAt: new Date(Date.now() + 5 * 864e5), durationMinutes: 60,
@@ -75,15 +77,15 @@ describe('getRegistrationOverviewAction', () => {
     expect(o.mode).toBe('zoom');
     expect(o.readiness.ready).toBe(true);
     expect(o.snippet).toBeNull();
-    expect(o.channelLinks.map((l) => l.channel)).toEqual(['email_campaign', 'website']);
-    expect(o.channelLinks[0].url).toMatch(/^https:\/\/studio\.example\.com\/register\/c1\?c=email_campaign$/);
+    expect(o.channelLinks.map((l) => l.channel)).toEqual(['website']); // email is linked by Studio itself, so only shared channels get a link here
+    expect(o.channelLinks[0].url).toMatch(/^https:\/\/studio\.example\.com\/register\/c1\?c=website$/);
   });
   it('external mode: landing links with UTM per channel and a snippet pointing at this app', async () => {
     db.campaign.findUnique.mockResolvedValue(camp({ registrationMode: 'external', registrationLink: 'https://lp.example.com/w', oneClickSignup: false }));
     const o = await getRegistrationOverviewAction('c1');
     if ('error' in o) throw new Error(o.error);
     expect(o.mode).toBe('external');
-    expect(new URL(o.channelLinks[0].url).searchParams.get('utm_source')).toBe('email_campaign');
+    expect(new URL(o.channelLinks[0].url).searchParams.get('utm_source')).toBe('website');
     expect(o.snippet).toContain('https://studio.example.com');
     expect(o.readiness.checks.find((c) => c.id === 'landing-verify')?.status).toBe('warn'); // not checked yet
   });
@@ -131,5 +133,23 @@ describe('verifyLandingPageAction', () => {
     const r = await verifyLandingPageAction('c1', 'javascript:alert(1)');
     expect(r.overall).toBe('fail');
     expect(verify).not.toHaveBeenCalled();
+  });
+});
+
+describe('checkAttributionFieldAction', () => {
+  it('finds the field whatever its capitalisation in LeadSquared', async () => {
+    tenantFields.mockResolvedValue(new Set(['firstname', 'mx_channel_source']));
+    expect(await checkAttributionFieldAction()).toEqual({ field: 'mx_Channel_Source', status: 'found' });
+  });
+  it('says missing when LeadSquared answered and the field is not there', async () => {
+    tenantFields.mockResolvedValue(new Set(['firstname']));
+    expect((await checkAttributionFieldAction()).status).toBe('missing');
+  });
+  it('says unknown, not missing, when LeadSquared is not connected or gave no answer', async () => {
+    tenantFields.mockResolvedValue(null);
+    expect((await checkAttributionFieldAction()).status).toBe('unknown');
+    resolveField.mockResolvedValue(undefined);
+    tenantFields.mockResolvedValue(new Set(['mx_channel_source']));
+    expect((await checkAttributionFieldAction()).status).toBe('unknown');
   });
 });

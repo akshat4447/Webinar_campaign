@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
 import { revalidateCampaign } from '@/lib/revalidate';
 import { findScoreBand } from '@/lib/scoreBands';
@@ -15,6 +17,7 @@ const scoringConfigSchema = z.object({
 });
 
 export async function runScoringAction(campaignId: string) {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
   await assertSetupEditable(validCampaignId);
   const { queueAudienceJob } = await import('@/lib/audienceJobs');
@@ -22,6 +25,7 @@ export async function runScoringAction(campaignId: string) {
 }
 
 export async function updateScoringConfigAction(campaignId: string, data: { prompt?: string; criteria?: string; threshold?: number }) {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
   await assertSetupEditable(validCampaignId);
   const parsedData = scoringConfigSchema.parse(data);
@@ -68,6 +72,7 @@ export async function updateScoringConfigAction(campaignId: string, data: { prom
 // later re-score (runScoringAction above) leaves it alone instead of
 // overwriting it with the AI's threshold verdict.
 export async function setApprovalAction(contactId: string, approved: boolean, campaignId?: string) {
+  await requireOperatorSession();
   const validContactId = contactIdSchema.parse(contactId);
   const owner = await db.contact.findUnique({ where: { id: validContactId }, select: { campaignId: true } });
   if (campaignId && owner?.campaignId !== campaignId) throw new Error('Contact does not belong to this campaign.');
@@ -82,6 +87,7 @@ export async function setApprovalAction(contactId: string, approved: boolean, ca
 }
 
 export async function bulkSetApprovalAction(contactIds: string[], approved: boolean, campaignId?: string) {
+  await requireOperatorSession();
   const validIds = z.array(contactIdSchema).parse(contactIds);
   const owners = await db.contact.findMany({ where: { id: { in: validIds } }, select: { id: true, campaignId: true } });
   if (owners.length !== validIds.length || (campaignId && owners.some(c => c.campaignId !== campaignId))) throw new Error('Contact selection does not belong to this campaign.');
@@ -101,6 +107,7 @@ export async function bulkSetApprovalAction(contactIds: string[], approved: bool
  * formatting at delivery time.
  */
 export async function updateContactPhoneAction(contactId: string, phone: string, campaignId?: string): Promise<{ ok: boolean; error?: string }> {
+  await requireOperatorSession();
   const validContactId = contactIdSchema.parse(contactId);
   const clean = (phone ?? '').trim();
   if (clean && !/^\+?[\d\s()-]{6,20}$/.test(clean)) {
@@ -120,6 +127,7 @@ export async function updateContactPhoneAction(contactId: string, phone: string,
  * actions that silently overturn a human's call are how trust in them is lost.
  */
 export async function approveAboveThresholdAction(campaignId: string) {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
   await assertSetupEditable(validCampaignId);
   const campaign = await db.campaign.findUniqueOrThrow({
@@ -153,6 +161,7 @@ export async function exportScoredContactsAction(
   campaignId: string,
   filter: { q?: string; band?: string } = {}
 ) {
+  await requireOperatorSession();
   const validCampaignId = campaignIdSchema.parse(campaignId);
   const q = (filter.q ?? '').trim();
   const selectedBand = findScoreBand(filter.band);

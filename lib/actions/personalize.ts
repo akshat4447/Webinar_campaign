@@ -1,5 +1,7 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
 import { generatePersonalized, generateAllSteps, regenerateOne, repairLinks, DEFAULT_PERSONALIZATION_PROMPT, type GenerateResult } from '@/lib/personalization';
 import { revalidateCampaign } from '@/lib/revalidate';
@@ -11,6 +13,7 @@ export async function generatePersonalizedAction(
   stepKey: string,
   options?: { onlyMissing?: boolean }
 ): Promise<GenerateResult> {
+  await requireOperatorSession();
   const result = await generatePersonalized(campaignId, stepKey, options);
   revalidateCampaign(campaignId);
   return result;
@@ -20,12 +23,14 @@ export async function generateAllStepsAction(
   campaignId: string,
   options?: { onlyMissing?: boolean }
 ): Promise<{ ok: boolean; totalGenerated: number; errors: string[] }> {
+  await requireOperatorSession();
   const result = await generateAllSteps(campaignId, options);
   revalidateCampaign(campaignId);
   return result;
 }
 
 export async function regeneratePersonalizedAction(campaignId: string, contactId: string, stepKey: string): Promise<GenerateResult> {
+  await requireOperatorSession();
   await assertStepUnsent(campaignId, stepKey);
   const result = await regenerateOne(campaignId, contactId, stepKey);
   revalidateCampaign(campaignId);
@@ -39,6 +44,7 @@ export async function savePersonalizedAction(
   body: string,
   context?: { contactId?: string; stepKey?: string }
 ) {
+  await requireOperatorSession();
   const now = new Date();
   const contactId = context?.contactId ?? (messageId.startsWith('custom_') ? messageId.slice('custom_'.length) : null);
   const stepKey = context?.stepKey ?? 'invite';
@@ -96,6 +102,7 @@ export async function savePersonalizedAction(
 }
 
 export async function markReviewedAction(campaignId: string, messageId: string) {
+  await requireOperatorSession();
   const now = new Date();
   await db.personalizedMessage.update({ where: { id: messageId }, data: { status: 'reviewed', reviewedAt: now } });
   revalidateCampaign(campaignId);
@@ -103,6 +110,7 @@ export async function markReviewedAction(campaignId: string, messageId: string) 
 }
 
 export async function markAllReviewedAction(campaignId: string, stepKey: string) {
+  await requireOperatorSession();
   const result = await db.personalizedMessage.updateMany({
     where: { campaignId, stepKey, status: { in: ['draft', 'edited'] } },
     data: { status: 'reviewed', reviewedAt: new Date() },
@@ -118,6 +126,7 @@ export async function markAllReviewedAction(campaignId: string, stepKey: string)
 
 /** Drops ONE recipient's personalized copy so the shared template sends instead. */
 export async function discardOnePersonalizedAction(campaignId: string, contactId: string, stepKey: string) {
+  await requireOperatorSession();
   await assertStepUnsent(campaignId, stepKey);
   await db.personalizedMessage.deleteMany({ where: { campaignId, contactId, stepKey } });
   revalidateCampaign(campaignId);
@@ -125,6 +134,7 @@ export async function discardOnePersonalizedAction(campaignId: string, contactId
 
 /** Drops the personalized copy for a step so the shared template takes over again. */
 export async function discardPersonalizedAction(campaignId: string, stepKey: string) {
+  await requireOperatorSession();
   await assertStepUnsent(campaignId, stepKey);
   const result = await db.personalizedMessage.deleteMany({ where: { campaignId, stepKey } });
   await db.activityLogEntry.create({
@@ -136,6 +146,7 @@ export async function discardPersonalizedAction(campaignId: string, stepKey: str
 
 /** Swaps a superseded registration link for the current one, no model call. */
 export async function repairLinksAction(campaignId: string, stepKey: string) {
+  await requireOperatorSession();
   await assertStepUnsent(campaignId, stepKey);
   const result = await repairLinks(campaignId, stepKey);
   revalidateCampaign(campaignId);
@@ -144,6 +155,7 @@ export async function repairLinksAction(campaignId: string, stepKey: string) {
 
 /** Saves edited tone/emphasis instructions for this campaign's personalization. */
 export async function updatePersonalizationPromptAction(campaignId: string, prompt: string) {
+  await requireOperatorSession();
   await db.campaign.update({ where: { id: campaignId }, data: { personalizationPrompt: prompt } });
   revalidateCampaign(campaignId);
   return { savedAt: new Date().toISOString() };
@@ -160,6 +172,7 @@ export async function updateCampaignMessagingInstructionsAction(
   campaignId: string,
   data: { prompt?: string; brief?: string; aiInstructions?: string; tone?: string; msgLength?: string }
 ) {
+  await requireOperatorSession();
   await db.campaign.update({
     where: { id: campaignId },
     data: {
@@ -182,6 +195,7 @@ export async function updateCampaignMessagingInstructionsAction(
  * side effect that fires before the user decides to keep it.
  */
 export async function getDefaultPersonalizationPromptAction(): Promise<string> {
+  await requireOperatorSession();
   return DEFAULT_PERSONALIZATION_PROMPT;
 }
 
@@ -198,6 +212,7 @@ export async function generateCopyAnglesAction(params: {
   stepLabel: string;
   baseBody?: string;
 }) {
+  await requireOperatorSession();
   const { generateMessageAngles } = await import('@/lib/claude');
 
   let topic = params.topic || 'Upcoming Strategic Webinar';
@@ -278,6 +293,7 @@ export interface TestAiDraftResult {
  * without requiring bulk generation across all contacts.
  */
 export async function testGenerateAiDraftAction(params: TestAiDraftParams): Promise<TestAiDraftResult> {
+  await requireOperatorSession();
   const { personalizeMessages } = await import('@/lib/claude');
   const { resolveStepTemplate } = await import('@/lib/messageTemplates');
 
@@ -399,6 +415,7 @@ export async function updateContactFieldsAction(
     personaNote?: string;
   }
 ) {
+  await requireOperatorSession();
   const updated = await db.contact.update({
     where: { id: contactId },
     data: {
@@ -427,6 +444,7 @@ export async function saveAiInstructionsAndRegeneratePendingAction(
     activeStepKey?: string;
   }
 ) {
+  await requireOperatorSession();
   const instructions = [
     data.aiInstructions?.trim(),
     data.tone ? `Tone: ${data.tone}.` : null,
@@ -503,6 +521,7 @@ export async function switchStepModeAction(
   templateId?: string | null,
   options?: { autoDraft?: boolean }
 ) {
+  await requireOperatorSession();
   const sentCount = await db.cadenceSend.count({
     where: { campaignId, stepKey, status: 'sent' },
   });
@@ -560,11 +579,13 @@ export async function switchStepToFixedTemplateAction(
   stepKey: string,
   templateId: string | null
 ) {
+  await requireOperatorSession();
   return switchStepModeAction(campaignId, stepKey, templateId ? 'template' : 'ai', templateId);
 }
 
 /** Regenerates outdated drafts for a step, preserving any manual human edits (status === 'edited') */
 export async function regenerateOutdatedDraftsAction(campaignId: string, stepKey: string) {
+  await requireOperatorSession();
   const res = await generatePersonalized(campaignId, stepKey, { preserveEdited: true, autoReview: true });
   revalidateCampaign(campaignId);
   return res;

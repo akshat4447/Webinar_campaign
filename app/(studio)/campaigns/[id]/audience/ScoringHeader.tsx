@@ -7,6 +7,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Field } from '@/components/ui/Field';
 import { Icon } from '@/components/ui/Icon';
 import { updateScoringConfigAction, runScoringAction } from '@/lib/actions/scoring';
+import { finishAudienceJob } from '@/lib/audienceJobClient';
 import type { Campaign } from '@/lib/generated/prisma/client';
 
 export function ScoringHeader({
@@ -47,7 +48,7 @@ export function ScoringHeader({
     setRescoring(true);
     setRescoreNotice(null);
     try {
-      const res = await runScoringAction(campaign.id);
+      const res = await finishAudienceJob(campaign.id, await runScoringAction(campaign.id), (done, total) => setRescoreNotice(`Scoring ${done.toLocaleString()} of ${total.toLocaleString()} contacts.`));
       if (res.ok) {
         setConfirming(false);
         // Re-scoring never overwrites a contact whose approval a human already
@@ -79,7 +80,7 @@ export function ScoringHeader({
             </span>
             <div>
               <h2 className="lsq-ov-aud-head__title" id="aud-scoring">Scored By Claude</h2>
-              <p className="lsq-ov-aud-head__sub">Approval threshold: {threshold} · {criteria.slice(0, 60)}{criteria.length > 60 ? '…' : ''}</p>
+              <p className="lsq-ov-aud-head__sub" title={criteria}>Approval threshold: {threshold} · {criteria.slice(0, 160)}{criteria.length > 160 ? '…' : ''}</p>
             </div>
           </div>
           {!completed && (

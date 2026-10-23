@@ -47,6 +47,32 @@ async function resolveLsqConfig(override?: LsqConfigOverride) {
 
 const LSQ_REQUEST_TIMEOUT_MS = 30_000;
 const LSQ_MAX_ATTEMPTS = 4;
+/** A 429 means the call was refused, not processed, so it is always safe to repeat; give it more patience. */
+const LSQ_MAX_THROTTLE_ATTEMPTS = 8;
+
+// LeadSquared documents "API calls exceeded the limit of 25 in 5 second(s)" for the endpoints used here. Every
+// call goes through this gap so bulk work (paging a big list, syncing thousands of leads) stays under it
+// instead of running into 429s. The default of 220 ms is about 22 calls per 5 seconds; tests set it to 0.
+function minGapMs(): number {
+  const v = Number(process.env.LSQ_MIN_GAP_MS);
+  return Number.isFinite(v) && v >= 0 ? v : 220;
+}
+let nextSlotAt = 0;
+async function paceRequests(): Promise<void> {
+  const gap = minGapMs();
+  if (gap === 0) return;
+  const now = Date.now();
+  const startAt = Math.max(now, nextSlotAt);
+  nextSlotAt = startAt + gap; // reserve the slot before waiting so concurrent callers queue up behind each other
+  if (startAt > now) await sleep(startAt - now);
+}
+
+/** After a 429 the whole 5-second window has to pass, so a hint-less retry waits at least that long. */
+function throttleDelayMs(attempt: number, retryAfter: string | null): number {
+  const hinted = retryDelayMs(attempt, retryAfter);
+  if (retryAfter) return hinted;
+  return Math.max(hinted, 2_500 + Math.floor(Math.random() * 2_500));
+}
 
 /**
  * LeadSquared reports application-level failures (bad field, missing
@@ -96,9 +122,11 @@ async function lsqFetch<T>(
   const url = `${cfg.baseUrl}${path}${sep}${authQuery}${qs ? `&${qs}` : ''}`;
 
   let lastError: unknown;
+  let throttled = 0;
 
-  for (let attempt = 0; attempt < LSQ_MAX_ATTEMPTS; attempt++) {
-    const isLast = attempt === LSQ_MAX_ATTEMPTS - 1;
+  for (let attempt = 0; attempt < LSQ_MAX_ATTEMPTS + throttled; attempt++) {
+    const isLast = attempt === LSQ_MAX_ATTEMPTS + throttled - 1;
+    await paceRequests();
     let res: Response;
     try {
       res = await fetch(url, {
@@ -135,6 +163,11 @@ async function lsqFetch<T>(
       parsed,
       `LeadSquared ${method} ${path} failed: ${res.status} ${typeof parsed === 'string' ? parsed : JSON.stringify(parsed)}`
     );
+    if (res.status === 429 && throttled < LSQ_MAX_THROTTLE_ATTEMPTS - LSQ_MAX_ATTEMPTS) {
+      throttled++;
+      await sleep(throttleDelayMs(attempt, res.headers.get('retry-after')));
+      continue;
+    }
     if (!isLast && isRetryableLsqFailure(res.status, parsed, idempotent)) {
       await sleep(retryDelayMs(attempt, res.headers.get('retry-after')));
       continue;
@@ -375,43 +408,131 @@ export interface RawLsqLead {
   [attribute: string]: string;
 }
 
-export async function getLeadsInList(listId: string, pageSize = 200, maxLeads = 2000): Promise<RawLsqLead[]> {
-  const allRows: RawLsqLead[] = [];
-  let pageIndex = 1;
+export interface ListReadOptions {
+  /** Leads per request to start with. Halved (down to 100) if LeadSquared times out on a large page. */
+  pageSize?: number;
+  /** Resume from this 1-based page (with `pageSize` and `direction` from the earlier result's cursor). */
+  startPage?: number;
+  /** 'newest' (LeadSquared's Direction "1") or 'oldest' ("0"). */
+  direction?: 'newest' | 'oldest';
+  /** Stop after this many leads (the rest is left for a later call). */
+  maxLeads?: number;
+  /** Stop starting new pages once this much time has passed (the rest is left for a later call). */
+  budgetMs?: number;
+}
 
-  while (allRows.length < maxLeads) {
-    const result = await lsqFetch<{ RecordCount: number; Leads: Array<{ LeadPropertyList: Array<{ Attribute: string; Value: string }> }> }>(
-      '/LeadManagement.svc/Leads/Retrieve/BySearchParameter',
-      {
+export interface ListReadCursor {
+  nextPage: number;
+  pageSize: number;
+  direction: 'newest' | 'oldest';
+}
+
+export interface ListReadResult {
+  leads: RawLsqLead[];
+  /** Where to carry on, or null when the list has been read to its end. */
+  cursor: ListReadCursor | null;
+  /** The list's size according to LeadSquared, when the response makes it clear (null when it does not). */
+  reportedTotal: number | null;
+  pages: number;
+}
+
+function readLeadRow(lead: { LeadPropertyList: Array<{ Attribute: string; Value: string }> }): RawLsqLead {
+  const row: RawLsqLead = {};
+  for (const prop of lead.LeadPropertyList) row[prop.Attribute] = prop.Value;
+  return row;
+}
+
+/**
+ * Reads one stretch of a list, page by page.
+ *
+ * What this does NOT rely on, because LeadSquared's documentation does not promise it: a maximum page size, a
+ * total cap, or `RecordCount` meaning the list's total (in the sibling "by ids" endpoint it is the number of
+ * records returned). So the end of the list is an EMPTY page, never a short page or a count; if the server
+ * quietly gives fewer leads per page than asked for, the page size follows what it actually returns; and a
+ * page that repeats the previous one is an error instead of an endless loop.
+ */
+export async function readLeadsInList(listId: string, opts: ListReadOptions = {}): Promise<ListReadResult> {
+  const direction = opts.direction ?? 'newest';
+  let pageSize = Math.max(25, Math.min(opts.pageSize ?? 500, 2000));
+  let pageIndex = Math.max(1, opts.startPage ?? 1);
+  const startedAt = Date.now();
+  const leads: RawLsqLead[] = [];
+  let reportedTotal: number | null = null;
+  let previousFirstId: string | null = null;
+  let pages = 0;
+
+  for (;;) {
+    if (opts.maxLeads !== undefined && leads.length >= opts.maxLeads) return { leads, cursor: { nextPage: pageIndex, pageSize, direction }, reportedTotal, pages };
+    if (opts.budgetMs !== undefined && pages > 0 && Date.now() - startedAt >= opts.budgetMs) return { leads, cursor: { nextPage: pageIndex, pageSize, direction }, reportedTotal, pages };
+
+    let result: { RecordCount?: number; Leads?: Array<{ LeadPropertyList: Array<{ Attribute: string; Value: string }> }> };
+    try {
+      result = await lsqFetch('/LeadManagement.svc/Leads/Retrieve/BySearchParameter', {
         method: 'POST',
+        idempotent: true,
         body: {
           SearchParameters: { ListId: listId, RetrieveBehaviour: '0' },
           Columns: { Include_CSV: CONTACT_COLUMNS.join(',') },
-          Sorting: { ColumnName: 'CreatedOn', Direction: '1' },
+          Sorting: { ColumnName: 'CreatedOn', Direction: direction === 'newest' ? '1' : '0' },
           Paging: { PageIndex: pageIndex, PageSize: pageSize },
         },
+      });
+    } catch (err) {
+      // A very large page can time out on LeadSquared's side ("avoids timeouts" is why RetrieveBehaviour 0 exists).
+      // Smaller pages keep the same ordering only when the page index is rescaled to the same position.
+      const timedOut = err instanceof LeadSquaredError ? err.status >= 500 : /timed? ?out|aborted/i.test(String(err));
+      if (timedOut && pageSize > 100) {
+        const next = Math.max(100, Math.floor(pageSize / 2));
+        pageIndex = Math.floor(((pageIndex - 1) * pageSize) / next) + 1;
+        pageSize = next;
+        continue;
       }
-    );
-
-    const leads = result.Leads ?? [];
-    if (leads.length === 0) break;
-
-    for (const lead of leads) {
-      const row: RawLsqLead = {};
-      for (const prop of lead.LeadPropertyList) row[prop.Attribute] = prop.Value;
-      allRows.push(row);
-      if (allRows.length >= maxLeads) break;
+      // Keep what was already read in this stretch: the caller saves it, and meets the same error (with nothing
+      // lost) when it carries on from this page.
+      if (leads.length > 0) return { leads, cursor: { nextPage: pageIndex, pageSize, direction }, reportedTotal, pages };
+      throw err;
     }
 
-    if (leads.length < pageSize || allRows.length >= (result.RecordCount ?? 0)) {
-      break;
-    }
+    const rows = result.Leads ?? [];
+    pages++;
+    if (rows.length === 0) return { leads, cursor: null, reportedTotal, pages };
 
+    const first = rows[0].LeadPropertyList.find((p) => p.Attribute === 'ProspectID')?.Value ?? null;
+    if (first !== null && first === previousFirstId) {
+      throw new Error('LeadSquared returned the same page twice, so this list cannot be read page by page. Try a smaller list.');
+    }
+    previousFirstId = first;
+
+    // RecordCount larger than the page can only be the list's total; equal to the page proves nothing.
+    if (typeof result.RecordCount === 'number' && result.RecordCount > rows.length) reportedTotal = Math.max(reportedTotal ?? 0, result.RecordCount);
+
+    for (const row of rows) leads.push(readLeadRow(row));
+
+    // A short first page means the server gave fewer leads than asked for. Carry on with the size it actually
+    // uses so that PageIndex still lands on the next unread lead; a truly short list ends on the empty page.
+    if (rows.length < pageSize && pageIndex === 1) {
+      pageSize = rows.length;
+      pageIndex = 2;
+      continue;
+    }
     pageIndex++;
-    await sleep(150);
   }
+}
 
-  return allRows;
+/**
+ * The whole list as one array (small lists, and the exclusion check). A list longer than `maxLeads` is cut
+ * there; the caller decides whether that is acceptable. Prefer readLeadsInList for anything that has to cope
+ * with very large lists, because it can be resumed.
+ */
+export async function getLeadsInList(listId: string, pageSize = 500, maxLeads = Infinity): Promise<RawLsqLead[]> {
+  const out: RawLsqLead[] = [];
+  let cursor: ListReadCursor | null = { nextPage: 1, pageSize, direction: 'newest' };
+  while (cursor && out.length < maxLeads) {
+    const part: ListReadResult = await readLeadsInList(listId, { pageSize: cursor.pageSize, startPage: cursor.nextPage, direction: cursor.direction, maxLeads: maxLeads - out.length });
+    out.push(...part.leads);
+    cursor = part.cursor;
+  }
+  return out.slice(0, maxLeads);
 }
 
 // --- custom activity push-back ------------------------------------------------
@@ -484,44 +605,6 @@ export async function pushCustomActivities(activities: CustomActivity[]): Promis
   }
   const pushed=acceptedIndices.length;
   return pushed;
-}
-
-/**
- * Register an activity webhook programmatically in LeadSquared.
- * Posts to /v2/Webhook.svc/Create so LeadSquared will notify this app
- * whenever a lead activity is created (e.g. registration on form/landing page).
- */
-export async function registerLeadSquaredWebhook(
-  url: string,
-  description: string = 'Webinar Campaign Studio Registration Activity Sync'
-): Promise<{ ok: boolean; webhookId?: string; message: string }> {
-  try {
-    const result = await lsqFetch<{ Status?: string; Message?: { Id?: string } | string; ExceptionType?: string }>('/Webhook.svc/Create', {
-      method: 'POST',
-      body: {
-        Description: description,
-        URL: url,
-        Method: 'POST',
-        ContentType: 'application/json',
-        WebhookEvent: '2', // LeadActivity_Post_Create
-        IsSpecificLandingPage: false,
-        NotifyOnFailure: true,
-      },
-    });
-
-    const msg = result?.Message;
-    const webhookId = typeof msg === 'object' && msg ? String(msg.Id || '') : String(msg || '');
-    return {
-      ok: true,
-      webhookId: webhookId || undefined,
-      message: `Webhook registered successfully in LeadSquared${webhookId ? ` (ID: ${webhookId})` : ''}`,
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      message: err instanceof Error ? err.message : String(err),
-    };
-  }
 }
 
 // --- users & sender identity ----------------------------------------------------

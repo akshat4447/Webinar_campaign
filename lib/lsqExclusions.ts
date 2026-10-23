@@ -1,5 +1,7 @@
 import { db } from '@/lib/db';
 import { getLeadsInList } from '@/lib/leadsquared';
+/** Longest exclusion list that is read in full. The snapshot is refreshed while sends are being dispatched, so this is bounded by time (about 50 calls). */
+export const LSQ_EXCLUSION_LIST_LIMIT = 25_000;
 /** Complete snapshots expire after five minutes. A failed refresh blocks dispatch. */
 export async function refreshLsqExclusions(campaignId: string, force = false) {
   const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId }, select: { lsqExclusionListIds: true } });
@@ -11,8 +13,9 @@ export async function refreshLsqExclusions(campaignId: string, force = false) {
   if (!force && previous && JSON.stringify(previous.ids) === JSON.stringify(ids) && Date.now() - previous.syncedAt < 300_000) return previous.count;
   const emails = new Set<string>(), leadIds = new Set<string>();
   for (const id of ids) {
-    const leads = await getLeadsInList(id, 200, 10_000);
-    if (leads.length >= 10_000) throw new Error('Exclusion list exceeds the verified 10,000-member limit. Split it into smaller lists.');
+    // One more than the limit is read so a list that is exactly at the limit is accepted and a longer one is caught.
+    const leads = await getLeadsInList(id, 500, LSQ_EXCLUSION_LIST_LIMIT + 1);
+    if (leads.length > LSQ_EXCLUSION_LIST_LIMIT) throw new Error(`Exclusion list exceeds the ${LSQ_EXCLUSION_LIST_LIMIT.toLocaleString()}-member limit. Split it into smaller lists.`);
     for (const lead of leads) { if (lead.EmailAddress?.trim()) emails.add(lead.EmailAddress.trim().toLowerCase()); if (lead.ProspectID) leadIds.add(lead.ProspectID); }
   }
   await db.$transaction(async tx => {

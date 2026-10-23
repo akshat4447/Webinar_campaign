@@ -1,10 +1,13 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+
 import { db } from '@/lib/db';
 import { provisionCampaignDefaults } from '@/lib/campaignDefaults';
 import { revalidateCampaign } from '@/lib/revalidate';
 
 export async function createCampaignAction(): Promise<string> {
+  await requireOperatorSession();
   const count = await db.campaign.count();
   const campaign = await db.campaign.create({
     data: {
@@ -22,6 +25,7 @@ export async function createCampaignAction(): Promise<string> {
 
 /** Hides a campaign from the main landing grid without touching its data or status. Reversible. */
 export async function archiveCampaignAction(id: string, archived: boolean) {
+  await requireOperatorSession();
   await db.campaign.update({ where: { id }, data: { archived } });
   revalidateCampaign(id);
 }
@@ -33,6 +37,7 @@ export async function archiveCampaignAction(id: string, archived: boolean) {
  * complete; nothing is left orphaned.
  */
 export async function deleteCampaignAction(id: string) {
+  await requireOperatorSession();
   await db.$transaction(async tx => {
     await tx.$queryRaw`SELECT "id" FROM "Campaign" WHERE "id" = ${id} FOR UPDATE`;
     await tx.operationJob.deleteMany({where:{campaignId:id}});

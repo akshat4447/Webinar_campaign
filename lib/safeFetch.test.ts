@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { assertPublicUrl, isPrivateAddress, safeFetchText, UnsafeUrlError, type Resolver } from './safeFetch';
+import { assertPublicUrl, dispatchingFetch, isPrivateAddress, safeFetchText, UnsafeUrlError, type Resolver } from './safeFetch';
 
 const publicResolver: Resolver = async () => ['93.184.216.34'];
 
@@ -103,5 +103,23 @@ describe('safeFetchText', () => {
     const fetchImpl = vi.fn(async () => new Response('moved', { status: 302 }));
     const r = await safeFetchText('https://example.com', { resolve: publicResolver, fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(r.status).toBe(302);
+  });
+});
+
+describe('dispatchingFetch', () => {
+  it('works with the undici Agent that publicDispatcher builds (Node built-in fetch rejects it)', async () => {
+    const { createServer } = await import('node:http');
+    const { Agent } = await import('undici');
+    const server = createServer((_req, res) => { res.end('ok'); });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    const agent = new Agent();
+    try {
+      const res = await dispatchingFetch(`http://127.0.0.1:${port}/`, { dispatcher: agent } as RequestInit);
+      expect(await res.text()).toBe('ok');
+    } finally {
+      await agent.close();
+      await new Promise((r) => server.close(r));
+    }
   });
 });

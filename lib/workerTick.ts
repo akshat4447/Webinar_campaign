@@ -7,6 +7,7 @@ import { processBroadcastJobs } from '@/lib/broadcast';
 import { importEndedMeetingsDue } from '@/lib/zoomEnded';
 import { purgeExpired } from '@/lib/idempotency';
 import { purgeExpiredOAuthStates } from '@/lib/zoom/oauthState';
+import { runDraftHousekeeping } from '@/lib/draftCleanup';
 
 export async function runWorkerTick() {
   const owner = randomUUID();
@@ -26,9 +27,9 @@ export async function runWorkerTick() {
     }
     if (Date.now() < deadline) await safely('broadcast', () => processBroadcastJobs(Math.min(20_000, deadline - Date.now())));
     if (Date.now() < deadline) await safely('attendance',()=>importEndedMeetingsDue(new Date(),Math.max(0,deadline-Date.now())));
-    if (Date.now() < deadline) await safely('audience', processAudienceJobs);
+    if (Date.now() < deadline) await safely('audience', () => processAudienceJobs(Math.min(30_000, Math.max(0, deadline - Date.now()))));
     if (['1', 'true'].includes(process.env.ZOOM_AUTOSYNC ?? '') && Date.now() < deadline) await safely('zoom-sync', async () => { const { runZoomSync } = await import('@/lib/zoomAutosync'); await runZoomSync(Math.max(0,deadline-Date.now())); });
-    await safely('housekeeping', async () => { await purgeExpired(); await purgeExpiredOAuthStates(); });
+    await safely('housekeeping', async () => { await purgeExpired(); await purgeExpiredOAuthStates(); await runDraftHousekeeping(); });
     const result = { ok: !errors.length, processed, sent, failed, errors, timestamp: new Date().toISOString() };
     await db.appSetting.upsert({ where: { key: 'worker.lastTick' }, create: { key: 'worker.lastTick', value: JSON.stringify(result) }, update: { value: JSON.stringify(result) } });
     return result;

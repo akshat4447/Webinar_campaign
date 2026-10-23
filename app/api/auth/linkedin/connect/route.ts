@@ -5,6 +5,7 @@ import { resolveIntegrationField } from '@/lib/integrationConfig';
 import { buildAuthorizationUrl } from '@/lib/linkedin/auth';
 import { db } from '@/lib/db';
 import { requestOrigin } from '@/lib/requestOrigin';
+import { storeOAuthReturn } from '@/lib/oauthReturn';
 
 export const runtime = 'nodejs';
 
@@ -32,6 +33,13 @@ export async function GET(request: Request) {
     await db.appSetting.upsert({ where: { key }, create: { key, value: expiry }, update: { value: expiry } });
   } catch {
     // Non-critical: cookie remains primary CSRF check
+  }
+
+  // Where to send the person afterwards (the wizard step that sent them here). Validated and kept server-side.
+  try {
+    await storeOAuthReturn('linkedin', state, new URL(request.url).searchParams.get('returnTo'));
+  } catch {
+    // Non-critical: without it the callback lands on Integrations as before
   }
 
   // CSRF state is bound to THIS browser via a short-lived HttpOnly cookie —

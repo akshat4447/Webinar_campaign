@@ -13,6 +13,8 @@
  * keep the two ends of each OAuth flow in agreement.
  */
 export function requestOrigin(request: Request): string {
+  const canonical = process.env.APP_ORIGIN || process.env.RENDER_EXTERNAL_URL;
+  if (process.env.NODE_ENV === 'production' && canonical) return new URL(canonical).origin;
   const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || new URL(request.url).host;
   const proto = request.headers.get('x-forwarded-proto') || (request.url.startsWith('https') ? 'https' : 'http');
   return `${proto}://${host}`;

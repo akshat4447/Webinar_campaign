@@ -5,12 +5,11 @@ vi.mock('@/lib/revalidate', () => ({ revalidateCampaign: vi.fn() }));
 vi.mock('@/lib/sendWindow', () => ({ isWithinSendWindow: () => true }));
 vi.mock('@/lib/integrationConfig', () => ({ resolveIntegrationField: vi.fn(async () => undefined) }));
 vi.mock('@/lib/netcore', async original => ({ ...(await original<typeof import('@/lib/netcore')>()), sendNetcoreEmail: vi.fn(async () => ({ok:true, messageId:'receipt-1'})) }));
-vi.mock('@/lib/leadsquared',async original=>({...await original<typeof import('@/lib/leadsquared')>(),sendEmailToLead:vi.fn(async()=>({ok:true})),createOrUpdateLead:vi.fn(async()=>({Message:{Id:'lead-1'}})),getLeadsInList:vi.fn(async()=>[])}));
-vi.mock('@/lib/channelDelivery',()=>({getChannelDeliveryMode:vi.fn(async()=> 'direct'),deliverChannelMessage:vi.fn(async()=>({strategyUsed:'direct',detail:'Accepted'})),postSentActivityIfMapped:vi.fn()}));
+vi.mock('@/lib/leadsquared',async original=>({...await original<typeof import('@/lib/leadsquared')>(),createOrUpdateLead:vi.fn(async()=>({Message:{Id:'lead-1'}})),getLeadsInList:vi.fn(async()=>[])}));
+vi.mock('@/lib/channelDelivery',()=>({getChannelDeliveryMode:vi.fn(async()=> 'direct'),deliverChannelMessage:vi.fn(async()=>({strategyUsed:'direct',detail:'Accepted'}))}));
 vi.mock('@/lib/scoringRunner',()=>({runScoringBatch:vi.fn(async()=>({ok:true,scoredCount:25,preservedManualApprovals:0,failedBatches:0}))}));
 vi.mock('@/lib/messageTemplates', async original => ({ ...(await original<typeof import('@/lib/messageTemplates')>()), resolveStepTemplate: vi.fn(async () => ({id:'template-1', label:'Invite', channel:'email', subject:'Join {{topic}}', body:'Hello {{firstName}}, join {{topic}}: {{link}}', hidden:false})) }));
 import {processBroadcastJob} from '@/lib/broadcast';
-import {sendEmailToLead} from '@/lib/leadsquared';
 import {deliverChannelMessage} from '@/lib/channelDelivery';
 import {confirmOperationOutcomeAction} from '@/lib/actions/jobs';
 import {queueAudienceJob,processAudienceJob} from '@/lib/audienceJobs';
@@ -38,7 +37,7 @@ let cid = '';
 beforeEach(async () => {
   vi.clearAllMocks();
   vi.mocked(resolveIntegrationField).mockResolvedValue(undefined);
-  const c = await db.campaign.create({data:{ name:'Reliability regression',vertical:'Test',date:'Future',scheduledAt:new Date(Date.now()+7*864e5),emailProvider:'netcore',cadenceStatus:'running',status:'live',scheduleWindow:'00:00-23:59',msgMode:'templatized',dailyLimit:100,timezone:'America/New_York',zoomLink:'https://zoom.example/j/general',launchedAt:new Date() }});
+  const c = await db.campaign.create({data:{ name:'Reliability regression',vertical:'Test',date:'Future',scheduledAt:new Date(Date.now()+7*864e5),cadenceStatus:'running',status:'live',scheduleWindow:'00:00-23:59',msgMode:'templatized',dailyLimit:100,timezone:'America/New_York',zoomLink:'https://zoom.example/j/general',launchedAt:new Date() }});
   cid=c.id;ids.push(cid);
 });
 afterAll(async()=>{
@@ -125,11 +124,10 @@ async function broadcast(input:Record<string,unknown>={channel:'email',message:'
  const people=await db.contact.findMany({where:{campaignId:cid,registeredAt:{not:null}},orderBy:{id:'asc'},select:{id:true}});
  return db.operationJob.create({data:{campaignId:cid,kind:'broadcast',total:people.length,payloadJson:JSON.stringify({input,contactIds:people.map(c=>c.id)})}});
 }
-it('LeadSquared broadcasts actually dispatch personalized email and preserve receipts',async()=>{
- await db.campaign.update({where:{id:cid},data:{emailProvider:'leadsquared'}});
+it('Broadcasts actually dispatch personalized email and preserve receipts',async()=>{
  await contact('broadcast@example.com',{registeredAt:new Date(),zoomJoinUrl:'https://zoom.example/personal-broadcast'});
  const job=await broadcast();const result=await processBroadcastJob(job.id);
- expect(result.sentCount).toBe(1);expect(sendEmailToLead).toHaveBeenCalledWith(expect.objectContaining({recipientEmail:'broadcast@example.com',contentText:expect.stringContaining('https://zoom.example/personal-broadcast')}));
+ expect(result.sentCount).toBe(1);expect(sendNetcoreEmail).toHaveBeenCalledWith(expect.objectContaining({to:'broadcast@example.com',text:expect.stringContaining('https://zoom.example/personal-broadcast')}));
  expect(await db.deliveryAttempt.count({where:{campaignId:cid,status:'accepted'}})).toBe(1);
 });
 it('broadcasts refuse opted-out contacts across phone channels',async()=>{

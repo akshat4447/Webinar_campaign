@@ -115,3 +115,80 @@ describe('verifyLandingPage (end to end with a mocked network)', () => {
     expect(r.checks[0].detail).toMatch(/could not be reached/);
   });
 });
+
+const FORM = (hidden: Record<string, string>) =>
+  `<form action="https://web.mxradon.com/t/FormTracker.aspx" method="post"><input type="email" name="EmailAddress">${Object.entries(hidden)
+    .map(([k, v]) => `<input type="hidden" name="${k}" value="${v}">`)
+    .join('')}</form><script>fetch("${APP}/api/landing/submit")</script><!-- Webinar Studio + LeadSquared + Zoom Seamless Registration -->`;
+const EXPECTED = { zoomId: '918 8890 3856', scheduledAt: new Date('2026-10-15T10:30:00Z'), timezone: 'Asia/Kolkata' };
+const analyze = (body: string, extra: Partial<Parameters<typeof analyzeLandingPage>[0]> = {}) =>
+  analyzeLandingPage({ url: 'https://lp.example.com/w', fetched: page(body), appOrigin: APP, expected: EXPECTED, ...extra });
+
+describe('the form\'s baked-in webinar details', () => {
+  it('passes when the hidden webinar id and date match this webinar (spaces in the Zoom id do not matter)', () => {
+    const r = analyze(FORM({ mx_WebinarID: '91888903856', mx_Date_and_Time: '2026-10-15 16:00:00' }));
+    expect(check(r, 'form-webinar')?.status).toBe('pass');
+    expect(check(r, 'form-date')?.status).toBe('pass');
+  });
+  it('warns when they were copied from another webinar, naming the value to use', () => {
+    const r = analyze(FORM({ mx_WebinarID: '99492432958', mx_Date_and_Time: '2026-09-01 16:00:00' }));
+    expect(check(r, 'form-webinar')).toMatchObject({ status: 'warn' });
+    expect(check(r, 'form-webinar')?.fix).toContain('918 8890 3856');
+    expect(check(r, 'form-date')?.status).toBe('warn');
+    expect(r.overall).toBe('warn');
+  });
+  it('compares the date in the webinar\'s own timezone (16:00 IST is still the 15th, 10:30 UTC)', () => {
+    expect(check(analyze(FORM({ mx_Date_and_Time: '2026-10-15 23:30:00' })), 'form-date')?.status).toBe('pass');
+  });
+  it('adds no checks when the page has no such hidden fields or the campaign gives nothing to compare', () => {
+    expect(check(analyze(FORM({})), 'form-webinar')).toBeUndefined();
+    expect(check(analyze(FORM({ mx_WebinarID: '1' }), { expected: {} }), 'form-webinar')).toBeUndefined();
+  });
+});
+
+describe('the thank-you page', () => {
+  const body = FORM({ MXHRedirectUrl: 'https://lp.example.com/thanks' });
+  it('passes when the redirect target has the Studio script', () => {
+    const r = analyze(body, { thankYou: { url: 'https://lp.example.com/thanks', hasScript: true } });
+    expect(check(r, 'thankyou')?.status).toBe('pass');
+  });
+  it('warns on a page outside the site without the script, telling you to use your own thank-you page', () => {
+    const r = analyze(FORM({ MXHRedirectUrl: 'https://www.other.com/post' }), { thankYou: { url: 'https://www.other.com/post', hasScript: false } });
+    expect(check(r, 'thankyou')?.status).toBe('warn');
+    expect(check(r, 'thankyou')?.fix).toMatch(/your own site/);
+  });
+  it('on the same site, points at the site-wide custom code instead', () => {
+    const r = analyze(body, { thankYou: { url: 'https://lp.example.com/thanks', hasScript: false } });
+    expect(check(r, 'thankyou')?.fix).toMatch(/site-wide custom code/i);
+  });
+  it('warns, rather than guessing, when the target could not be read', () => {
+    expect(check(analyze(body, { thankYou: { url: 'https://lp.example.com/thanks', hasScript: null } }), 'thankyou')?.detail).toMatch(/could not be checked/);
+  });
+  it('says nothing when the form has no redirect or the target was not probed', () => {
+    expect(check(analyze(FORM({}), { thankYou: undefined }), 'thankyou')).toBeUndefined();
+    expect(check(analyze(body), 'thankyou')).toBeUndefined();
+  });
+});
+
+describe('verifyLandingPage follows the form\'s redirect to look for the script', () => {
+  const html = (b: string) => new Response(b, { status: 200, headers: { 'content-type': 'text/html' } });
+  const landing = `<title>L</title>${FORM({ MXHRedirectUrl: 'https://93.184.216.35/thanks' })}`;
+  const run = async (thanks: string | Error) => {
+    const fetchImpl = vi.fn(async (u: string | URL | Request) => {
+      if (String(u).includes('/thanks')) { if (thanks instanceof Error) throw thanks; return html(thanks); }
+      return html(landing);
+    });
+    return verifyLandingPage('https://93.184.216.34/w', APP, fetchImpl as unknown as typeof fetch, EXPECTED);
+  };
+  it('passes when the thank-you page carries the script', async () => {
+    expect(check(await run('<p>Thanks</p><script>fetch("x/api/landing/submit")</script>'), 'thankyou')?.status).toBe('pass');
+  });
+  it('warns when it does not', async () => {
+    expect(check(await run('<p>Thanks</p>'), 'thankyou')?.status).toBe('warn');
+  });
+  it('warns and still returns a report when the thank-you page cannot be fetched', async () => {
+    const r = await run(new Error('boom'));
+    expect(check(r, 'thankyou')?.detail).toMatch(/could not be checked/);
+    expect(check(r, 'reachable')?.status).toBe('pass');
+  });
+});

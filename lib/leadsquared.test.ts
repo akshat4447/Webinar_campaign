@@ -64,10 +64,10 @@ describe('lsqFetch behaviour (via the public API)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('gives up after 4 attempts on a persistent 429 and surfaces the LeadSquaredError', async () => {
+  it('keeps retrying a persistent 429 (it was refused, never processed) and gives up after 8 attempts', async () => {
     fetchMock.mockImplementation(async () => res(429, 'rate limited'));
     await expect(getLists()).rejects.toMatchObject({ name: 'LeadSquaredError', status: 429 });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
   });
 
   it('retries a network failure for reads but not for a non-idempotent write', async () => {

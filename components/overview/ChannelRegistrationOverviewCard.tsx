@@ -35,7 +35,7 @@ const CATEGORY_COLOR: Record<string, string> = {
 };
 
 function describeChannel(ch: ChannelRegistrationStat): string {
-  if (ch.invitedCount > 0) return `${ch.invitedCount.toLocaleString()} invites sent`;
+  if (ch.invitedCount > 0) return `${ch.invitedCount.toLocaleString()} ${ch.invitedCount === 1 ? 'invite' : 'invites'} sent`;
   switch (ch.category) {
     case 'inbound':
       return 'Website or direct inbound';
@@ -46,7 +46,7 @@ function describeChannel(ch: ChannelRegistrationStat): string {
     case 'partner':
       return 'Partner or affiliate';
     default:
-      return 'Channel tracking link';
+      return 'No invites sent yet';
   }
 }
 
@@ -104,7 +104,7 @@ export function ChannelRegistrationOverviewCard({
         <div>
           <h2 className="lsq-card__title" id="ov-registrations">Registrations By Channel</h2>
           <p className="lsq-card__sub">
-            Attribution across the channels selected for this webinar. Select a channel to view its registered contacts.
+            Every registration is credited to the link it came through. Select a channel to see who registered.
           </p>
         </div>
         {onEditChannels && (
@@ -119,7 +119,6 @@ export function ChannelRegistrationOverviewCard({
           <span className="lsq-ov-reg-total">
             Total registered <strong>{overview.totalRegistered.toLocaleString()}</strong>
           </span>
-          <Badge color="gray" text={`${overview.channels.length} of 7 channels active`} />
           {top && <Badge color="success" text={`Top: ${top.label} (${top.registeredCount.toLocaleString()} · ${top.pctOfTotal}%)`} />}
         </div>
 
@@ -137,7 +136,7 @@ export function ChannelRegistrationOverviewCard({
                 <th scope="col" className="lsq-ov-num">Registered</th>
                 <th scope="col">Share of total</th>
                 <th scope="col">Conversion</th>
-                <th scope="col">Tracking link</th>
+                <th scope="col">Link</th>
                 <th scope="col"><span className="lsq-sr-only">Registrants</span></th>
               </tr>
             </thead>
@@ -197,7 +196,7 @@ export function ChannelRegistrationOverviewCard({
                           </Button>
                         </div>
                       ) : (
-                        <span className="lsq-ov-disabled">—</span>
+                        <span className="lsq-ov-subtle">Added to each message</span>
                       )}
                     </td>
                     <td>
@@ -222,7 +221,7 @@ export function ChannelRegistrationOverviewCard({
         <div className="lsq-banner lsq-banner--neutral">
           <Icon name="info" size={16} />
           <p className="lsq-banner__body">
-            <strong>How attribution works:</strong> registrations from all 7 tracked channels (Email Campaign, WhatsApp, LinkedIn, SDR/Sales, Third-parties, LinkedIn Event Page, Website) are captured and mapped through Zoom tracking links, LeadSquared CRM activities and Framer UTM parameters.
+            <strong>How attribution works:</strong> Studio adds each channel&apos;s link to every email, SMS, WhatsApp and LinkedIn message it sends or drafts. For anywhere else, copy the link for that place and share it; registrations through it are credited to that channel. A registration that comes through a plain link with no channel is counted under Website.
           </p>
         </div>
       </div>

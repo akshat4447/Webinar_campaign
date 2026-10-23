@@ -137,3 +137,56 @@ describe('suppression list check', () => {
     expect(computeRegistrationReadiness({ ...base(), lsqConfigured: false }).checks.some((c) => c.id === 'suppression')).toBe(false);
   });
 });
+
+describe('a webinar that went out and has taken place', () => {
+  const past = { scheduledAt: new Date('2026-09-01T09:30:00Z'), status: 'live' };
+  const off = { zoom: { connected: true, health: { registrationEnabled: false, kind: 'meeting' as const }, webhookSecretSet: true } };
+
+  it('reads as a record: the date, the closed registration and the Zoom switch are not problems', () => {
+    const r = computeRegistrationReadiness(base(off, past));
+    expect(r.takenPlace).toBe(true);
+    expect(get(r, 'date')).toMatchObject({ status: 'pass', detail: 'The webinar has taken place.' });
+    expect(get(r, 'open')).toMatchObject({ status: 'pass', label: 'Registration' });
+    expect(get(r, 'zoom-registration')?.status).toBe('pass');
+    expect(r.counts.fail).toBe(0);
+    expect(r.ready).toBe(true);
+  });
+
+  it('still counts as taken place once completed', () => {
+    expect(computeRegistrationReadiness(base(off, { ...past, status: 'completed' })).takenPlace).toBe(true);
+  });
+
+  it('is unchanged for a draft with a past date, which really is a problem before launch', () => {
+    const r = computeRegistrationReadiness(base(off, { ...past, status: 'draft' }));
+    expect(r.takenPlace).toBe(false);
+    expect(get(r, 'date')?.status).toBe('warn');
+    expect(get(r, 'open')?.status).toBe('fail');
+    expect(get(r, 'zoom-registration')?.status).toBe('fail');
+  });
+
+  it('is unchanged for a launched webinar whose date is still ahead', () => {
+    const r = computeRegistrationReadiness(base(off, { status: 'live' }));
+    expect(r.takenPlace).toBe(false);
+    expect(get(r, 'zoom-registration')?.status).toBe('fail');
+  });
+
+  it('after the event, "ended" is the only reason registration is closed that matters', () => {
+    const r = computeRegistrationReadiness(base(off, { ...past, capacity: 10, registrations: 10 }));
+    expect(get(r, 'open')?.status).toBe('pass'); // ended wins: the event is over whatever the capacity was
+  });
+});
+
+describe('channel source field', () => {
+  it('passes when LeadSquared has the field', () => {
+    expect(get(computeRegistrationReadiness(base({ attributionField: 'found' })), 'attribution-field')?.status).toBe('pass');
+  });
+  it('warns, with the schema name to create, when it is missing', () => {
+    const c = get(computeRegistrationReadiness(base({ attributionField: 'missing' })), 'attribution-field');
+    expect(c?.status).toBe('warn');
+    expect(c?.fix).toContain('mx_Channel_Source');
+  });
+  it('says nothing when it could not be checked or LeadSquared is not connected', () => {
+    expect(get(computeRegistrationReadiness(base({ attributionField: 'unknown' })), 'attribution-field')).toBeUndefined();
+    expect(get(computeRegistrationReadiness(base({ attributionField: 'missing', lsqConfigured: false })), 'attribution-field')).toBeUndefined();
+  });
+});

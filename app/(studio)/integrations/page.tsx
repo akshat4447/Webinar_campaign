@@ -1,13 +1,14 @@
 import { IntegrationCard } from './IntegrationCard';
 import { LsqActivityMappingCard } from './LsqActivityMappingCard';
 import { ConnectResultBanner } from './ConnectResultBanner';
+import { ReturnToSetupBar } from './ReturnToSetupBar';
+import { safeReturnTo } from '@/lib/wizardDraft';
 import { DeliverySettingsBar } from './DeliverySettingsBar';
 import { integrationsData } from '@/lib/demo-data';
 import { getTestResult } from '@/lib/integrationConfig';
 import { getChannelDeliverySettingsAction } from '@/lib/actions/integrations';
 import { zoomIsConfigured } from '@/lib/zoom/client';
 import { linkedinIsConfigured } from '@/lib/linkedin/client';
-import { getDefaultEmailProviderAction } from '@/lib/actions/netcore';
 import { Badge } from '@/components/ui/Badge';
 import { integrationStatus, type IntegrationStatus } from './integrationStatus';
 
@@ -19,13 +20,12 @@ export default async function IntegrationsPage(props: PageProps<'/integrations'>
   const sp = await props.searchParams;
   const connected = typeof sp.connected === 'string' ? sp.connected : undefined;
   const detail = typeof sp.detail === 'string' ? sp.detail : undefined;
+  // Where the person came from (a webinar's setup). Validated: only two same-site shapes are ever used.
+  const returnTo = safeReturnTo(typeof sp.returnTo === 'string' ? sp.returnTo : null);
 
   // One glanceable answer to "where do messages actually go right now?" — the
   // delivery-affecting switches live in three places, so they're surfaced here.
-  const [channelSettings, defaultEmailProvider] = await Promise.all([
-    getChannelDeliverySettingsAction(),
-    getDefaultEmailProviderAction(),
-  ]);
+  const channelSettings = await getChannelDeliverySettingsAction();
   const smsMode = channelSettings.sms.mode;
   const waMode = channelSettings.whatsapp.mode;
 
@@ -64,7 +64,7 @@ export default async function IntegrationsPage(props: PageProps<'/integrations'>
   const delivery = [
     {
       label: 'Email',
-      value: `Sent to selected recipients. Gateway: ${defaultEmailProvider === 'netcore' ? 'Netcore Cloud' : 'LeadSquared CRM'}`,
+      value: 'Sent to selected recipients. Gateway: Netcore Cloud',
     },
     { label: 'SMS', value: smsMode === 'trigger' ? 'LSQ Automation (configured activity)' : 'Direct Gateway REST API' },
     { label: 'WhatsApp', value: waMode === 'trigger' ? 'LSQ Automation (configured activity)' : 'Direct Gateway REST API' },
@@ -124,7 +124,9 @@ export default async function IntegrationsPage(props: PageProps<'/integrations'>
           </div>
         </header>
 
-        <ConnectResultBanner connected={connected} detail={detail} />
+        <ReturnToSetupBar returnTo={returnTo} />
+
+        <ConnectResultBanner connected={connected} detail={detail} returnTo={returnTo} />
 
         <DeliverySettingsBar deliveryItems={delivery} />
 
@@ -162,6 +164,7 @@ export default async function IntegrationsPage(props: PageProps<'/integrations'>
                   testResult={testResult}
                   messagingBadge={messagingBadge}
                   status={statusById[ig.id]}
+                  returnTo={returnTo}
                 />
               ))}
             </div>

@@ -113,8 +113,12 @@ export function evaluateApolloMatch(contact: ContactBaseline, match: ApolloPerso
   return { status: 'verified', note: bits ? `Apollo confirms current role: ${bits}` : 'Apollo matched this person with no contradicting signals.' };
 }
 
-const APOLLO_MATCH_URL = 'https://api.apollo.io/api/v1/people/match';
+// Overridable so tests can point the whole Apollo integration at a local fake (test-support/fakes/apolloFake.ts).
+const apolloBaseUrl = () => (process.env.APOLLO_API_BASE_URL?.trim() || 'https://api.apollo.io/api/v1').replace(/\/+$/, '');
+const APOLLO_MATCH_URL = { toString: () => `${apolloBaseUrl()}/people/match` };
 const CALL_GAP_MS = 300; // stay polite within Apollo's rate limits
+/** Without a deadline one stalled request holds a whole server action open until the platform kills it. */
+const APOLLO_TIMEOUT_MS = 20_000;
 
 /**
  * Apollo's /people/match only returns a confident match when first/last name
@@ -201,11 +205,12 @@ export async function verifyContactsForLinkedIn(
       continue;
     }
     try {
-      const res = await fetch(APOLLO_MATCH_URL, {
+      const res = await fetch(String(APOLLO_MATCH_URL), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
         body: JSON.stringify({ ...splitName(c.name), organization_name: cleanOrgName(c.account), reveal_personal_emails: false }),
         cache: 'no-store',
+        signal: AbortSignal.timeout(APOLLO_TIMEOUT_MS),
       });
 
       if (res.status === 429) {
@@ -239,92 +244,248 @@ export async function verifyContactsForLinkedIn(
 export interface ApolloEnrichedContact {
   found: boolean;
   email?: string;
+  /** Apollo's own verdict on the email ("verified", "unavailable", ...). Only "verified" is treated as verified here. */
+  emailStatus?: string;
   phone?: string;
   title?: string;
   company?: string;
   linkedinUrl?: string;
 }
 
-interface RawApolloEnrichResponse {
-  person?: {
-    email?: string | null;
-    title?: string;
-    match_confidence?: string;
-    organization?: { name?: string };
-    phone_numbers?: Array<{ raw_number?: string; sanitized_number?: string }>;
-    linkedin_url?: string;
-    linkedin_profile_url?: string;
-  } | null;
+/** What is known about a contact when asking Apollo: more identifying data means a better match. */
+export interface ApolloLookup extends ContactBaseline {
+  id: string;
+  /** The employer's web domain, learned from colleagues' emails. Far more reliable than a company name. */
+  domain?: string;
+  linkedinUrl?: string;
+  email?: string;
+}
+
+interface RawApolloPerson {
+  first_name?: string;
+  last_name?: string;
+  name?: string;
+  email?: string | null;
+  email_status?: string | null;
+  title?: string;
+  match_confidence?: string;
+  organization?: { name?: string };
+  // Per Apollo's documentation phone numbers live under `contact`; the top-level form is kept as a fallback.
+  contact?: { phone_numbers?: Array<{ raw_number?: string; sanitized_number?: string }> } | null;
+  phone_numbers?: Array<{ raw_number?: string; sanitized_number?: string }>;
+  linkedin_url?: string;
+  linkedin_profile_url?: string;
 }
 
 /**
- * Real Apollo enrichment (not verification) — the same people/match endpoint,
- * but asking Apollo to reveal the person's email (and phone, if it has one on
- * file) instead of just confirming title/company. This is the genuine Apollo
- * API call behind "enrich this sparse contact", as opposed to the local
- * pattern-guess fallback lib/enrichment.ts uses when Apollo has no match or
- * isn't configured at all.
+ * Apollo answers with a placeholder address (`email_not_unlocked@domain.com`) when an email exists but has not
+ * been revealed (no credits left, or not unlocked). It is not an address anyone can receive mail at, so it must
+ * never be stored as one.
+ */
+export function cleanApolloEmail(email: unknown): string | undefined {
+  if (typeof email !== 'string') return undefined;
+  const e = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return undefined;
+  if (/^(email_not_unlocked|not_unlocked|unavailable|no[-_]?email|placeholder)\b/.test(e.split('@')[0])) return undefined;
+  return e;
+}
+
+function firstPhone(p: RawApolloPerson): string | undefined {
+  const n = p.contact?.phone_numbers?.[0] ?? p.phone_numbers?.[0];
+  return n?.sanitized_number || n?.raw_number || undefined;
+}
+
+const nameKey = (v: string | undefined) => (v ?? '').toLowerCase().replace(/[^a-z0-9\u00c0-\u024f]/g, '');
+
+/** A match is accepted only when it is plausibly the person asked about: guards against results in another order. */
+export function namesAgree(asked: ContactBaseline, got: { first_name?: string; last_name?: string; name?: string }): boolean {
+  const want = splitName(asked.name);
+  const gotFirst = got.first_name ?? (got.name ?? '').trim().split(/\s+/)[0];
+  const gotLast = got.last_name ?? (got.name ?? '').trim().split(/\s+/).slice(1).join(' ');
+  if (!nameKey(gotFirst)) return false;
+  if (nameKey(want.first_name) !== nameKey(gotFirst)) return false;
+  if (want.last_name && gotLast) {
+    // Same surname, or a shared part of a compound one ("Smith" and "Smith-Jones"). A mere prefix is not enough:
+    // "Kim" is not "Kimball".
+    const parts = (v: string) => v.toLowerCase().split(/[\s-]+/).map(nameKey).filter((t) => t.length >= 2);
+    const a = parts(want.last_name);
+    const b = parts(gotLast);
+    if (nameKey(want.last_name) === nameKey(gotLast)) return true;
+    return a.some((t) => b.includes(t));
+  }
+  return true;
+}
+
+function toEnriched(p: RawApolloPerson | null | undefined): ApolloEnrichedContact {
+  if (!isRealMatch(p)) return { found: false };
+  return {
+    found: true,
+    email: cleanApolloEmail(p!.email),
+    emailStatus: p!.email_status ?? undefined,
+    phone: firstPhone(p!),
+    title: p!.title,
+    company: p!.organization?.name,
+    linkedinUrl: p!.linkedin_url || p!.linkedin_profile_url || undefined,
+  };
+}
+
+export const APOLLO_BULK_SIZE = 10;
+
+export interface ApolloEnrichOutcome {
+  /** Contacts Apollo actually answered for: a match, or a confirmed non-match. */
+  results: Map<string, ApolloEnrichedContact>;
+  usedLiveApi: boolean;
+  apiError?: string;
+  /** The problem will not fix itself (bad or unauthorised key, rejected request): stop rather than try again. */
+  fatal?: boolean;
+  /** Contacts Apollo was NOT asked about or could not answer for (rate limit, outage). Try them again later. */
+  deferred: string[];
+  /** Seconds Apollo asked to wait before the next attempt, when it rate limited. */
+  retryAfterSec?: number;
+  creditsConsumed: number;
+}
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Real Apollo enrichment (not verification): asks Apollo for the person's email (and title, phone and LinkedIn
+ * profile if it has them) through the bulk endpoint, ten people per request, which is what keeps a large list
+ * inside Apollo's rate limits (one request per person is ten times as many).
+ *
+ * What it will not do, because each was a way for this to go quietly wrong:
+ *  - treat a rate limit as "no match" (those contacts come back in `deferred`, to be retried);
+ *  - store a placeholder address as an email, or call an unverified one verified;
+ *  - assign a result to a contact it does not name-match (the docs do not promise input order).
  */
 export async function enrichContactsViaApollo(
-  contacts: Array<{ id: string } & ContactBaseline>,
-  opts: { apiKey: string; revealEmails?: boolean }
-): Promise<{ results: Map<string, ApolloEnrichedContact>; usedLiveApi: boolean; apiError?: string }> {
+  contacts: ApolloLookup[],
+  opts: { apiKey: string; revealEmails?: boolean; budgetMs?: number; maxRateLimitWaits?: number }
+): Promise<ApolloEnrichOutcome> {
   const apiKey = opts.apiKey;
-  if (!apiKey) return { results: new Map(), usedLiveApi: false, apiError: 'No Apollo API key configured.' };
-
   const results = new Map<string, ApolloEnrichedContact>();
-  let rateLimited = false;
-  let apiError: string | undefined;
+  if (!apiKey) return { results, usedLiveApi: false, apiError: 'No Apollo API key configured.', fatal: true, deferred: contacts.map((c) => c.id), creditsConsumed: 0 };
 
-  for (const c of contacts) {
-    if (rateLimited) continue;
-    try {
-      const res = await fetch(APOLLO_MATCH_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-        body: JSON.stringify({
-          ...splitName(c.name),
-          organization_name: cleanOrgName(c.account),
-          // Revealing a personal email is a separately-billed Apollo credit.
-          // This was hardcoded true, so an operator who unchecked "Email" in
-          // the enrichment moderation modal still paid for one reveal per
-          // contact — and the revealed address was then discarded unread.
-          reveal_personal_emails: opts.revealEmails !== false,
-        }),
-        cache: 'no-store',
-      });
+  const startedAt = Date.now();
+  const budgetMs = opts.budgetMs ?? 45_000;
+  const maxWaits = opts.maxRateLimitWaits ?? 3;
+  const reveal = opts.revealEmails !== false;
+  let creditsConsumed = 0;
+  let consecutiveOutages = 0;
+  const deferred: string[] = [];
+  let apiError: string | undefined;
+  let fatal = false;
+  let retryAfterSec: number | undefined;
+
+  for (let i = 0; i < contacts.length; i += APOLLO_BULK_SIZE) {
+    const chunk = contacts.slice(i, i + APOLLO_BULK_SIZE);
+    const rest = () => contacts.slice(i).map((c) => c.id);
+    let done = false;
+    let waits = 0;
+
+    for (let attempt = 0; attempt < 3 && !done; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(`${apolloBaseUrl()}/people/bulk_match?reveal_personal_emails=${reveal}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+          body: JSON.stringify({
+            reveal_personal_emails: reveal,
+            details: chunk.map((c) => ({
+              ...splitName(c.name),
+              organization_name: cleanOrgName(c.account),
+              ...(c.domain ? { domain: c.domain } : {}),
+              ...(c.linkedinUrl ? { linkedin_url: c.linkedinUrl } : {}),
+              ...(c.email ? { email: c.email } : {}),
+            })),
+          }),
+          cache: 'no-store',
+          signal: AbortSignal.timeout(APOLLO_TIMEOUT_MS),
+        });
+      } catch (err) {
+        // Timeout or network failure: nothing is known about this chunk, so it is neither matched nor "not found".
+        if (attempt < 2) {
+          await wait(500 * 2 ** attempt);
+          continue;
+        }
+        consecutiveOutages++;
+        apiError = `Apollo could not be reached: ${String(err instanceof Error ? err.message : err).slice(0, 120)}`;
+        deferred.push(...chunk.map((c) => c.id));
+        done = true;
+        break;
+      }
 
       if (res.status === 401 || res.status === 403) {
-        rateLimited = true;
-        apiError = `Apollo rejected the API key (HTTP ${res.status}) — no contact was enriched from Apollo. Save a valid key on the Integrations page.`;
-        continue;
+        fatal = true;
+        apiError =
+          res.status === 401
+            ? 'Apollo rejected the API key (HTTP 401). Save a valid key on the Integrations page.'
+            : 'Apollo refused this request (HTTP 403). The key may lack enrichment access on your Apollo plan, or may need to be a master API key.';
+        deferred.push(...rest());
+        return { results, usedLiveApi: true, apiError, fatal, deferred, creditsConsumed };
       }
       if (res.status === 429) {
-        rateLimited = true;
-        apiError = 'Apollo rate limit hit (429) — the rest of this run was skipped. Try again shortly.';
-        continue;
+        const hinted = Number(res.headers.get('retry-after'));
+        const waitSec = Number.isFinite(hinted) && hinted > 0 ? hinted : 30;
+        retryAfterSec = waitSec;
+        const remaining = budgetMs - (Date.now() - startedAt);
+        if (waits < maxWaits && waitSec * 1000 <= remaining) {
+          waits++;
+          attempt--; // waiting out a limit does not use up an attempt
+          await wait(waitSec * 1000);
+          continue;
+        }
+        apiError = `Apollo rate limit reached (HTTP 429). Apollo asked to wait about ${waitSec} seconds, so the remaining contacts were not looked up. Run enrichment again after that.`;
+        deferred.push(...rest());
+        return { results, usedLiveApi: true, apiError, fatal: false, deferred, retryAfterSec, creditsConsumed };
       }
-      if (!res.ok) continue;
+      if (res.status === 400 || res.status === 422) {
+        const detail = await res.json().catch(() => null) as { error?: string; message?: string } | null;
+        fatal = true;
+        apiError = `Apollo rejected the request (HTTP ${res.status}): ${detail?.error || detail?.message || 'invalid parameters'}.`;
+        deferred.push(...rest());
+        return { results, usedLiveApi: true, apiError, fatal, deferred, creditsConsumed };
+      }
+      if (!res.ok) {
+        if (attempt < 2) {
+          await wait(500 * 2 ** attempt);
+          continue;
+        }
+        consecutiveOutages++;
+        apiError = `Apollo answered HTTP ${res.status} repeatedly.`;
+        deferred.push(...chunk.map((c) => c.id));
+        done = true;
+        break;
+      }
 
-      const json = (await res.json().catch(() => null)) as RawApolloEnrichResponse | null;
-      const p = json?.person;
-      if (isRealMatch(p)) {
-        results.set(c.id, {
-          found: true,
-          email: p!.email?.trim() || undefined,
-          phone: p!.phone_numbers?.[0]?.sanitized_number || p!.phone_numbers?.[0]?.raw_number || undefined,
-          title: p!.title,
-          company: p!.organization?.name,
-          linkedinUrl: p!.linkedin_url || p!.linkedin_profile_url || undefined,
-        });
-      } else {
-        results.set(c.id, { found: false });
+      consecutiveOutages = 0;
+      const json = (await res.json().catch(() => null)) as { matches?: Array<RawApolloPerson | null>; credits_consumed?: number } | null;
+      if (!json || !Array.isArray(json.matches)) {
+        apiError = 'Apollo returned a response this app does not understand.';
+        deferred.push(...chunk.map((c) => c.id));
+        done = true;
+        break;
       }
-    } catch {
-      results.set(c.id, { found: false });
+      creditsConsumed += Number(json.credits_consumed) || 0;
+      const pool = json.matches.filter((m): m is RawApolloPerson => !!m && isRealMatch(m));
+      const used = new Set<RawApolloPerson>();
+      chunk.forEach((c, idx) => {
+        const aligned = json.matches![idx];
+        const pick =
+          aligned && isRealMatch(aligned) && namesAgree(c, aligned) && !used.has(aligned)
+            ? aligned
+            : pool.find((m) => !used.has(m) && namesAgree(c, m));
+        if (pick) used.add(pick);
+        results.set(c.id, toEnriched(pick));
+      });
+      done = true;
     }
-    await new Promise((r) => setTimeout(r, CALL_GAP_MS));
+
+    if (consecutiveOutages >= 2) {
+      deferred.push(...contacts.slice(i + APOLLO_BULK_SIZE).map((c) => c.id));
+      break;
+    }
+    if (i + APOLLO_BULK_SIZE < contacts.length) await wait(100);
   }
 
-  return { results, usedLiveApi: true, apiError };
+  return { results, usedLiveApi: true, apiError, fatal, deferred, retryAfterSec, creditsConsumed };
 }

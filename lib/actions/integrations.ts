@@ -1,10 +1,11 @@
 'use server';
 
+import { requireOperatorSession } from '@/lib/operatorSession';
+import { testIntegrationConnection } from '@/lib/integrationConnection';
+
 import { encryptCredential, decryptCredential } from '@/lib/credentialCipher';
 
-import { getLeadsMetadata } from '@/lib/leadsquared';
 import { db } from '@/lib/db';
-import Anthropic from '@anthropic-ai/sdk';
 import { revalidatePath } from 'next/cache';
 import {
   getIntegrationConfigMasked,
@@ -13,7 +14,6 @@ import {
   getTestResult,
   resolveIntegrationField,
 } from '@/lib/integrationConfig';
-import { INTEGRATION_FIELDS } from '@/lib/integrationFields';
 
 const LOG_KEYWORDS: Record<string, string[]> = {
   lsq: ['LeadSquared'],
@@ -24,6 +24,7 @@ const LOG_KEYWORDS: Record<string, string[]> = {
 };
 
 export async function getIntegrationLogAction(integrationId: string) {
+  await requireOperatorSession();
   const keywords = LOG_KEYWORDS[integrationId] ?? [integrationId];
   const entries = await db.activityLogEntry.findMany({
     where: { OR: keywords.map((k) => ({ text: { contains: k, mode: 'insensitive' as const } })) },
@@ -35,15 +36,25 @@ export async function getIntegrationLogAction(integrationId: string) {
 }
 
 export async function getIntegrationConfigMaskedAction(id: string) {
+  await requireOperatorSession();
   return getIntegrationConfigMasked(id);
 }
 
 export async function getIntegrationStatusAction(id: string) {
+  await requireOperatorSession();
   return getTestResult(id);
 }
 
 /** Saves only the fields the user actually typed — a blank field leaves its stored value untouched. */
+/** The saved Redirect URI for Zoom (not a secret), so the page can say when it is not this server's address. */
+export async function getZoomRedirectInfoAction(): Promise<{ saved: string | null }> {
+  await requireOperatorSession();
+  const saved = (await resolveIntegrationField('zoom', 'redirectUri')) || process.env.ZOOM_REDIRECT_URI || '';
+  return { saved: saved.trim() || null };
+}
+
 export async function saveIntegrationConfigAction(id: string, fields: Record<string, string>) {
+  await requireOperatorSession();
   await saveIntegrationConfig(id, fields);
   // Neither this modal nor its siblings on /integrations call router.refresh()
   // themselves after saving, matching none of this file's 19 actions —
@@ -63,6 +74,7 @@ export async function saveIntegrationConfigAction(id: string, fields: Record<str
  * Sends no email — see probeSenderIdentity() for why the probe is safe.
  */
 export async function discoverSenderAction(save = true) {
+  await requireOperatorSession();
   const { discoverSender } = await import('@/lib/lsqSender');
   try {
     // Who "the operator" is only nudges the ranking toward a matching name or
@@ -82,7 +94,7 @@ export async function discoverSenderAction(save = true) {
   }
 }
 
-const TESTABLE = ['lsq', 'claude', 'apollo', 'zoom', 'linkedin', 'netcore'];
+
 
 /**
  * Resolves typed → saved (DB) → env for each field this connector has, so
@@ -90,184 +102,17 @@ const TESTABLE = ['lsq', 'claude', 'apollo', 'zoom', 'linkedin', 'netcore'];
  * Test with every field blank tests whatever is already in effect (env or a
  * prior save), exactly like the real production call paths do.
  */
-async function resolveTestFields(id: string, typed: Record<string, string>): Promise<Record<string, string>> {
-  const schema = INTEGRATION_FIELDS[id] ?? [];
-  const out: Record<string, string> = {};
-  for (const f of schema) {
-    if (typed[f.key] === '__CLEAR__' || typed[f.key] === '') {
-      out[f.key] = '';
-      continue;
-    }
-    const v = typed[f.key] || (await resolveIntegrationField(id, f.key));
-    if (v) out[f.key] = v;
-  }
-  return out;
-}
+
 
 export async function testIntegrationAction(id: string, typedFields: Record<string, string> = {}): Promise<{ ok: boolean; detail: string; autoDiscovered?: { domain: string; fromEmail: string; fromName: string } }> {
-  const started = Date.now();
-  let result: { ok: boolean; detail: string; autoDiscovered?: { domain: string; fromEmail: string; fromName: string } };
-  try {
-    if (id === 'lsq') {
-      const f = await resolveTestFields('lsq', typedFields);
-      if (f.accessKey) f.accessKey = f.accessKey.replace(/\\/g, '');
-      if (!f.accessKey || !f.secretKey || !f.host) throw new Error('Access Key, Secret Key, and Host are all required.');
-
-      // When switching tenants (new host or accessKey typed), don't carry over the old tenant's sender
-      const currentHost = await resolveIntegrationField('lsq', 'host');
-      const currentAccessKey = await resolveIntegrationField('lsq', 'accessKey');
-      const isSwitchingTenant =
-        Boolean(typedFields.host && typedFields.host !== currentHost) ||
-        Boolean(typedFields.accessKey && typedFields.accessKey !== currentAccessKey);
-      if (isSwitchingTenant && !typedFields.senderEmail) {
-        f.senderEmail = '';
-      }
-
-      const fields = await getLeadsMetadata({ accessKey: f.accessKey, secretKey: f.secretKey, host: f.host });
-
-      // Sender self-verify: round-trip SendEmailToLead to the configured sender
-      // itself. This is THE definitive test for the "Invalid Sender details"
-      // rejection that silently killed campaign emails before.
-      let senderNote = '';
-      if (f.senderEmail) {
-        // The saved host may be a bare host OR a full URL; lsqFetch normalizes
-        // it and so must this, or the URL becomes https://https://… and every
-        // verification "fails" with a misleading fetch error.
-        const senderHost = f.host.includes('://') ? new URL(f.host).host : f.host.replace(/\/.*$/, '');
-        let raw = '';
-        try {
-          const r = await fetch(`https://${senderHost}/v2/EmailMarketing.svc/SendEmailToLead?accessKey=${encodeURIComponent(f.accessKey)}&secretKey=${encodeURIComponent(f.secretKey)}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              SenderType: 'UserEmailAddress',
-              Sender: f.senderEmail,
-              RecipientType: 'LeadEmailAddress',
-              Recipient: f.senderEmail,
-              // LeadSquared accepts only Template|Html here — 'Text' is
-              // rejected outright, so this check could never have passed.
-              EmailType: 'Html',
-              Subject: 'Webinar Agent — sender verification',
-              ContentHTML: '<p>If you received this, the From identity works.</p>',
-              ContentText: 'If you received this, the From identity works.',
-              IncludeEmailFooter: true,
-            }),
-            cache: 'no-store',
-        signal: AbortSignal.timeout(20_000),
-          });
-          raw = (await r.text()).slice(0, 200);
-          if (!r.ok || /"Status"\s*:\s*"Error"/i.test(raw)) throw new Error(`${r.status} ${raw}`);
-          senderNote = ` · sender "${f.senderEmail}" VERIFIED`;
-        } catch (e) {
-          const msg = String(e instanceof Error ? e.message : e);
-          // Distinguish "identity rejected" from "identity fine, delivery blocked / recipient not lead" —
-          // conflating them sent everyone hunting the wrong problem.
-          if (/No lead found/i.test(msg)) {
-            senderNote = ` · sender "${f.senderEmail}" VERIFIED`;
-          } else if (/MailDelivery/i.test(msg)) {
-            senderNote = ` · sender "${f.senderEmail}" accepted, but DELIVERY is blocked account-side (check email credits, verified sending domain, DKIM/SPF)`;
-          } else {
-            // Do NOT fail the entire connection check with a hard throw error if sender email is rejected.
-            // The tenant credentials (accessKey, secretKey, host) work. Warn about the sender email clearly.
-            senderNote = ` · ⚠️ Sender email "${f.senderEmail}" is not recognized as an active user in this tenant (update sender email or click "Find a working sender")`;
-          }
-        }
-      }
-      result = { ok: true, detail: `200 · ${fields.length} lead fields${senderNote} · ${Date.now() - started}ms` };
-    } else if (id === 'claude') {
-      const f = await resolveTestFields('claude', typedFields);
-      if (!f.apiKey) throw new Error('An API key is required.');
-      const client = new Anthropic({ apiKey: f.apiKey, timeout: 25_000, maxRetries: 0 });
-      // Same model resolution as lib/claude.ts's real usage — otherwise an
-      // ANTHROPIC_MODEL override could pass Test here while every real
-      // scoring/personalization call uses a different (possibly broken) one.
-      const model = process.env.ANTHROPIC_MODEL || 'claude-opus-5';
-      const res = await client.messages.create({ model, max_tokens: 16, messages: [{ role: 'user', content: 'Reply with just: ok' }] });
-      const text = res.content.find((b) => b.type === 'text');
-      result = { ok: true, detail: `200 · model responded "${text && 'text' in text ? text.text.trim() : ''}" · ${Date.now() - started}ms` };
-    } else if (id === 'apollo') {
-      const f = await resolveTestFields('apollo', typedFields);
-      if (!f.apiKey) throw new Error('An API key is required.');
-      const res = await fetch('https://api.apollo.io/api/v1/auth/health', {
-        headers: { 'x-api-key': f.apiKey, 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        signal: AbortSignal.timeout(20_000),
-      });
-      const body: { healthy?: boolean; is_logged_in?: boolean; error?: string; message?: string } = await res.json().catch(() => ({}));
-      // Apollo's own docs: "If both values in the response are true, you are
-      // ready to use the API" — `healthy` alone stays true even for a bad key
-      // (it's a basic reachability flag), so checking only that would report
-      // an invalid key as a successful connection.
-      if (!res.ok || !body.healthy || !body.is_logged_in) {
-        throw new Error(`${res.status} · ${body.message || body.error || `Apollo rejected this key (healthy: ${body.healthy}, logged in: ${body.is_logged_in}).`}`);
-      }
-      result = { ok: true, detail: `200 · healthy · logged in · ${Date.now() - started}ms` };
-    } else if (id === 'zoom') {
-      const f = await resolveTestFields('zoom', typedFields);
-      if (f.accountId && f.clientId && f.clientSecret) {
-        // Direct Server-to-Server OAuth test & token retrieval
-        const { getServerToServerToken, fetchConnectedUser } = await import('@/lib/zoom/auth');
-        const tokenResult = await getServerToServerToken({ accountId: f.accountId, clientId: f.clientId, clientSecret: f.clientSecret });
-        await saveIntegrationConfig('zoom', {
-          accessToken: tokenResult.accessToken,
-          ...(tokenResult.expiresInSec ? { tokenExpiresAt: new Date(Date.now() + tokenResult.expiresInSec * 1000).toISOString() } : {}),
-        });
-        const user = await fetchConnectedUser(tokenResult.accessToken);
-        if (user.email) await saveIntegrationConfig('zoom', { connectedEmail: user.email });
-        const label = user.email ? `connected as ${user.email}` : 'token verified';
-        result = { ok: true, detail: `200 · Server-to-Server OAuth connected (${label}) · ${Date.now() - started}ms` };
-      } else {
-        if (!f.accessToken) throw new Error('Live mode needs a connected account — click "Connect with Zoom", or enter Account ID for Server-to-Server OAuth.');
-        const res = await fetch('https://api.zoom.us/v2/users/me', {
-          headers: { Authorization: `Bearer ${f.accessToken}` },
-          cache: 'no-store',
-        signal: AbortSignal.timeout(20_000),
-        });
-        const text = await res.text();
-        if (!res.ok) throw new Error(`${res.status} · ${text.slice(0, 180)}`);
-        result = { ok: true, detail: `200 · token valid · ${Date.now() - started}ms` };
-      }
-    } else if (id === 'linkedin') {
-      const f = await resolveTestFields('linkedin', typedFields);
-      {
-        if (!f.accessToken) throw new Error('Live mode needs an access token — click “Connect with LinkedIn” first.');
-        const res = await fetch('https://api.linkedin.com/rest/organizationAcls?q=member&state=APPROVED&count=1', {
-          headers: {
-            Authorization: `Bearer ${f.accessToken}`,
-            'LinkedIn-Version': process.env.LINKEDIN_VERSION || '202608',
-            'X-Restli-Protocol-Version': '2.0.0',
-          },
-          cache: 'no-store',
-        signal: AbortSignal.timeout(20_000),
-        });
-        const text = await res.text();
-        if (!res.ok) throw new Error(`${res.status} · ${text.slice(0, 180)}`);
-        result = { ok: true, detail: `200 · token valid · ${Date.now() - started}ms` };
-      }
-    } else if (id === 'netcore') {
-      const f = await resolveTestFields('netcore', typedFields);
-      const { testNetcoreConnection } = await import('@/lib/netcore');
-      result = await testNetcoreConnection(f);
-    } else {
-      result = { ok: false, detail: 'This integration is not supported.' };
-    }
-  } catch (err) {
-    result = { ok: false, detail: String(err instanceof Error ? err.message : err).slice(0, 300) };
-  }
-  if (TESTABLE.includes(id)) {
-    await saveTestResult(id, result.ok, result.detail);
-    try {
-      revalidatePath('/integrations');
-    } catch {
-      // outside request context
-    }
-  }
-  return result;
+  await requireOperatorSession();
+  return testIntegrationConnection(id, typedFields);
 }
 
 // --- activity mapping (channel → LSQ activity type) ----------------------------
 
 export async function listLsqActivityTypesAction() {
+  await requireOperatorSession();
   const { listActivityTypes } = await import('@/lib/leadsquared');
   try {
     const { types, sourcePath, attempts } = await listActivityTypes();
@@ -292,6 +137,7 @@ export async function getActivityMappingAction(): Promise<{
    *  rather than showing an all-"none" form that looks the same as a broken one. */
   everSaved: boolean;
 }> {
+  await requireOperatorSession();
   const { getActivityMap, getTriggerFieldMap, ACTIVITY_MAP_SETTING_KEY } = await import('@/lib/channelDelivery');
   const [map, triggerFields, row] = await Promise.all([
     getActivityMap(),
@@ -305,6 +151,7 @@ export async function saveLsqActivityMappingAction(
   map: Record<string, { typeId?: number } | null>,
   triggerFields: { channel: string; stepKey: string; message: string }
 ) {
+  await requireOperatorSession();
   const { saveActivityMap, saveTriggerFieldMap } = await import('@/lib/channelDelivery');
   await saveActivityMap(map);
   await saveTriggerFieldMap(triggerFields);
@@ -332,6 +179,7 @@ export interface ChannelDeliverySettingsResult {
 }
 
 export async function getChannelDeliverySettingsAction(): Promise<ChannelDeliverySettingsResult> {
+  await requireOperatorSession();
   const { getChannelDeliveryMode, DIRECT_GATEWAY_KEYS } = await import('@/lib/channelDelivery');
 
   const [smsMode, waMode] = await Promise.all([
@@ -389,6 +237,7 @@ export async function getChannelDeliverySettingsAction(): Promise<ChannelDeliver
 }
 
 export async function saveChannelDeliveryModeAction(channel: 'sms' | 'whatsapp', mode: 'trigger' | 'direct') {
+  await requireOperatorSession();
   const { setChannelDeliveryMode } = await import('@/lib/channelDelivery');
   await setChannelDeliveryMode(channel, mode);
   revalidatePath('/integrations');
@@ -399,6 +248,7 @@ export async function saveDirectGatewayConfigAction(
   channel: 'sms' | 'whatsapp',
   config: { endpoint?: string; authToken?: string; senderId?: string; templateId?: string }
 ) {
+  await requireOperatorSession();
   const { DIRECT_GATEWAY_KEYS } = await import('@/lib/channelDelivery');
   const keys = DIRECT_GATEWAY_KEYS[channel];
 
@@ -453,6 +303,7 @@ export async function testDirectChannelAction(params: {
   senderId?: string;
   templateId?: string;
 }): Promise<{ ok: boolean; status: number; latencyMs: number; detail: string; rawResponse?: string }> {
+  await requireOperatorSession();
   const { channel, targetPhone } = params;
   const { DIRECT_GATEWAY_KEYS, executeDirectSend } = await import('@/lib/channelDelivery');
   const keys = DIRECT_GATEWAY_KEYS[channel];
@@ -536,49 +387,6 @@ export async function testDirectChannelAction(params: {
       status: 0,
       latencyMs: 0,
       detail,
-    };
-  }
-}
-
-/**
- * Resolves the inbound webhook URL the operator should paste into LeadSquared,
- * with a shared secret appended as `?secret=`. Generates and persists a secret
- * on first use if one isn't already configured, so the endpoint is signed by
- * default rather than requiring a separate trip through the credentials form.
- */
-export async function buildLeadSquaredWebhookUrlAction(baseUrl: string): Promise<{ url: string; hasSecret: boolean }> {
-  let secret = await resolveIntegrationField('lsq', 'webhookSecret');
-  if (!secret) {
-    const { randomBytes } = await import('crypto');
-    secret = randomBytes(24).toString('hex');
-    await saveIntegrationConfig('lsq', { webhookSecret: secret });
-    revalidatePath('/integrations');
-  }
-  const url = new URL(baseUrl);
-  url.searchParams.set('secret', secret);
-  return { url: url.toString(), hasSecret: true };
-}
-
-/** Programmatically registers the inbound activity webhook directly in LeadSquared via API */
-export async function registerLeadSquaredWebhookAction(webhookUrl: string) {
-  const { registerLeadSquaredWebhook } = await import('@/lib/leadsquared');
-  return registerLeadSquaredWebhook(webhookUrl);
-}
-
-/** Ensures the dedicated "Webinar Registration" custom activity type exists in LeadSquared with all 6 custom fields */
-export async function ensureRegistrationActivityTypeAction() {
-  const { getOrCreateRegistrationActivityTypeId } = await import('@/lib/activityPush');
-  try {
-    const activityTypeId = await getOrCreateRegistrationActivityTypeId();
-    return {
-      ok: true,
-      activityTypeId,
-      message: `Activity Type "Webinar Registration" verified in LeadSquared (Event Code: #${activityTypeId}) with schema fields mx_Custom_1 to mx_Custom_6.`,
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      message: err instanceof Error ? err.message : String(err),
     };
   }
 }

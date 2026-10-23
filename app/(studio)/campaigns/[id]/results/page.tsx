@@ -9,19 +9,16 @@ import { eventPublicUrl } from '@/lib/linkedin/events';
 import { getAccountEngagement, getPostEventStats } from '@/lib/postEvent';
 import { isCampaignCompleted } from '@/lib/campaignLifecycle';
 import { formatLsqDateTime } from '@/lib/dateFormat';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
+import { getTestResult } from '@/lib/integrationConfig';
 
 const LOG_LIMIT = 30;
 
-function cadenceBadge(status: string, cadenceStatus: string): { color: string; text: string } {
-  if (status === 'completed') return { color: 'success', text: 'Webinar completed' };
-  if (cadenceStatus === 'running') return { color: 'success', text: 'Cadence live' };
-  if (cadenceStatus === 'paused') return { color: 'warning', text: 'Cadence paused' };
-  if (cadenceStatus === 'stopped') return { color: 'error', text: 'Cadence stopped' };
-  return { color: 'gray', text: 'Not yet launched' };
-}
-
-function ZoomSyncCard({ campaign, completed }: { campaign: { attendanceImportedAt: Date | null; zoomMeetingId: string | null }; completed: boolean }) {
+async function ZoomSyncCard({ campaign, completed }: { campaign: { attendanceImportedAt: Date | null; zoomMeetingId: string | null }; completed: boolean }) {
+  // "Linked" is only reassuring while Zoom still accepts the saved connection; attendance is pulled with it.
+  const zoomTest = campaign.zoomMeetingId && !campaign.attendanceImportedAt ? await getTestResult('zoom') : null;
+  const connectionBroken = zoomTest !== null && !zoomTest.ok;
   return (
     <section className="lsq-card" aria-labelledby="res-zoom">
       <div className="lsq-card__header">
@@ -29,27 +26,37 @@ function ZoomSyncCard({ campaign, completed }: { campaign: { attendanceImportedA
         {campaign.attendanceImportedAt ? (
           <Badge color="success" text="Imported" dot />
         ) : campaign.zoomMeetingId ? (
-          <Badge color="blue" text="Linked" dot />
+          connectionBroken ? <Badge color="warning" text="Zoom needs reconnecting" dot /> : <Badge color="blue" text="Linked" dot />
         ) : (
           <Badge color="gray" text="Not linked" />
         )}
       </div>
-      <div className="lsq-card__body">
+      <div className="lsq-card__body lsq-stack lsq-stack--sm">
         {campaign.attendanceImportedAt ? (
           <p className="lsq-hint">
             Imported automatically {formatLsqDateTime(campaign.attendanceImportedAt)}. Attendee and no-show follow-ups are active below.
           </p>
         ) : campaign.zoomMeetingId ? (
-          <p className="lsq-hint">
-            Linked to Zoom ({campaign.zoomMeetingId}). Attendance pulls in automatically once the webinar concludes.
-          </p>
+          connectionBroken ? (
+            <>
+              <p className="lsq-hint">
+                Linked to Zoom ({campaign.zoomMeetingId}), but Zoom no longer accepts the saved connection, so attendance will not be pulled in until it is reconnected.
+                You can still import attendance from a CSV.
+              </p>
+              <div><Link href="/integrations" className="lsq-btn lsq-btn--sm lsq-btn--secondary">Reconnect Zoom</Link></div>
+            </>
+          ) : (
+            <p className="lsq-hint">
+              Linked to Zoom ({campaign.zoomMeetingId}). Attendance pulls in automatically once the webinar concludes.
+            </p>
+          )
         ) : completed ? (
           <p className="lsq-hint">
             No Zoom meeting was linked before this webinar was marked completed, so attendance was never imported.
           </p>
         ) : (
           <p className="lsq-hint">
-            No Zoom meeting linked. Use <strong>Edit setup</strong> on the Overview tab to link Zoom for automated attendance sync.
+            No Zoom meeting is linked, so attendance cannot sync automatically. Import it from a CSV instead.
           </p>
         )}
       </div>
@@ -107,8 +114,6 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
     { label: 'Registered', value: registeredCount },
   ];
 
-  const badge = cadenceBadge(campaign.status, campaign.cadenceStatus);
-
   return (
     <main style={{ flex: 1, overflowY: 'auto' }}>
       <div className="lsq-page">
@@ -119,9 +124,6 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
             <p className="lsq-page-header__sub">
               Live send activity, items that need attention, and post-webinar outcomes.
             </p>
-          </div>
-          <div className="lsq-page-header__actions">
-            <Badge color={badge.color} text={badge.text} dot />
           </div>
         </header>
 

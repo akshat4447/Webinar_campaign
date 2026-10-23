@@ -6,7 +6,6 @@ import { ScoringTable } from './ScoringTable';
 import { RunScoringPrompt } from './RunScoringPrompt';
 import { AudienceControls, type Band } from './AudienceControls';
 import { LeadSquaredListSyncCard } from '@/components/wizard/LeadSquaredListSyncCard';
-import { Badge } from '@/components/ui/Badge';
 import { Icon } from '@/components/ui/Icon';
 
 const PAGE_SIZE = 50;
@@ -19,15 +18,12 @@ const BANDS: { id: string; label: string; min: number; max: number; color: strin
   { id: 'low', label: 'Below 70', min: -1, max: 70, color: 'var(--n40)' },
 ];
 
-function AudienceHeader({ sub, locked, completed }: { sub: string; locked: boolean; completed: boolean }) {
+function AudienceHeader({ sub }: { sub: string }) {
+  // The page body says when the audience is locked; the title is not repeated as a label above itself.
   return (
     <header className="lsq-page-header">
       <div className="lsq-page-header__text">
-        <p className="lsq-page-header__eyebrow">Audience</p>
-        <div className="lsq-ov-titlerow">
-          <h1 className="lsq-page-header__title">Audience</h1>
-          {locked && <Badge color={completed ? 'success' : 'blue'} text={completed ? 'Completed, read-only' : 'Launched, setup locked'} dot />}
-        </div>
+        <h1 className="lsq-page-header__title">Audience</h1>
         <p className="lsq-page-header__sub">{sub}</p>
       </div>
     </header>
@@ -51,7 +47,7 @@ export default async function AudiencePage(props: PageProps<'/campaigns/[id]/aud
       return (
         <main className="lsq-ov-main">
           <div className="lsq-page lsq-page--narrow">
-            <AudienceHeader sub="The audience is a read-only record." locked completed={completed} />
+            <AudienceHeader sub="The audience is a read-only record." />
             <div className="lsq-card">
               <div className="lsq-empty">
                 <span className="lsq-empty__icon" aria-hidden="true"><Icon name="lock" size={24} /></span>
@@ -88,7 +84,7 @@ export default async function AudiencePage(props: PageProps<'/campaigns/[id]/aud
       return (
         <main className="lsq-ov-main">
           <div className="lsq-page lsq-page--narrow">
-            <AudienceHeader sub={`${totalContacts.toLocaleString()} contacts imported, none scored.`} locked completed={completed} />
+            <AudienceHeader sub={`${totalContacts.toLocaleString()} contacts imported, none scored.`} />
             <div className="lsq-card">
               <div className="lsq-empty">
                 <span className="lsq-empty__icon" aria-hidden="true"><Icon name="lock" size={24} /></span>
@@ -159,8 +155,6 @@ export default async function AudiencePage(props: PageProps<'/campaigns/[id]/aud
       <div className="lsq-page">
         <AudienceHeader
           sub={`${scoredCount.toLocaleString()} of ${totalContacts.toLocaleString()} contacts scored by Claude. Approved contacts go on to messaging.`}
-          locked={setupLocked}
-          completed={completed}
         />
 
         <ScoringHeader campaign={campaign} scoredCount={scoredCount} approvedCount={approvedCount} completed={setupLocked} />
@@ -194,6 +188,7 @@ export default async function AudiencePage(props: PageProps<'/campaigns/[id]/aud
           band={band}
           bands={bands}
           total={matching}
+          allCount={totalContacts}
           threshold={campaign.scoringThreshold}
           page={page}
           pageSize={PAGE_SIZE}

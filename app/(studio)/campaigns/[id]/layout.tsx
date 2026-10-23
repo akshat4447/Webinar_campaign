@@ -1,4 +1,5 @@
 import { CampaignJobs } from '@/components/jobs/CampaignJobs';
+import { OverdueBanner } from '@/components/campaign/OverdueBanner';
 import { notFound } from 'next/navigation';
 import { db } from '@/lib/db';
 import { Prisma } from '@/lib/generated/prisma/client';
@@ -9,8 +10,6 @@ import { GuardedBackLink } from './GuardedBackLink';
 import { getServerNow } from '@/lib/actions/clock';
 import { isWrapUpOverdue } from '@/lib/campaignLifecycle';
 import { formatLsqDateTime } from '@/lib/dateFormat';
-import Link from 'next/link';
-import { Icon } from '@/components/ui/Icon';
 
 export default async function CampaignLayout({
   children,
@@ -64,21 +63,10 @@ export default async function CampaignLayout({
       <WorkspaceTabs campaignId={id} completedTabs={completedTabs} />
 
       {isWrapUpOverdue(campaign, await getServerNow()) && (
-        <div className="lsq-banner lsq-banner--warning lsq-res-overdue" role="status">
-          <span className="lsq-banner__icon"><Icon name="warning" size={16} /></span>
-          <div>
-            <p className="lsq-banner__title">Webinar Date Has Passed</p>
-            <p className="lsq-banner__body">
-              This webinar was scheduled for {campaign.scheduledAt ? formatLsqDateTime(campaign.scheduledAt) : 'an earlier date'} but is still open. Import attendance and mark it completed to stop reminders and lock the workspace.
-            </p>
-            <div className="lsq-banner__actions">
-              <Link href={`/campaigns/${id}/results`} className="lsq-btn lsq-btn--sm lsq-btn--secondary">Go to Results</Link>
-            </div>
-          </div>
-        </div>
+        <OverdueBanner campaignId={id} scheduledLabel={campaign.scheduledAt ? formatLsqDateTime(campaign.scheduledAt) : 'an earlier date'} />
       )}
 
-      <CampaignJobs campaignId={id} />
+      <CampaignJobs campaignId={id} cadenceRunning={campaign.cadenceStatus === 'running'} />
       {children}
     </>
   );

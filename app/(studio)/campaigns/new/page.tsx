@@ -3,7 +3,6 @@ import { db } from '@/lib/db';
 import { isSetupLocked } from '@/lib/campaignLifecycle';
 import { getEnrichmentStats } from '@/lib/actions/enrichment';
 import { normalizeChannel, DEFAULT_ENABLED_CHANNELS } from '@/lib/channels';
-import { getDefaultEmailProviderAction } from '@/lib/actions/netcore';
 import { getIntegrationConfigMasked } from '@/lib/integrationConfig';
 import { compareCadenceSteps } from '@/lib/stepSchedule';
 import {
@@ -11,6 +10,7 @@ import {
   getScoredContactsForWizardAction,
 } from '@/lib/actions/wizard';
 import { appOrigin } from '@/lib/appOrigin';
+import { clampStep } from '@/lib/wizardDraft';
 import { WizardClient } from './WizardClient';
 
 // The wizard is server-rendered per step and carries its draft in the URL
@@ -22,7 +22,7 @@ export const dynamic = 'force-dynamic';
 export default async function NewCampaignPage(props: PageProps<'/campaigns/new'>) {
   const sp = await props.searchParams;
   const id = typeof sp.id === 'string' ? sp.id : undefined;
-  const step = Math.min(5, Math.max(0, Number.parseInt(typeof sp.step === 'string' ? sp.step : '0', 10) || 0));
+  const stepParam = typeof sp.step === 'string' ? Number.parseInt(sp.step, 10) : NaN;
   const campaign = id
     ? await db.campaign.findUnique({
         where: { id },
@@ -34,6 +34,12 @@ export default async function NewCampaignPage(props: PageProps<'/campaigns/new'>
   // re-offer every setting. Send it to its workspace instead.
   if (campaign && isSetupLocked(campaign)) redirect(`/campaigns/${campaign.id}/overview`);
 
+  // A link without ?step= (the Draft card, the sidebar shortcut, a bookmark) reopens where the draft was left.
+  const step = clampStep(Number.isFinite(stepParam) ? stepParam : (campaign?.wizardStep ?? 0));
+  // What an OAuth round trip reports when it returns to this page; the client shows it once and clears it.
+  const connected = typeof sp.connected === 'string' ? sp.connected : undefined;
+  const connectedDetail = typeof sp.detail === 'string' ? sp.detail : undefined;
+
   const [
     contactCount,
     scoredCount,
@@ -44,6 +50,7 @@ export default async function NewCampaignPage(props: PageProps<'/campaigns/new'>
     validationStats,
     scoredContacts,
     selectableTemplates,
+    ownTemplates,
   ] = campaign
     ? await Promise.all([
         db.contact.count({ where: { campaignId: campaign.id } }),
@@ -61,6 +68,11 @@ export default async function NewCampaignPage(props: PageProps<'/campaigns/new'>
           where: { OR: [{ campaignId: null }, { campaignId: campaign.id }], hidden: false },
           orderBy: [{ campaignId: 'asc' }, { name: 'asc' }],
           select: { id: true, name: true, channel: true, campaignId: true },
+        }),
+        // Copy typed for this webinar's own steps, so reopening Messaging shows it instead of the defaults.
+        db.messageTemplate.findMany({
+          where: { campaignId: campaign.id, key: { not: null } },
+          select: { key: true, subject: true, body: true },
         }),
       ])
     : [
@@ -86,7 +98,11 @@ export default async function NewCampaignPage(props: PageProps<'/campaigns/new'>
         },
         [],
         [],
+        [],
       ];
+
+  const customTemplates: Record<string, { subject: string | null; body: string }> = {};
+  for (const t of ownTemplates) if (t.key) customTemplates[t.key] = { subject: t.subject, body: t.body };
 
   const templateOptions: Record<string, { id: string; name: string; scope: string }[]> = {};
   for (const t of selectableTemplates) {
@@ -116,10 +132,7 @@ export default async function NewCampaignPage(props: PageProps<'/campaigns/new'>
     }
   }
 
-  const [defaultEmailProvider, netcoreConfig] = await Promise.all([
-    getDefaultEmailProviderAction(),
-    getIntegrationConfigMasked('netcore'),
-  ]);
+  const netcoreConfig = await getIntegrationConfigMasked('netcore');
   const netcoreConfigured = !!netcoreConfig.apiKey?.hasValue;
   const sortedCadenceSteps = [...cadenceSteps].sort(compareCadenceSteps);
 
@@ -127,15 +140,19 @@ export default async function NewCampaignPage(props: PageProps<'/campaigns/new'>
     <main style={{ flex: 1, overflowY: 'auto' }}>
       <WizardClient
         step={campaign ? step : 0}
+        connectResult={connected ? { ok: connected === 'ok', detail: connectedDetail ?? '' } : undefined}
         initialOrigin={appOrigin()}
         initialChannels={initialChannels}
-        defaultEmailProvider={defaultEmailProvider}
         netcoreConfigured={netcoreConfigured}
         campaign={
           campaign
             ? {
                 id: campaign.id,
                 name: campaign.name,
+                wizardStep: campaign.wizardStep,
+                wizardFurthestStep: campaign.wizardFurthestStep,
+                draftRevision: campaign.draftRevision,
+                zoomMeetingId: campaign.zoomMeetingId,
                 description: campaign.description,
                 scheduledAt: campaign.scheduledAt?.toISOString() ?? null,
                 timezone: campaign.timezone,
@@ -146,7 +163,6 @@ export default async function NewCampaignPage(props: PageProps<'/campaigns/new'>
                 registrationLink: campaign.registrationLink,
                 zoomLink: campaign.zoomLink,
                 selectedChannels: campaign.selectedChannels,
-                emailProvider: campaign.emailProvider,
                 msgMode: campaign.msgMode,
                 tone: campaign.tone,
                 msgLength: campaign.msgLength,
@@ -181,6 +197,7 @@ export default async function NewCampaignPage(props: PageProps<'/campaigns/new'>
         cadenceSteps={sortedCadenceSteps}
         scoredContacts={scoredContacts}
         templateOptions={templateOptions}
+        customTemplates={customTemplates}
         automationRules={
           campaign
             ? {
