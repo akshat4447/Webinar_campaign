@@ -12,7 +12,7 @@ This assessment covers the current working tree, including its existing uncommit
 | --- | --- | --- |
 | Unit tests | PASS | 125 suites, **1,253 tests**. |
 | PostgreSQL integration tests | PASS | 13 suites, **203 tests**, including real transactions, races and provider failures against mocks/local fakes. |
-| Migrations | PASS | All **21 migrations** applied to a fresh disposable database; schema comparison reported no difference. |
+| Migrations | PASS | All **20 SQL migrations** applied to a fresh disposable database; schema comparison reported no difference. Corrected count: the initial file count also included `migration_lock.toml`. |
 | TypeScript | PASS | Route type generation and `tsc --noEmit`. |
 | ESLint | PASS | Final `eslint --max-warnings=0`; see final logs. |
 | Production build | CONDITIONAL | Default Turbopack and webpack builds completed on retry. Initial builds failed with a known-vulnerability security warning. Dependencies remain vulnerable. |
