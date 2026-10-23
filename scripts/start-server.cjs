@@ -14,7 +14,10 @@ if (process.env.REGISTRATION_SECRET === process.env.CREDENTIALS_ENCRYPTION_KEY) 
 if (process.env.RENDER === 'true') {
   const origin = new URL(process.env.APP_ORIGIN || process.env.RENDER_EXTERNAL_URL || 'http://localhost');
   if (origin.protocol !== 'https:' || ['localhost', '127.0.0.1'].includes(origin.hostname)) throw new Error('Render requires a public HTTPS application origin.');
+  // Render injects the container name as HOSTNAME; its public ingress requires all interfaces.
+  process.env.HOSTNAME = '0.0.0.0';
 }
+process.env.HOSTNAME ||= '0.0.0.0';
 const server = resolve(process.env.NEXT_DIST_DIR || '.next', 'standalone/server.js');
 if (!existsSync(server)) throw new Error('Production build is missing. Run npm run build first.');
 require(server);
