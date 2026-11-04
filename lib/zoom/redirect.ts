@@ -2,18 +2,24 @@
 // person back. A saved address that points at a closed tunnel sent people to Zoom's "Error" page, or to a dead
 // address after they had approved the connection, with nothing in the app saying why.
 
+import { classifyHost, isBetterHost } from '@/lib/linkHost';
+
 export function zoomCallbackUrl(origin: string): string {
   return `${origin.replace(/\/+$/, '')}/api/auth/zoom/callback`;
 }
 
 /**
  * The redirect URI the connect and callback routes both use. They must agree byte for byte, or Zoom refuses the
- * token exchange. A saved value wins (it is how a live tunnel is used); a value pointing at zoom.us itself is a
- * mistake that is ignored.
+ * token exchange. A saved value wins (it is how a live tunnel is used) unless it is a temporary address and the app is
+ * now on a better one; a value pointing at zoom.us itself is a mistake that is ignored.
  */
 export function effectiveZoomRedirectUri(configured: string | undefined | null, requestOrigin: string): string {
   const saved = (configured ?? '').trim();
   if (!saved || saved.includes('zoom.us')) return zoomCallbackUrl(requestOrigin);
+  // A saved temporary address (a tunnel used during setup) must not outlive the tunnel: once the app is reached on a real address,
+  // that address is the one to use, so a deployed copy never inherits a dead tunnel from the database it was set up with.
+  // Only a clearly temporary one: any other saved address may be exactly what is registered in the Zoom app.
+  if (classifyHost(saved) === 'temporary' && isBetterHost(requestOrigin, saved)) return zoomCallbackUrl(requestOrigin);
   return saved;
 }
 

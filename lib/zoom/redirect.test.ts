@@ -8,6 +8,23 @@ describe('effectiveZoomRedirectUri', () => {
     expect(effectiveZoomRedirectUri('  ', 'http://localhost:3000/')).toBe('http://localhost:3000/api/auth/zoom/callback');
     expect(effectiveZoomRedirectUri('https://app.example.com/api/auth/zoom/callback', 'http://localhost:3000')).toBe('https://app.example.com/api/auth/zoom/callback');
   });
+  it('stops using a saved tunnel address once the app is reached on a real one, so a deployed copy never inherits a dead tunnel', () => {
+    const tunnel = 'https://old-tunnel-name.trycloudflare.com/api/auth/zoom/callback';
+    expect(effectiveZoomRedirectUri(tunnel, 'https://studio.leadsquared.com')).toBe('https://studio.leadsquared.com/api/auth/zoom/callback');
+    expect(effectiveZoomRedirectUri('http://localhost:3000/api/auth/zoom/callback', 'https://studio.leadsquared.com/')).toBe('https://studio.leadsquared.com/api/auth/zoom/callback');
+    expect(effectiveZoomRedirectUri(tunnel, 'https://my-studio.onrender.com')).toBe('https://my-studio.onrender.com/api/auth/zoom/callback');
+  });
+  it('keeps a saved tunnel address while the app itself is only on this machine or another tunnel, which is how a tunnel is used', () => {
+    const tunnel = 'https://a-b-c.trycloudflare.com/api/auth/zoom/callback';
+    expect(effectiveZoomRedirectUri(tunnel, 'http://localhost:3000')).toBe(tunnel);
+    expect(effectiveZoomRedirectUri(tunnel, 'https://x-y-z.trycloudflare.com')).toBe(tunnel);
+  });
+  it('never overrides a saved address that is not a temporary one, since it may be exactly what the Zoom app has registered', () => {
+    const own = 'https://app.example.com/api/auth/zoom/callback';
+    const shared = 'https://studio.onrender.com/api/auth/zoom/callback';
+    expect(effectiveZoomRedirectUri(own, 'https://studio.leadsquared.com')).toBe(own);
+    expect(effectiveZoomRedirectUri(shared, 'https://studio.leadsquared.com')).toBe(shared);
+  });
   it('ignores a value that points at zoom.us itself', () => {
     expect(effectiveZoomRedirectUri('https://zoom.us/oauth/callback', 'https://app.example.com')).toBe('https://app.example.com/api/auth/zoom/callback');
   });
