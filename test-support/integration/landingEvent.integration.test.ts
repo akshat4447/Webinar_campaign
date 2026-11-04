@@ -109,3 +109,56 @@ describe('GET /api/landing/event', () => {
     expect(preflight.headers.get('access-control-allow-methods')).toContain('GET');
   });
 });
+
+describe('the moment between registering and the joining link existing', () => {
+  const PENDING = 'Joining details will be sent to you by email';
+  async function registeredWithoutLink() {
+    const c = await campaign({ description: 'This is regarding the use of AI in the current entrepreneurial era' });
+    const person = await contact(c.id, { registeredAt: new Date(), zoomJoinUrl: null });
+    const token = mint(c.id, person.id);
+    return { c, person, token };
+  }
+  const detailsOf = (googleUrl: string) => new URL(googleUrl).searchParams.get('details') ?? '';
+
+  it('says "Join URL: Joining details will be sent to you by email" in every calendar until the link is made, and never caches it', async () => {
+    const { c, token } = await registeredWithoutLink();
+    const res = await get(`c=${c.id}&t=${encodeURIComponent(token)}`);
+    const body = await res.json();
+    expect(body.event.personal).toBe(false);
+    expect(detailsOf(body.calendar.google)).toContain(`Join URL: ${PENDING}`);
+    expect(new URL(body.calendar.google).searchParams.get('location')).toBe(PENDING);
+    expect(new URL(body.calendar.outlookOffice).searchParams.get('body')).toContain(`Join URL: ${PENDING}`);
+    expect(body.calendar.ics).toContain(`Join URL: ${PENDING}`);
+    // built for one registered person and about to change: never stored by a browser or a CDN
+    expect(res.headers.get('cache-control')).toContain('no-store');
+  });
+
+  it('carries the real link the next time it is asked, once Zoom has issued it', async () => {
+    const { c, person, token } = await registeredWithoutLink();
+    const before = await (await get(`c=${c.id}&t=${encodeURIComponent(token)}`)).json();
+    expect(before.event.personal).toBe(false);
+
+    await db.contact.update({ where: { id: person.id }, data: { zoomJoinUrl: PERSONAL_JOIN } });
+    const after = await (await get(`c=${c.id}&t=${encodeURIComponent(token)}`)).json();
+    expect(after.event.personal).toBe(true);
+    expect(detailsOf(after.calendar.google)).toContain(`Join URL: ${PERSONAL_JOIN}`);
+    expect(detailsOf(after.calendar.google)).not.toContain(PENDING);
+    expect(after.calendar.ics).toContain(PERSONAL_JOIN);
+  });
+
+  it('keeps the anonymous answer cacheable, since it is the same for everyone', async () => {
+    const c = await campaign();
+    const res = await get(`c=${c.id}`);
+    expect(res.headers.get('cache-control')).toContain('public');
+  });
+
+  it('says the same thing in the calendar file downloaded from the attendee page', async () => {
+    const { GET: calendarFile } = await import('@/app/api/calendar/[campaignId]/route');
+    const { c, token } = await registeredWithoutLink();
+    const res = await calendarFile(new Request(`https://studio.example.com/api/calendar/${c.id}?t=${encodeURIComponent(token)}`), { params: Promise.resolve({ campaignId: c.id }) } as never);
+    const ics = await res.text();
+    expect(res.status).toBe(200);
+    expect(ics).toContain(`Join URL: ${PENDING}`);
+    expect(ics).not.toMatch(/provided by the organizer/);
+  });
+});

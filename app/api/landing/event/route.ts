@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getAttendee } from '@/lib/attendee';
-import { buildGoogleCalendarUrl, buildOutlookCalendarUrl, generateIcsFeed, type CalendarEventInput } from '@/lib/calendar';
+import { buildGoogleCalendarUrl, buildOutlookCalendarUrl, generateIcsFeed, JOIN_DETAILS_PENDING, type CalendarEventInput } from '@/lib/calendar';
 import { parseLegacyWebinarDate } from '@/lib/campaignDate';
 import { allowRequest, clientIp } from '@/lib/rateLimit';
 
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
     const input: CalendarEventInput = {
       title: campaign.name,
       description: campaign.description || campaign.name,
-      location: attendee?.joinUrl || 'Joining details will be sent to you by email',
+      location: attendee?.joinUrl || JOIN_DETAILS_PENDING,
       startTime: start,
       endTime: end,
       speakers: campaign.speakers,
@@ -71,7 +71,8 @@ export async function GET(req: NextRequest) {
         },
       },
       200,
-      { 'Cache-Control': personal ? 'private, no-store' : 'public, max-age=60' }
+      // Anything built for a registered person is theirs alone and changes the moment their joining link exists, so it is never cached.
+      { 'Cache-Control': attendee ? 'private, no-store' : 'public, max-age=60' }
     );
   } catch (err) {
     console.error('[api/landing/event] error:', err);

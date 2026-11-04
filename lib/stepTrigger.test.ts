@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cadenceStepsData } from './demo-data';
-import { defaultTriggerFor, isLaunchQueued, isStepTrigger, isPreWebinarReminder, PRE_WEBINAR_REMINDER_KEYS } from './stepTrigger';
+import { defaultTriggerFor, isLaunchQueued, isStepTrigger, isPreWebinarReminder, PRE_WEBINAR_REMINDER_KEYS, isOutreachStep } from './stepTrigger';
 import { isAutomatableChannel } from './channels';
 
 /**
@@ -114,5 +114,31 @@ describe('isPreWebinarReminder', () => {
     expect(isPreWebinarReminder('confirm')).toBe(false);
     expect(isPreWebinarReminder('attend')).toBe(false);
     expect(isPreWebinarReminder('noshow')).toBe(false);
+  });
+});
+
+describe('isOutreachStep', () => {
+  it('is true for the built-in invite, nudge and final steps', () => {
+    for (const key of ['invite', 'smsInvite', 'waInvite', 'linkedin', 'nudge', 'final']) expect(isOutreachStep({ key }), key).toBe(true);
+  });
+  it('is true for a step the operator added to an invitation or outreach group, or to Pre-registration', () => {
+    expect(isOutreachStep({ key: 'custom-email-abc123', group: 'Invitations & Outreach', trigger: 'launch' })).toBe(true);
+    expect(isOutreachStep({ key: 'custom-1', group: 'Pre-registration', trigger: 'launch' })).toBe(true);
+    expect(isOutreachStep({ key: 'custom-2', group: 'Partner invite wave', trigger: 'launch' })).toBe(true);
+  });
+  it('is true for any other step that is queued at launch and is not a reminder', () => {
+    expect(isOutreachStep({ key: 'custom-3', group: 'Announcements', trigger: 'launch' })).toBe(true);
+  });
+  it('is false for reminders, confirmations and what follows the webinar', () => {
+    expect(isOutreachStep({ key: 't1d', group: 'Reminders · registrants only', trigger: 'launch' })).toBe(false);
+    expect(isOutreachStep({ key: 'sms', group: 'Reminders · registrants only', trigger: 'launch' })).toBe(false);
+    expect(isOutreachStep({ key: 'doors_open', group: 'Reminders · registrants only', trigger: 'launch' })).toBe(false);
+    expect(isOutreachStep({ key: 'whatsapp', group: 'Reminders · registrants only', trigger: 'registration' })).toBe(false);
+    expect(isOutreachStep({ key: 'followup', group: 'Post-webinar', trigger: 'attendance' })).toBe(false);
+    expect(isOutreachStep({ key: 'custom-4', group: 'Day-before reminder', trigger: 'launch' })).toBe(false);
+  });
+  it('is false for a step with no group and no launch trigger, and copes with missing fields', () => {
+    expect(isOutreachStep({ key: 'custom-5', group: null, trigger: 'registration' })).toBe(false);
+    expect(isOutreachStep({ key: 'custom-6' })).toBe(false);
   });
 });

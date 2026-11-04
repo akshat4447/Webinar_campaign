@@ -19,7 +19,10 @@ vi.mock('@/lib/registration', () => ({
 import { db } from '@/lib/db';
 import { verifyRegistrationToken } from '@/lib/registration';
 import { GET } from '@/app/api/calendar/[campaignId]/route';
+import { readFileSync } from 'node:fs';
 import {
+  JOIN_DETAILS_PENDING,
+  buildCalendarFullDescription,
   buildGoogleCalendarUrl,
   buildOutlookCalendarUrl,
   buildCalendarUrls,
@@ -197,6 +200,63 @@ describe('Central Calendar Utility (lib/calendar.ts)', () => {
       expect(ics).toContain('END:VEVENT');
       expect(ics).toContain('END:VCALENDAR');
     });
+  });
+});
+
+describe('what a calendar entry says before the joining link is known', () => {
+  const event = {
+    title: 'Webinar_Test',
+    description: 'This is regarding the use of AI in the current entrepreneurial era',
+    speakers: [{ name: 'Priya Nair', title: 'Director - Research & Marketing', company: 'Acme' }],
+    startTime: new Date('2026-11-11T06:00:00Z'),
+    durationMinutes: 60,
+  };
+  const EXPECTED = [
+    'This is regarding the use of AI in the current entrepreneurial era',
+    '',
+    'Featured Speaker(s):',
+    '• Priya Nair, Director - Research & Marketing (Acme)',
+    '',
+    'Join URL: Joining details will be sent to you by email',
+  ].join('\n');
+  const detailsOf = (url: string) => new URL(url).searchParams.get('details') ?? new URL(url).searchParams.get('body');
+
+  it('reads exactly: the description, the speakers, then "Join URL: Joining details will be sent to you by email"', () => {
+    expect(JOIN_DETAILS_PENDING).toBe('Joining details will be sent to you by email');
+    expect(buildCalendarFullDescription({ ...event, location: JOIN_DETAILS_PENDING })).toBe(EXPECTED);
+  });
+
+  it('says the same whether the location is the wording itself, empty, blank or missing', () => {
+    for (const location of [JOIN_DETAILS_PENDING, '', '   ', undefined, null]) {
+      expect(buildCalendarFullDescription({ ...event, location }), String(location)).toBe(EXPECTED);
+    }
+  });
+
+  it('puts it in the Google, Outlook and Microsoft 365 entries and in the .ics file, with the wording as the location', () => {
+    expect(detailsOf(buildGoogleCalendarUrl(event))).toBe(EXPECTED);
+    expect(new URL(buildGoogleCalendarUrl(event)).searchParams.get('location')).toBe(JOIN_DETAILS_PENDING);
+    for (const flavor of ['live', 'office'] as const) {
+      expect(detailsOf(buildOutlookCalendarUrl(event, flavor)), flavor).toBe(EXPECTED);
+      expect(new URL(buildOutlookCalendarUrl(event, flavor)).searchParams.get('location'), flavor).toBe(JOIN_DETAILS_PENDING);
+    }
+    const ics = generateIcsFeed(event);
+    expect(ics).toContain('Join URL: Joining details will be sent to you by email');
+    expect(ics).toContain(`LOCATION:${JOIN_DETAILS_PENDING}`);
+  });
+
+  it('shows the real link, and not the wording, once there is one', () => {
+    const link = 'https://leadsquared.zoom.us/w/81234567891?tk=abc&uuid=WN_x';
+    const d = buildCalendarFullDescription({ ...event, location: link });
+    expect(d).toContain(`Join URL: ${link}`);
+    expect(d).not.toContain(JOIN_DETAILS_PENDING);
+    expect(detailsOf(buildGoogleCalendarUrl({ ...event, location: link }))).toContain(link);
+  });
+
+  it('is the only wording any calendar in the app uses: no other file says it differently', () => {
+    for (const file of ['app/(public)/r/result/page.tsx', 'app/api/calendar/[campaignId]/route.ts', 'app/api/landing/event/route.ts', 'components/wizard/WizardReviewLaunchCard.tsx', 'lib/calendar.ts']) {
+      const src = readFileSync(file, 'utf8');
+      expect(src, file).not.toMatch(/provided by the organizer|Online Webinar/);
+    }
   });
 });
 

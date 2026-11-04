@@ -23,7 +23,7 @@ import {
   buildNormalChannelRegistrationLinks,
   generateFramerEmbedScript,
 } from '@/lib/landingPage';
-import { buildCalendarUrls, type CalendarUrls } from '@/lib/calendar';
+import { buildCalendarUrls, JOIN_DETAILS_PENDING, type CalendarUrls } from '@/lib/calendar';
 import { DEFAULT_TIMEZONE, formatLsqDateTime, timeZoneLabel, wallClockToDate } from '@/lib/dateFormat';
 
 interface WizardReviewLaunchCardProps {
@@ -154,7 +154,7 @@ export function WizardReviewLaunchCard({
         {
           title: webinarTitle,
           description,
-          location: zoomLink || 'Online Webinar',
+          location: zoomLink || JOIN_DETAILS_PENDING,
           startTime: scheduledIso,
           durationMinutes,
           campaignId,
@@ -355,6 +355,31 @@ export function WizardReviewLaunchCard({
                 onClick={handleApproveAllClean}
               >
                 {approving ? 'Approving' : `Approve All Clean Contacts (${safeValidation.cleanReadyCount.toLocaleString()})`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {funnelMode === 'framer' && (
+        <div className="lsq-banner lsq-banner--neutral" role="status">
+          <Icon name="globe" size={18} />
+          <div>
+            <p className="lsq-banner__title">Your landing page needs the Studio script</p>
+            <p className="lsq-banner__body">
+              Paste it once into your page builder (in Framer: Site Settings, General, Custom Code, End of body tag) so registrations from your page are tracked.
+              The full instructions are in Registration And Calendar, at the bottom of this page.
+            </p>
+            <div className="lsq-banner__actions">
+              <Button size="sm" hierarchy="secondary" icon={<Icon name="copy" size={14} />} onClick={() => copyText(embedScript, 'landing_script')}>
+                Copy Script
+              </Button>
+              <Button
+                size="sm"
+                hierarchy="tertiary-color"
+                onClick={() => document.getElementById('wiz-funnel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              >
+                Show Instructions
               </Button>
             </div>
           </div>

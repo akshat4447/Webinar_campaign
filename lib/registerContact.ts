@@ -4,7 +4,7 @@ import { after } from 'next/server';
 import { resolveStepDate } from '@/lib/stepSchedule';
 import { revalidateCampaign } from '@/lib/revalidate';
 import { isAutomatableChannel, isContactEligibleForChannel } from '@/lib/channels';
-import { PRE_WEBINAR_REMINDER_KEYS, isPreWebinarReminder } from '@/lib/stepTrigger';
+import { PRE_WEBINAR_REMINDER_KEYS, isOutreachStep } from '@/lib/stepTrigger';
 import { registrationAvailability, type ClosedReason } from '@/lib/registrationAvailability';
 
 export type RegisterResult =
@@ -65,14 +65,7 @@ export async function registerContactTx(tx: Prisma.TransactionClient, campaignId
         where: { campaignId },
         select: { key: true, group: true, trigger: true },
       });
-      const outreachKeys = allSteps
-        .filter((s) => {
-          if (['invite', 'smsInvite', 'waInvite', 'linkedin', 'nudge', 'final'].includes(s.key)) return true;
-          if (s.group === 'Pre-registration' || s.group?.toLowerCase().includes('outreach') || s.group?.toLowerCase().includes('invite')) return true;
-          if (s.trigger === 'launch' && !isPreWebinarReminder(s.key) && !s.group?.toLowerCase().includes('reminder')) return true;
-          return false;
-        })
-        .map((s) => s.key);
+      const outreachKeys = allSteps.filter(isOutreachStep).map((s) => s.key);
 
       for (const k of ['invite', 'smsInvite', 'waInvite', 'linkedin', 'nudge', 'final']) {
         if (!outreachKeys.includes(k)) outreachKeys.push(k);
