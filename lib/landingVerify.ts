@@ -6,6 +6,7 @@
 // The analysis is a pure function so every page shape is unit-tested.
 
 import { safeFetchText, UnsafeUrlError, type SafeFetchResult } from '@/lib/safeFetch';
+import { scanText, scanPageForStudioScript, sameOrigin, type ScriptScan } from '@/lib/landingScriptScan';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail';
 export interface LandingCheck {
@@ -54,6 +55,8 @@ export function frameBlocked(headers: Headers): boolean {
 
 /** What the campaign says, so the form's baked-in values can be compared with it. */
 export interface ExpectedWebinar {
+  /** This webinar's id, to tell a page still set up for another one. */
+  campaignId?: string | null;
   zoomId?: string | null;
   scheduledAt?: Date | null;
   timezone?: string | null;
@@ -107,6 +110,10 @@ export function analyzeLandingPage(args: {
   appOrigin: string;
   expected?: ExpectedWebinar;
   thankYou?: ThankYouProbe | null;
+  /** What the page and the script files it loads say about the Studio script. Read from the page itself when not given. */
+  scan?: ScriptScan | null;
+  /** For each Studio address on the page that is not this one: whether anything answers there. Missing = not checked. */
+  originAlive?: Record<string, boolean>;
 }): LandingReport {
   const { fetched, appOrigin } = args;
   const html = fetched.body;
@@ -140,16 +147,58 @@ export function analyzeLandingPage(args: {
   const title = /<title[^>]*>([^<]{0,200})<\/title>/i.exec(html)?.[1]?.replace(/\s+/g, ' ').trim() || null;
   const platform = detectPlatform(html, fetched.headers);
   const hasForm = /<form[\s>]/i.test(html) || /type=["']email["']/i.test(html);
-  const hasSnippet = SNIPPET_MARKERS.some((m) => m.test(html));
-  const pointsAtThisApp = appOrigin ? html.includes(appOrigin.replace(/\/$/, '')) : false;
+  const scan: ScriptScan = args.scan ?? { ...scanText(html), assetsRead: 0 };
+  const hasSnippet = scan.found || SNIPPET_MARKERS.some((m) => m.test(html));
   const hasLsqForm = platform === 'leadsquared' || /lsqleadfields|leadsquared\.com\/.*(form|lp)/i.test(html);
 
   if (hasSnippet) {
-    add(
-      pointsAtThisApp || !appOrigin
-        ? { id: 'snippet', label: 'Studio registration script', status: 'pass', detail: 'The Webinar Studio script is installed and points at this Studio.' }
-        : { id: 'snippet', label: 'Studio registration script', status: 'warn', detail: 'A Webinar Studio script is installed, but it points at a different Studio address.', fix: 'Copy the script again from this webinar and replace the old one.' }
-    );
+    // Where the page is set to send registrations. Every address found is compared with this Studio's own: a page whose only address
+    // is an old one (a tunnel that closed, a webinar that moved) lets visitors fill the form in and records nothing.
+    const mine = appOrigin ? scan.origins.filter((o) => sameOrigin(o, appOrigin)) : scan.origins;
+    const others = appOrigin ? scan.origins.filter((o) => !sameOrigin(o, appOrigin)) : [];
+    if (!appOrigin || (mine.length > 0 && others.length === 0)) {
+      add({ id: 'snippet', label: 'Studio registration script', status: 'pass', detail: 'The Webinar Studio script is installed and points at this Studio.' });
+    } else if (mine.length > 0) {
+      add({
+        id: 'snippet',
+        label: 'Studio registration script',
+        status: 'warn',
+        detail: `The page sends registrations to this Studio, but it also still contains an old Studio address (${others.join(', ')}). A form that uses the old one will not register anyone. If it is only a setting left on a component that no longer reads it, it does nothing.`,
+        fix: 'To clear this warning, remove the old script or address, or remove the component from the page and add it again, so that only what was copied from this webinar is left, then publish.',
+      });
+    } else if (others.length > 0) {
+      // Known to be dead (a tunnel that closed): nothing can be registered, so this blocks. Merely different (another name for a Studio
+      // that does answer, or not checked) is a warning, since it may be deliberate.
+      const dead = others.every((o) => args.originAlive?.[o] === false);
+      add({
+        id: 'snippet',
+        label: 'Studio registration script',
+        status: dead ? 'fail' : 'warn',
+        detail: dead
+          ? `The page sends registrations to ${others.join(', ')}, which does not answer (a tunnel that was closed, or an address that has changed), and not to this Studio (${appOrigin}). Visitors can fill in the form, but nothing reaches Webinar Studio.`
+          : `The page sends registrations to ${others.join(', ')}, not to this Studio (${appOrigin}). Registrations from this page will not appear here.`,
+        fix: 'Copy the script again from this webinar and replace the old one. If the address is a setting on a page component (for example "API Endpoint" in Framer), change that setting, or remove the component and add it again, then publish.',
+      });
+    } else {
+      add({
+        id: 'snippet',
+        label: 'Studio registration script',
+        status: 'warn',
+        detail: 'A Webinar Studio script was found, but the address it sends to could not be read from the page, so it could not be checked against this Studio.',
+        fix: 'Copy the script again from this webinar and paste it in, then publish.',
+      });
+    }
+    // Set up for another webinar: a stale copy, since it keeps its own webinar id for visitors who arrive without one.
+    const thisCampaign = args.expected?.campaignId;
+    if (thisCampaign && scan.campaignIds.length > 0 && !scan.campaignIds.includes(thisCampaign)) {
+      add({
+        id: 'snippet-webinar',
+        label: 'Script set up for this webinar',
+        status: 'warn',
+        detail: `The script on the page is set up for another webinar (${scan.campaignIds.join(', ')}), not this one (${thisCampaign}). Visitors who arrive from a message link are still counted for this one, but anyone arriving without one would not be.`,
+        fix: 'Copy the script again from this webinar and replace the old one.',
+      });
+    }
   } else if (hasLsqForm) {
     add({ id: 'snippet', label: 'Registration capture', status: 'warn', detail: 'A LeadSquared form was detected, but not the Webinar Studio script.', fix: 'Either add the Studio script, or use a LeadSquared automation that calls the Studio webhook when the form is submitted (see the webhook recipe).' });
   } else {
@@ -235,19 +284,40 @@ export async function hasStudioScript(url: string, fetchImpl?: typeof fetch): Pr
   try {
     const page = await safeFetchText(url, { fetchImpl });
     if (page.status < 200 || page.status >= 300) return null;
-    return SNIPPET_MARKERS.some((m) => m.test(page.body));
+    return (await scanPageForStudioScript(page, { fetchImpl })).found;
   } catch {
     return null;
   }
 }
 
+/** Whether anything answers at each Studio address on the page other than this one. A private or local address is not asked. */
+async function probeOtherOrigins(origins: string[], appOrigin: string, fetchImpl?: typeof fetch): Promise<Record<string, boolean>> {
+  const others = appOrigin ? origins.filter((o) => !sameOrigin(o, appOrigin)) : [];
+  const out: Record<string, boolean> = {};
+  await Promise.all(
+    others.slice(0, 4).map(async (o) => {
+      try {
+        const res = await safeFetchText(`${o}/api/health`, { fetchImpl, timeoutMs: 4000, maxBytes: 20_000 });
+        out[o] = res.status >= 200 && res.status < 300;
+      } catch (err) {
+        // A name that no longer exists in DNS (a closed tunnel) is as dead as an address that refuses; a private or local address is
+        // simply not asked, so it is neither alive nor dead.
+        if (!(err instanceof UnsafeUrlError) || /does not resolve/i.test(err.message)) out[o] = false;
+      }
+    }),
+  );
+  return out;
+}
+
 export async function verifyLandingPage(url: string, appOrigin: string, fetchImpl?: typeof fetch, expected?: ExpectedWebinar): Promise<LandingReport> {
   try {
     const fetched = await safeFetchText(url, { fetchImpl });
+    const scan = await scanPageForStudioScript(fetched, { fetchImpl });
+    const originAlive = await probeOtherOrigins(scan.origins, appOrigin, fetchImpl);
     const redirect = formRedirectUrl(fetched.body, fetched.finalUrl);
     const sameAsPage = redirect !== null && redirect.replace(/\/$/, '') === fetched.finalUrl.replace(/\/$/, '');
-    const thankYou = redirect ? { url: redirect, hasScript: sameAsPage ? SNIPPET_MARKERS.some((m) => m.test(fetched.body)) : await hasStudioScript(redirect, fetchImpl) } : undefined;
-    return analyzeLandingPage({ url, fetched, appOrigin, expected, thankYou });
+    const thankYou = redirect ? { url: redirect, hasScript: sameAsPage ? scan.found : await hasStudioScript(redirect, fetchImpl) } : undefined;
+    return analyzeLandingPage({ url, fetched, appOrigin, expected, thankYou, scan, originAlive });
   } catch (err) {
     if (err instanceof UnsafeUrlError) return failureReport(url, err.message);
     const msg = err instanceof Error ? err.message : String(err);

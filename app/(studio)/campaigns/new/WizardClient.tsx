@@ -1159,7 +1159,7 @@ export function WizardClient({
                 error={fieldErrors.registrationLink ?? (landingLinkError(details.registrationLink) ? `${landingLinkError(details.registrationLink)} It is not saved until it is fixed.` : null)}
                 hint={
                   details.registrationLink
-                    ? 'Outbound messages route invitees to the custom landing page with recipient tokens. Form submissions register attendees, cancel the outreach cadence and sync calendars.'
+                    ? 'Outbound messages route invitees to the custom landing page with recipient tokens. Form submissions register attendees, cancel the outreach cadence and sync calendars. The script to paste into your page is on the Review step.'
                     : 'Leave blank for standard webinars. Outbound messages carry 1-click RSVP links that register contacts in Zoom and the CRM and open the attendee hub with Google, Outlook and Apple calendar scheduling.'
                 }
               >

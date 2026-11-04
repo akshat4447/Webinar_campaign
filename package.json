@@ -37,7 +37,8 @@
     "test:recovery": "tsx scripts/test-recovery.ts",
     "verify:providers": "tsx scripts/verify-providers.ts",
     "test:load": "tsx scripts/test-load.ts",
-    "check:tooling": "node scripts/check-tooling.cjs"
+    "check:tooling": "node scripts/check-tooling.cjs",
+    "framer:component": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/framer-component.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

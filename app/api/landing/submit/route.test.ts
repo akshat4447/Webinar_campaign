@@ -191,6 +191,22 @@ describe('POST /api/landing/submit', () => {
     const data = await res.json();
     expect(data.ok).toBe(false);
   });
+
+  it('answers 404 and leaves a trace naming the webinar and the page when a page is still set up for a webinar that no longer exists', async () => {
+    (db.campaign.findUnique as any).mockResolvedValue(null);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const res = await POST(new NextRequest('http://localhost:3000/api/landing/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://my-landing-page.framer.app' },
+      body: JSON.stringify({ campaignId: 'cmwoldwebinar0000000001', email: 'someone@example.com' }),
+    }));
+    expect(res.status).toBe(404);
+    expect((await res.json()).ok).toBe(false);
+    const line = warn.mock.calls.map((c) => String(c[0])).find((m) => m.includes('[landing]'));
+    expect(line).toContain('cmwoldwebinar0000000001');
+    expect(line).toContain('https://my-landing-page.framer.app');
+    warn.mockRestore();
+  });
 });
 
 beforeEach(() => {

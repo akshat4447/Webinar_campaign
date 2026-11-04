@@ -165,6 +165,24 @@ async function main() {
     reg = await campaignRow(id);
     expect(reg.registrationLink).toBeNull();
     expect(reg.registrationMode).toBe('zoom');
+    // The review step must show the script for a custom landing page: a copy shortcut up top and the full instructions below.
+    await landing.fill('https://pages.example.com/webinar');
+    await waitSaved(page);
+    await page.goto(`${ORIGIN}/campaigns/new?id=${id}&step=5`);
+    await expect(page.getByText('Your landing page needs the Studio script')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('button', { name: 'Copy Script' }).first()).toBeVisible();
+    // The button is on the page before the page has finished loading, and a click before then does nothing: click again until it scrolls.
+    await expect(async () => {
+      await page.getByRole('button', { name: 'Show Instructions' }).click();
+      await expect(page.getByText('Paste the script once, on every page')).toBeInViewport({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
+    await page.getByText('View script').click();
+    await expect(page.locator('pre[aria-label="Landing page script"]')).toContainText(`apiOrigin: "${ORIGIN}"`);
+    await page.goto(`${ORIGIN}/campaigns/new?id=${id}&step=0`);
+    await expect(landing).toBeVisible();
+    await landing.fill('');
+    await waitSaved(page);
+    checks.push('1d3. With a custom landing page the review step shows the script shortcut and instructions, with the script itself');
     checks.push('1d2. The landing page address is checked as it is typed: a wrong one is explained and not saved, a good one switches to the custom page, and clearing it returns to 1-click registration');
     checks.push('1d. Description, date, time and capacity reach the database without pressing Continue');
 

@@ -82,6 +82,8 @@ export async function POST(req: NextRequest) {
     });
 
     if (!campaign) {
+      // Nothing here can fix it, but it explains the cause: a page still set up for a webinar that was deleted or replaced.
+      console.warn(`[landing] registration for a webinar that does not exist (${String(campaignId).slice(0, 64)}) from ${(req.headers.get('origin') ?? 'an unknown page').slice(0, 120)}: that page is still set up for an old webinar`);
       return json({ ok: false, error: 'Campaign not found' }, 404);
     }
 

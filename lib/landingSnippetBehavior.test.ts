@@ -16,6 +16,8 @@ type El = {
   setAttribute: (k: string, v: string) => void;
   remove: () => void;
   focus: () => void;
+  parent?: El;
+  onclick?: () => void;
 };
 
 const EVENT = {
@@ -39,6 +41,8 @@ function runSnippet(opts: {
   pageHasEmailField?: boolean;
   submitResult?: { status: number; body: Record<string, unknown> };
   eventResult?: { status: number; body: unknown } | 'fail';
+  /** Successive answers to the event endpoint, one per ask (the last repeats); overrides eventResult. */
+  eventSequence?: Array<{ status: number; body: unknown } | 'fail'>;
   noEmailField?: boolean;
   existingAttributionField?: boolean;
   redirectUrl?: string;
@@ -47,6 +51,8 @@ function runSnippet(opts: {
   /** The landing page address baked into the script, and the path of the page the script is running on. */
   landingUrl?: string;
   path?: string;
+  /** How many times the same copy of the script is run in the same page (pasted twice, or run again by a page builder). */
+  installs?: number;
 }) {
   const script = generateUniversalEmbedScript({ apiOrigin: 'https://studio.example.com', campaignId: 'camp1abcdef', landingUrl: opts.landingUrl });
   const code = script.replace(/^[\s\S]*?<script>/, '').replace(/<\/script>\s*$/, '');
@@ -79,11 +85,24 @@ function runSnippet(opts: {
     if (el.href) hrefs.push({ text: el.textContent ?? '', href: el.href });
     el.children.forEach(collect);
   };
-  const body = { appendChild: (el: El) => collect(el) };
+  const roots: El[] = [];
+  const body = { appendChild: (el: El) => { roots.push(el); collect(el); } };
   const mkEl = (): El => {
-    const el: El = { style: {}, children: [], appendChild(c) { el.children.push(c); }, setAttribute() {}, remove() {}, focus() {} };
+    const el: El = {
+      style: {}, children: [],
+      appendChild(c) { c.parent = el; el.children.push(c); },
+      setAttribute() {},
+      remove() { const arr = el.parent ? el.parent.children : roots; const i = arr.indexOf(el); if (i >= 0) arr.splice(i, 1); },
+      focus() {},
+    };
     return el;
   };
+  const walk = (list: El[], fn: (e: El) => void) => list.forEach((e) => { fn(e); walk(e.children, fn); });
+  const findById = (id: string): El | null => { let hit: El | null = null; walk(roots, (e) => { if (e.id === id) hit = e; }); return hit; };
+  const liveLinks = () => { const out: Array<{ text: string; href: string }> = []; walk(roots, (e) => { if (e.href) out.push({ text: e.textContent ?? '', href: e.href }); }); return out; };
+  const liveTexts = () => { const out: string[] = []; walk(roots, (e) => { if (e.textContent) out.push(e.textContent); }); return out; };
+  const closeButton = (): El | null => { let hit: El | null = null; walk(roots, (e) => { if (e.textContent === 'Close') hit = e; }); return hit; };
+  const timers: Array<{ fn: () => void; ms: number }> = [];
 
   // A cookie jar that behaves like a browser's: a Domain must be a real site (two labels or more) the host is inside.
   const host = opts.host ?? 'www.example.com';
@@ -102,7 +121,7 @@ function runSnippet(opts: {
     removeEventListener: () => undefined,
     querySelector: (sel: string) => (sel === 'input[type="email"]' && opts.pageHasEmailField ? emailEl : null),
     querySelectorAll: (sel: string) => (sel === 'form' && opts.pageHasEmailField !== false && !opts.cookie ? [form] : []),
-    getElementById: () => null,
+    getElementById: (id: string) => findById(id),
     createElement: mkEl,
     body,
   };
@@ -124,8 +143,10 @@ function runSnippet(opts: {
   const fetchStub = (url: string, init?: { body?: string }) => {
     fetched.push({ url, body: init?.body ? JSON.parse(init.body) : null });
     if (url.includes('/api/landing/event')) {
-      if (opts.eventResult === 'fail') return Promise.reject(new Error('network'));
-      const r = opts.eventResult ?? { status: 200, body: EVENT };
+      const asked = fetched.filter((f) => f.url.includes('/api/landing/event')).length;
+      const pick = opts.eventSequence ? opts.eventSequence[Math.min(asked - 1, opts.eventSequence.length - 1)] : opts.eventResult;
+      if (pick === 'fail') return Promise.reject(new Error('network'));
+      const r = pick ?? { status: 200, body: EVENT };
       return Promise.resolve({ status: r.status, json: async () => r.body });
     }
     if (opts.reject) return Promise.reject(new Error('network'));
@@ -151,15 +172,26 @@ function runSnippet(opts: {
     Blob,
     JSON,
     Date,
-    setTimeout: () => 0,
+    setTimeout: (fn: () => void, ms: number) => { timers.push({ fn, ms }); return timers.length; },
     setInterval: () => 0,
     fetch: fetchStub,
     console,
   };
-  vm.runInNewContext(code, sandbox);
+  for (let i = 0; i < (opts.installs ?? 1); i++) vm.runInNewContext(code, sandbox);
   return {
+    listenerCount: handlers.length,
     fetched, texts, hrefs, store, jar, injected, redirectEl, attributionEl, cookieWrites, keyHandlers,
     submit: () => handlers.forEach((h) => h({ target: form })),
+    timers, liveLinks, liveTexts, closeButton,
+    /** Runs the next waiting check for the joining link, then lets its answer be handled. */
+    runJoinCheck: async () => {
+      const i = timers.findIndex((t) => t.ms === 2500);
+      if (i < 0) return false;
+      const [t] = timers.splice(i, 1);
+      t.fn();
+      await flush();
+      return true;
+    },
   };
 }
 
@@ -199,6 +231,45 @@ describe('generated snippet behaviour', () => {
       const r = runSnippet({ search: '?source=email', noEmailField: true });
       r.submit();
       expect(r.fetched.filter((f) => f.url.endsWith('/submit'))).toHaveLength(0);
+    });
+
+    it('says so on the page when the registration cannot be sent, instead of leaving a form that looks as if it worked', async () => {
+      const r = runSnippet({ search: '?source=email', reject: true });
+      r.submit();
+      await flush();
+      expect(r.texts.some((t) => /could not complete your registration/i.test(t))).toBe(true);
+      expect(r.texts.join(' ')).not.toMatch(/https?:\/\//);
+    });
+
+    it('says so when Webinar Studio answers with an error, and asks to wait when told it is too busy', async () => {
+      const failed = runSnippet({ search: '?source=email', submitResult: { status: 500, body: { ok: false } } });
+      failed.submit();
+      await flush();
+      expect(failed.texts.some((t) => /could not complete your registration/i.test(t))).toBe(true);
+      const busy = runSnippet({ search: '?source=email', submitResult: { status: 429, body: { ok: false } } });
+      busy.submit();
+      await flush();
+      expect(busy.texts.some((t) => /too many attempts/i.test(t))).toBe(true);
+    });
+
+    it('says nothing alarming after a registration that worked, and still lets the visitor retry after a failure', async () => {
+      const ok = runSnippet({ search: '?source=email' });
+      ok.submit();
+      await flush();
+      expect(ok.texts.some((t) => /could not complete/i.test(t))).toBe(false);
+      const bad = runSnippet({ search: '?source=email', reject: true });
+      bad.submit();
+      await flush();
+      bad.submit();
+      expect(bad.fetched.filter((f) => f.url.endsWith('/submit'))).toHaveLength(2);
+    });
+
+    it('listens only once when the same copy is pasted twice or run again, so a submit is never sent twice', () => {
+      const once = runSnippet({ search: '?source=email' });
+      const twice = runSnippet({ search: '?source=email', installs: 2 });
+      expect(twice.listenerCount).toBe(once.listenerCount);
+      twice.submit();
+      expect(twice.fetched.filter((f) => f.url.endsWith('/submit'))).toHaveLength(1);
     });
 
     it('lets the visitor retry after a network failure instead of silently locking the form', async () => {
@@ -406,6 +477,94 @@ describe('generated snippet behaviour', () => {
       expect(r.texts.join(' ')).toContain('closed');
       expect(r.texts.join(' ')).not.toContain('You are registered');
       expect(r.fetched.filter((f) => f.url.includes('/event'))).toHaveLength(0);
+    });
+  });
+
+  describe('the joining link in the calendar buttons', () => {
+    const PERSONAL = {
+      status: 200,
+      body: {
+        ok: true,
+        event: { ...EVENT.event, personal: true },
+        calendar: {
+          google: 'https://calendar.google.com/calendar/render?details=Join+URL%3A+https%3A%2F%2Fzoom.us%2Fw%2F123',
+          outlookLive: 'https://outlook.live.com/calendar/0/deeplink/compose?location=https%3A%2F%2Fzoom.us%2Fw%2F123',
+          outlookOffice: 'https://outlook.office.com/calendar/0/deeplink/compose?location=https%3A%2F%2Fzoom.us%2Fw%2F123',
+          ics: 'BEGIN:VCALENDAR\nDESCRIPTION:Join URL: https://zoom.us/w/123\nEND:VCALENDAR',
+        },
+      },
+    };
+    const PENDING = { status: 200, body: EVENT };
+    const eventAsks = (r: ReturnType<typeof runSnippet>) => r.fetched.filter((f) => f.url.includes('/api/landing/event'));
+    const href = (r: ReturnType<typeof runSnippet>, label: string) => r.liveLinks().find((l) => l.text === label)?.href ?? '';
+
+    it('puts the real joining link into the calendar buttons as soon as it exists, and says so', async () => {
+      const r = runSnippet({ search: '?source=email&token=tok', eventSequence: [PENDING, PENDING, PERSONAL] });
+      r.submit();
+      await flush();
+      expect(href(r, 'Google Calendar')).not.toContain('zoom.us');
+      expect(r.liveTexts()).toContain('Your joining details will be sent by email.');
+      const icsBefore = href(r, 'Apple (.ics)');
+      await r.runJoinCheck(); // still not known
+      expect(href(r, 'Google Calendar')).not.toContain('zoom.us');
+      await r.runJoinCheck(); // now it is
+      for (const label of ['Google Calendar', 'Outlook', 'Microsoft 365']) expect(href(r, label), label).toContain('zoom.us%2Fw%2F123');
+      expect(href(r, 'Apple (.ics)')).not.toBe(icsBefore);
+      expect(r.liveTexts()).not.toContain('Your joining details will be sent by email.');
+      expect(r.liveTexts().some((t) => /joining link has been added/i.test(t))).toBe(true);
+    });
+
+    it('asks with the visitor\'s own token, and stops for good once it has the link', async () => {
+      const r = runSnippet({ search: '?source=email&token=tok', eventSequence: [PENDING, PERSONAL] });
+      r.submit();
+      await flush();
+      await r.runJoinCheck();
+      expect(eventAsks(r).every((f) => f.url.includes('&t=srv-token'))).toBe(true);
+      expect(await r.runJoinCheck()).toBe(false); // nothing more is waiting
+      expect(eventAsks(r)).toHaveLength(2);
+    });
+
+    it('keeps asking for a short while when the link is slow, then gives up instead of asking forever', async () => {
+      const r = runSnippet({ search: '?source=email&token=tok', eventSequence: [PENDING] });
+      r.submit();
+      await flush();
+      let runs = 0;
+      while (await r.runJoinCheck()) runs++;
+      expect(runs).toBe(12);
+      expect(eventAsks(r)).toHaveLength(13); // the one that opened the pop-up, and twelve checks
+      expect(href(r, 'Google Calendar')).not.toContain('zoom.us');
+    });
+
+    it('carries on after a check that fails to get through', async () => {
+      const r = runSnippet({ search: '?source=email&token=tok', eventSequence: [PENDING, 'fail', PERSONAL] });
+      r.submit();
+      await flush();
+      await r.runJoinCheck();
+      await r.runJoinCheck();
+      expect(href(r, 'Google Calendar')).toContain('zoom.us%2Fw%2F123');
+    });
+
+    it('stops asking once the pop-up is closed', async () => {
+      const r = runSnippet({ search: '?source=email&token=tok', eventSequence: [PENDING] });
+      r.submit();
+      await flush();
+      await r.runJoinCheck();
+      const asked = eventAsks(r).length;
+      r.closeButton()?.onclick?.();
+      await r.runJoinCheck();
+      expect(eventAsks(r)).toHaveLength(asked);
+    });
+
+    it('does not ask when the link is already there, or when there is no token to ask with', async () => {
+      const already = runSnippet({ search: '?source=email&token=tok', eventSequence: [PERSONAL] });
+      already.submit();
+      await flush();
+      expect(await already.runJoinCheck()).toBe(false);
+      const noToken = runSnippet({ search: '?source=email', submitResult: { status: 200, body: { ok: true } } });
+      noToken.submit();
+      await flush();
+      expect(await noToken.runJoinCheck()).toBe(false);
+      expect(eventAsks(noToken)).toHaveLength(1);
     });
   });
 

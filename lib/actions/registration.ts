@@ -157,7 +157,7 @@ export async function verifyLandingPageAction(campaignId: string, url?: string |
   const target = (url ?? c?.registrationLink ?? '').trim();
   const v = validateLandingUrl(target);
   const report: LandingReport = v.ok
-    ? await verifyLandingPage(v.url as string, appOrigin(), undefined, { zoomId: c?.zoomMeetingId, scheduledAt: c?.scheduledAt, timezone: c?.timezone })
+    ? await verifyLandingPage(v.url as string, appOrigin(), undefined, { campaignId, zoomId: c?.zoomMeetingId, scheduledAt: c?.scheduledAt, timezone: c?.timezone })
     : { url: target, finalUrl: null, status: null, title: null, platform: 'unknown', embeddable: false, overall: 'fail', checks: [{ id: 'reachable', label: 'Page loads', status: 'fail', detail: v.error ?? 'Invalid address.', fix: 'Enter a valid landing page address.' }] };
   const stamped = { ...report, url: v.ok ? (v.url as string) : target, checkedAt: new Date().toISOString() };
   const key = REPORT_KEY(campaignId);
