@@ -4,13 +4,13 @@ import { sendEligibility } from '@/lib/sendEligibility';
 import { resolveRecipient } from '@/lib/sendGuard';
 import { renderMergeFields } from '@/lib/mergeFields';
 import { sendNetcoreEmail } from '@/lib/netcore';
+import { textToEmailHtml } from '@/lib/emailHtml';
 import { createOrUpdateLead } from '@/lib/leadsquared';
 import { deliverChannelMessage, getChannelDeliveryMode } from '@/lib/channelDelivery';
 import { deliverOnce, DeliveryUnknownError } from '@/lib/deliveryGuard';
 import { quotaDay, reserveSendQuota, releaseSendQuota } from '@/lib/sendQuota';
 import type { BroadcastReminderInput } from '@/lib/actions/broadcastReminder';
 import { wallClockToDate } from '@/lib/dateFormat';
-const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 type Results = Record<string, { status: 'accepted' | 'queued' | 'skipped' | 'failed' | 'unknown'; reason?: string }>;
 
 export async function processBroadcastJob(jobId: string, deadlineMs = 20_000) {
@@ -59,7 +59,7 @@ export async function processBroadcastJob(jobId: string, deadlineMs = 20_000) {
         const outcome = await deliverOnce(`${job.id}:${key}`, channel, async () => {
           if (channel === 'email') {
             const { email } = resolveRecipient(contact);
-            return sendNetcoreEmail({ to: email, toName: c.name, subject, html: escapeHtml(body).replace(/\n/g, '<br/>'), text: body, tags: [campaign.id, 'broadcast_reminder'] });
+            return sendNetcoreEmail({ to: email, toName: c.name, subject, html: textToEmailHtml(body), text: body, tags: [campaign.id, 'broadcast_reminder'] });
           }
           let leadId = contact.lsqLeadId;
           if (!leadId && (await getChannelDeliveryMode(channel)) === 'trigger' && contact.email) {

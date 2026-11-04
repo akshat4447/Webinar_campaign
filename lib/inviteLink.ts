@@ -7,13 +7,17 @@
 //             - oneClickSignup OFF : the hosted form          /register/<campaignId>?c=<channel>&t=<token>
 //   external  The operator's own landing page (registrationLink) registers people through the
 //             landing-submit endpoint / LeadSquared webhook. The link is that page plus UTM +
-//             the signed token (and, only when landingPrefill is on, the contact's details).
+//             the signed token (and, only when landingPrefill is on, the contact's details). When Studio's own
+//             address is a more trustworthy one than the landing page's (a free my-site.framer.app page, Studio on
+//             its own domain), the message carries Studio's short /r/<token> link instead, which redirects to that
+//             same landing URL: mail filters judge a link by its address, and a free shared one gets mail held.
 //
 // Zoom sync is independent of the mode: it happens whenever a Zoom event is linked.
 // Channel attribution is always done by Studio via the `source`/`utm_source` we put on the link.
 
 import { mintRegistrationToken } from '@/lib/registration';
 import { buildLandingPageUrl } from '@/lib/landingPageServer';
+import { isBetterHost } from '@/lib/linkHost';
 
 export type RegistrationMode = 'zoom' | 'external';
 
@@ -76,6 +80,19 @@ export function publicRegistrationUrl(appOrigin: string, campaignId: string, cha
   return hostedFormUrl(appOrigin, campaignId, channel);
 }
 
+/**
+ * The shareable registration address (no personal token), for a template's {{registrationLink}}: the landing page itself, or
+ * Studio's own /register link, which redirects to it, when Studio is on a strictly better address. Same rule as buildInviteLink.
+ */
+export function publicRegistrationAddress(args: { campaign: InviteCampaign; channel?: string; appOrigin: string }): string {
+  const { campaign, appOrigin } = args;
+  const landing = (campaign.registrationLink ?? '').trim();
+  if (registrationModeOf(campaign) === 'external' && landing && isBetterHost(appOrigin, landing)) {
+    return publicRegistrationUrl(appOrigin, campaign.id, (args.channel || 'email').toLowerCase());
+  }
+  return landing;
+}
+
 export function buildInviteLink(args: { campaign: InviteCampaign; contact: InviteContact; channel?: string; appOrigin: string }): string {
   const { campaign, contact, appOrigin } = args;
   const channel = (args.channel || 'email').toLowerCase();
@@ -86,13 +103,15 @@ export function buildInviteLink(args: { campaign: InviteCampaign; contact: Invit
     return contact.zoomJoinUrl || campaign.zoomLink || campaign.registrationLink || '';
   }
 
-  if (mode === 'external' && !SHORT_LINK_CHANNELS.has(channel)) {
+  // The address a message shows is what mail filters and people judge it by. Studio's own short link is used when it is on a
+  // strictly better address than the landing page; otherwise the landing page itself, on the domain the operator chose.
+  const landingPage = campaign.registrationLink as string;
+  if (mode === 'external' && !SHORT_LINK_CHANNELS.has(channel) && !isBetterHost(appOrigin, landingPage)) {
     return buildLandingPageUrl({
-      landingPageUrl: campaign.registrationLink as string,
+      landingPageUrl: landingPage,
       campaign: { id: campaign.id, name: campaign.name, zoomMeetingId: campaign.zoomMeetingId },
       contact,
       channel,
-      apiOrigin: origin(appOrigin),
       prefill: campaign.landingPrefill ?? false,
     });
   }
@@ -109,7 +128,7 @@ export function buildInviteLink(args: { campaign: InviteCampaign; contact: Invit
  * The landing-page link for a channel with NO contact identity (social posts, the website, partners):
  * the page plus UTM and the campaign id. No token, no personal data.
  */
-export function buildPublicLandingUrl(args: { landingPageUrl: string; campaign: { id: string; name?: string | null; zoomMeetingId?: string | null }; channel?: string; appOrigin?: string }): string {
+export function buildPublicLandingUrl(args: { landingPageUrl: string; campaign: { id: string; name?: string | null; zoomMeetingId?: string | null }; channel?: string }): string {
   const trimmed = (args.landingPageUrl || '').trim();
   if (!trimmed) return '';
   const channel = (args.channel || 'website').toLowerCase();
@@ -122,7 +141,6 @@ export function buildPublicLandingUrl(args: { landingPageUrl: string; campaign: 
     u.searchParams.set('utm_campaign', slug);
     u.searchParams.set('campaignId', args.campaign.id);
     if (args.campaign.zoomMeetingId) u.searchParams.set('zoomId', args.campaign.zoomMeetingId);
-    if (args.appOrigin) u.searchParams.set('apiOrigin', origin(args.appOrigin));
     return u.toString();
   } catch {
     return '';

@@ -173,6 +173,49 @@ describe('short links for external landing pages', () => {
     expect(registerContact).not.toHaveBeenCalled();
   });
 
+  const external = { id: 'c1', name: 'AI Lending', zoomMeetingId: '81234567891', registrationMode: 'external', registrationLink: 'https://my-landing-page.framer.app/', oneClickSignup: true, landingPrefill: false };
+  const contactRow = { id: 'ct1', campaignId: 'c1', name: 'Priya N', email: 'p@x.com', phone: null, account: 'Acme', title: 'VP' };
+  const get = (url: string) => GET(new Request(url), { params: Promise.resolve({ token: 'tok' }) } as any);
+
+  it('expands an email short link to the landing page with the token, the channel and the Zoom id, and nothing about Studio\'s own address', async () => {
+    vi.mocked(verifyRegistrationToken).mockReturnValue({ ok: true, payload: { campaignId: 'c1', contactId: 'ct1', iat: 1 } });
+    vi.mocked(db.campaign.findUnique).mockResolvedValue(external as any);
+    vi.mocked(db.contact.findUnique).mockResolvedValue(contactRow as any);
+
+    const res = await get('https://studio.leadsquared.com/r/tok?source=email');
+    const loc = new URL(res.headers.get('location') as string);
+    expect(loc.origin + loc.pathname).toBe('https://my-landing-page.framer.app/');
+    expect(loc.searchParams.get('token')).toBe('minted-token');
+    expect(loc.searchParams.get('source')).toBe('email');
+    expect(loc.searchParams.get('zoomId')).toBe('81234567891');
+    expect(loc.searchParams.has('apiOrigin')).toBe(false);
+    expect(res.headers.get('location')).not.toContain('studio.leadsquared.com');
+    expect(registerContact).not.toHaveBeenCalled();
+  });
+
+  it('is safe to follow before the person does: a mail scanner and then the click get the same redirect and nobody is registered', async () => {
+    vi.mocked(verifyRegistrationToken).mockReturnValue({ ok: true, payload: { campaignId: 'c1', contactId: 'ct1', iat: 1 } });
+    vi.mocked(db.campaign.findUnique).mockResolvedValue(external as any);
+    vi.mocked(db.contact.findUnique).mockResolvedValue(contactRow as any);
+
+    const first = await get('https://studio.leadsquared.com/r/tok?source=email');
+    const second = await get('https://studio.leadsquared.com/r/tok?source=email');
+    expect(second.status).toBe(first.status);
+    expect(second.headers.get('location')).toBe(first.headers.get('location'));
+    expect(registerContact).not.toHaveBeenCalled();
+  });
+
+  it('reduces a tampered channel to a harmless tag instead of copying it into the landing URL', async () => {
+    vi.mocked(verifyRegistrationToken).mockReturnValue({ ok: true, payload: { campaignId: 'c1', contactId: 'ct1', iat: 1 } });
+    vi.mocked(db.campaign.findUnique).mockResolvedValue(external as any);
+    vi.mocked(db.contact.findUnique).mockResolvedValue(contactRow as any);
+
+    const res = await get('https://studio.leadsquared.com/r/tok?source=' + encodeURIComponent('<script>alert(1)</script>&x=https://evil.example'));
+    const loc = res.headers.get('location') as string;
+    expect(loc).not.toContain('<script');
+    expect(loc).not.toContain('evil.example');
+  });
+
   it('does not expand a token that belongs to a contact of another webinar', async () => {
     vi.mocked(verifyRegistrationToken).mockReturnValueOnce({ ok: true, payload: { campaignId: 'c1', contactId: 'ct9', iat: 1 } });
     vi.mocked(db.campaign.findUnique).mockResolvedValueOnce({ id: 'c1', name: 'x', zoomMeetingId: null, registrationMode: 'external', registrationLink: 'https://a.example/', oneClickSignup: false, landingPrefill: false } as any);

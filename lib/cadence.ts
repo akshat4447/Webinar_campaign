@@ -15,7 +15,10 @@ import { normalizeChannel, isAutomatableChannel, isContactEligibleForChannel } f
 import { deliverChannelMessage, getChannelDeliveryMode, type DeliveryChannel } from '@/lib/channelDelivery';
 import { resolveStepTemplate } from '@/lib/messageTemplates';
 import { appOrigin } from '@/lib/appOrigin';
-import { buildInviteLink } from '@/lib/inviteLink';
+import { buildInviteLink, publicRegistrationAddress } from '@/lib/inviteLink';
+import { logDeliverabilityNotes } from '@/lib/deliverability';
+import { textToEmailHtml } from '@/lib/emailHtml';
+import { loadSuppressionListMembers, isHeldBySuppressionList } from '@/lib/lsqExclusions';
 import { formatSpeakersSummary } from '@/lib/speakers';
 import { sendNetcoreEmail, isEmailSuppressed } from '@/lib/netcore';
 import { isEmailCampaignSuppressed } from '@/lib/campaignSuppression';
@@ -74,16 +77,6 @@ function effectiveLink(
   return buildInviteLink({ campaign, contact, channel, appOrigin: appOrigin() });
 }
 
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (m) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  }[m] || m));
-}
-
 import { renderMergeFields } from './mergeFields';
 export { renderMergeFields };
 
@@ -117,8 +110,12 @@ async function buildQueueRows(args: { campaign: QueueCampaign; scheduled: { step
     .filter((s) => s.email.startsWith('@'))
     .map((s) => s.email.slice(1).toLowerCase());
 
-  const isExcludedByCampaignSuppression = (email: string | null | undefined): boolean => {
+  // Who is on the attached suppression list already (read at launch by refreshLsqExclusions): held back until they register.
+  const listMembers = await loadSuppressionListMembers(campaignId);
+
+  const isExcludedByCampaignSuppression = (email: string | null | undefined, contact?: { lsqLeadId?: string | null; registeredAt?: Date | null }): boolean => {
     if (!email) return false;
+    if (contact && isHeldBySuppressionList(listMembers, { email, lsqLeadId: contact.lsqLeadId, registeredAt: contact.registeredAt })) return true;
     const norm = email.trim().toLowerCase();
     if (campSuppressedExact.has(norm)) return true;
     const at = norm.indexOf('@');
@@ -148,7 +145,7 @@ async function buildQueueRows(args: { campaign: QueueCampaign; scheduled: { step
           return false;
         }
         // Stop on webinar-specific suppression list
-        if (contact.email && isExcludedByCampaignSuppression(contact.email)) {
+        if (contact.email && isExcludedByCampaignSuppression(contact.email, contact)) {
           return false;
         }
         return true;
@@ -176,6 +173,7 @@ export async function launchCadence(campaignId: string) {
 
   const approvedContacts = recipients.filter(c=>c.approved);
   const now = new Date();
+  await logDeliverabilityNotes(campaign, approvedContacts);
 
   // `isAutomatableChannel` parses a display string, which SQL cannot do, so the
   // channel half of the rule is applied here rather than in the query above.
@@ -202,7 +200,7 @@ export async function launchCadence(campaignId: string) {
   const unverified = approvedContacts.filter((c) => c.email && c.emailSimulated && !c.emailVerified).length;
   const withoutPhone = approvedContacts.filter((c) => !c.phone).length;
   const withoutOptIn = approvedContacts.filter((c) => c.phone && !c.whatsappOptIn).length;
-  const campSuppressedContactsCount = approvedContacts.filter((c) => isExcludedByCampaignSuppression(c.email)).length;
+  const campSuppressedContactsCount = approvedContacts.filter((c) => isExcludedByCampaignSuppression(c.email, c)).length;
   const pastLaunchCount = rows.filter((r) => r.status === 'skipped').length;
 
   const skips = [
@@ -706,7 +704,7 @@ async function processSingleSend(
       webinarTitle: campaign.name,
       link,
       zoomLink: contact.zoomJoinUrl || (!campaign.zoomMeetingId ? campaign.zoomLink : null) || link,
-      registrationLink: campaign.registrationLink || link,
+      registrationLink: publicRegistrationAddress({ campaign, channel: 'email', appOrigin: appOrigin() }) || link,
       date: campaign.date,
       dateTime: campaign.date,
       speaker: speakersSummary,
@@ -754,7 +752,7 @@ async function processSingleSend(
           to: recipientEmail,
           toName: contact.name,
           subject,
-          html: escapeHtml(body).replace(/\n/g, '<br/>'),
+          html: textToEmailHtml(body),
           text: body,
           tags: [campaign.id, send.stepKey],
           originalRecipient,
@@ -835,7 +833,7 @@ async function processChannelSend(
     webinarTitle: campaign.name,
     link,
     zoomLink: contact.zoomJoinUrl || (!campaign.zoomMeetingId ? campaign.zoomLink : null) || link,
-    registrationLink: campaign.registrationLink || link,
+    registrationLink: publicRegistrationAddress({ campaign, channel, appOrigin: appOrigin() }) || link,
     date: campaign.date,
     dateTime: campaign.date,
     speaker: speakersSummary,

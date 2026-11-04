@@ -1,8 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@/lib/db', () => ({
   db: {
+    campaign: {
+      findUnique: vi.fn(),
+    },
     contact: {
       findMany: vi.fn(),
       updateMany: vi.fn(),
@@ -40,6 +43,7 @@ import { addEmailToSuppression } from '@/lib/netcore';
 import { POST, GET, HEAD } from './route';
 
 describe('Netcore Webhook Endpoint (/api/webhooks/netcore)', () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -103,6 +107,7 @@ describe('Netcore Webhook Endpoint (/api/webhooks/netcore)', () => {
   });
 
   it('processes click event on registration link and registers contact', async () => {
+    vi.stubEnv('NETCORE_CLICK_REGISTRATION', 'true');
     vi.mocked(resolveIntegrationField).mockResolvedValue(undefined);
     vi.mocked(verifyRegistrationToken).mockReturnValueOnce({
       ok: true,
@@ -118,6 +123,7 @@ describe('Netcore Webhook Endpoint (/api/webhooks/netcore)', () => {
       queued: 1,
     });
     vi.mocked(db.activityLogEntry.create).mockResolvedValueOnce({} as any);
+    vi.mocked(db.campaign.findUnique).mockResolvedValueOnce({ registrationMode: 'zoom', registrationLink: null, oneClickSignup: true } as any);
 
     const payload = [
       {
@@ -150,6 +156,60 @@ describe('Netcore Webhook Endpoint (/api/webhooks/netcore)', () => {
         }),
       })
     );
+  });
+
+  it('does not register anyone on a click unless that is switched on, because mail scanners click every link', async () => {
+    vi.mocked(resolveIntegrationField).mockResolvedValue(undefined);
+    vi.mocked(verifyRegistrationToken).mockReturnValue({ ok: true, payload: { campaignId: 'c_test_1', contactId: 'ct_test_1', iat: 1789500000 } });
+    vi.mocked(db.campaign.findUnique).mockResolvedValue({ registrationMode: 'zoom', registrationLink: null, oneClickSignup: true } as any);
+
+    for (const flag of [undefined, '', 'false', 'yes']) {
+      vi.unstubAllEnvs();
+      if (flag !== undefined) vi.stubEnv('NETCORE_CLICK_REGISTRATION', flag);
+      const res = await POST(new Request('http://localhost:3000/api/webhooks/netcore', {
+        method: 'POST',
+        body: JSON.stringify([{ TRANSID: 104, EVENT: 'click', EMAIL: 'scanned@company.com', URL: 'https://example.com/r/valid_signed_token_123' }]),
+        headers: { 'Content-Type': 'application/json' },
+      }));
+      expect(res.status, String(flag)).toBe(200);
+      expect((await res.json()).registered, String(flag)).toBe(0);
+    }
+    expect(registerContact).not.toHaveBeenCalled();
+    expect(verifyRegistrationToken).not.toHaveBeenCalled();
+  });
+
+  it('does not register anyone on a click for a webinar with its own landing page: they register through the page\'s form', async () => {
+    vi.stubEnv('NETCORE_CLICK_REGISTRATION', 'true');
+    vi.mocked(resolveIntegrationField).mockResolvedValue(undefined);
+    vi.mocked(verifyRegistrationToken).mockReturnValueOnce({ ok: true, payload: { campaignId: 'c_ext', contactId: 'ct_1', iat: 1789500000 } });
+    vi.mocked(db.campaign.findUnique).mockResolvedValueOnce({ registrationMode: 'external', registrationLink: 'https://webinar.example.com/go', oneClickSignup: false } as any);
+
+    const res = await POST(new Request('http://localhost:3000/api/webhooks/netcore', {
+      method: 'POST',
+      body: JSON.stringify([{ TRANSID: 102, EVENT: 'click', EMAIL: 'scanner-followed@company.com', URL: 'https://studio.example.com/r/some_signed_token?source=email' }]),
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).registered).toBe(0);
+    expect(registerContact).not.toHaveBeenCalled();
+    expect(db.activityLogEntry.create).not.toHaveBeenCalled();
+  });
+
+  it('still ignores a click whose token does not verify, without looking anything up', async () => {
+    vi.stubEnv('NETCORE_CLICK_REGISTRATION', 'true');
+    vi.mocked(resolveIntegrationField).mockResolvedValue(undefined);
+    vi.mocked(verifyRegistrationToken).mockReturnValueOnce({ ok: false, reason: 'invalid' } as any);
+
+    const res = await POST(new Request('http://localhost:3000/api/webhooks/netcore', {
+      method: 'POST',
+      body: JSON.stringify([{ TRANSID: 103, EVENT: 'click', EMAIL: 'x@company.com', URL: 'https://studio.example.com/r/forged' }]),
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    expect((await res.json()).registered).toBe(0);
+    expect(db.campaign.findUnique).not.toHaveBeenCalled();
+    expect(registerContact).not.toHaveBeenCalled();
   });
 
   it('processes hardbounce event: suppresses email and cancels pending sends', async () => {

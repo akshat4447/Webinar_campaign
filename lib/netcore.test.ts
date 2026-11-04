@@ -33,6 +33,7 @@ import {
   removeEmailFromSuppression,
   getSuppressionList,
   testNetcoreConnection,
+  netcoreTrackingSettings,
 } from './netcore';
 
 describe('Netcore Cloud Email Engine (lib/netcore.test.ts)', () => {
@@ -280,6 +281,23 @@ describe('Netcore Cloud Email Engine (lib/netcore.test.ts)', () => {
       expect(sentBody.content.find((c: any) => c.type === 'text')).toBeUndefined();
     });
 
+    it('sends a web address in the text as a hyperlink with words as its text, so no bare address is in the email', async () => {
+      vi.mocked(resolveIntegrationField).mockImplementation(async (_ig, key) => {
+        if (key === 'apiKey') return 'live_test_api_key_12345';
+        return undefined;
+      });
+      vi.mocked(db.emailSuppression.findUnique).mockResolvedValueOnce(null as any);
+      const mockFetch = vi.fn().mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify({ status: 'success', data: { message_id: 'nc_msg_link' } }) });
+      global.fetch = mockFetch;
+
+      await sendNetcoreEmail({ to: 'a@b.com', subject: 'Invite', html: '', text: 'Save your seat: https://page.example.com/?token=abc&campaignId=c1\n\nThanks' });
+
+      const value = JSON.parse(mockFetch.mock.calls[0][1].body).content[0].value as string;
+      expect(value).toContain('<a href="https://page.example.com/?token=abc&amp;campaignId=c1">Register here</a>');
+      expect(value.replace(/href="[^"]*"/g, '')).not.toContain('page.example.com');
+      expect(value).toContain('</a><br/><br/>Thanks');
+    });
+
     it('handles Netcore API error array response cleanly', async () => {
       vi.mocked(resolveIntegrationField).mockImplementation(async (_ig, key) => {
         if (key === 'apiKey') return 'live_test_api_key_12345';
@@ -394,5 +412,16 @@ describe('Netcore Cloud Email Engine (lib/netcore.test.ts)', () => {
       expect(res.autoDiscovered?.fromEmail).toBe('events@campaigns.acme.com');
       expect(res.detail).toContain('events@campaigns.acme.com');
     });
+  });
+});
+
+describe('netcoreTrackingSettings', () => {
+  it('leaves open and click tracking to the sending domain unless told otherwise, and keeps the unsubscribe link', () => {
+    expect(netcoreTrackingSettings({})).toEqual({ unsubscribe_track: true });
+    expect(netcoreTrackingSettings({ NETCORE_CLICK_TRACKING: '' })).toEqual({ unsubscribe_track: true });
+    expect(netcoreTrackingSettings({ NETCORE_CLICK_TRACKING: 'maybe' })).toEqual({ unsubscribe_track: true });
+  });
+  it('applies an explicit true or false', () => {
+    expect(netcoreTrackingSettings({ NETCORE_CLICK_TRACKING: 'false', NETCORE_OPEN_TRACKING: 'TRUE' })).toEqual({ unsubscribe_track: true, click_track: false, open_track: true });
   });
 });

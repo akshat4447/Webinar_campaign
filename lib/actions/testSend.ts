@@ -7,6 +7,7 @@ import { db } from '@/lib/db';
 import { deliverChannelMessage } from '@/lib/channelDelivery';
 import { normalizeE164 } from '@/lib/csvPreflight';
 import { resolveRecipient } from '@/lib/sendGuard';
+import { textToEmailHtmlBody } from '@/lib/emailHtml';
 import { isEmailSuppressed } from '@/lib/netcore';
 import { isEmailCampaignSuppressed } from '@/lib/campaignSuppression';
 import { sendEligibility } from '@/lib/sendEligibility';
@@ -79,7 +80,7 @@ export async function sendTestMessageAction(params: {
         <div style="background: #ebf1ff; border: 1px solid #1463ff; color: #0e4bd1; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; font-weight: 600;">
           [TEST PREVIEW - NETCORE CLOUD] This is a test preview of your outreach message for "${campaign.name}".
         </div>
-        ${params.body.replace(/\n/g, '<br/>')}
+        ${textToEmailHtmlBody(params.body)}
       </div>`;
 
       try {

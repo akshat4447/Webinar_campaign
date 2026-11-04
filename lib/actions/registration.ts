@@ -83,7 +83,7 @@ export async function getRegistrationOverviewAction(campaignId: string): Promise
     label: CHANNEL_DEFINITIONS[key]?.label ?? key,
     url:
       mode === 'external' && landingUrl
-        ? buildPublicLandingUrl({ landingPageUrl: landingUrl, campaign: c, channel: key, appOrigin: origin })
+        ? buildPublicLandingUrl({ landingPageUrl: landingUrl, campaign: c, channel: key })
         : publicRegistrationUrl(origin, c.id, key),
   }));
 

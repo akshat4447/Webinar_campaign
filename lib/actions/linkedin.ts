@@ -10,6 +10,7 @@ import { verifyContactsForLinkedIn, type VerificationStatus } from '@/lib/apollo
 import { resolveIntegrationField } from '@/lib/integrationConfig';
 import { resolveStepTemplate } from '@/lib/messageTemplates';
 import { buildInviteLink } from '@/lib/inviteLink';
+import { excludedContactIds } from '@/lib/sendEligibility';
 import { renderMergeFields } from '@/lib/mergeFields';
 import { validateRenderedMessage } from '@/lib/messageValidation';
 import { formatSpeakersSummary } from '@/lib/speakers';
@@ -187,8 +188,9 @@ export async function dispatchAutomatedLinkedInAction(
 
     const approvedContacts = await db.contact.findMany({
       where: { campaignId, approved: true, ...(contactIds ? {id:{in:contactIds}} : {}) },
-      select: { id: true, name: true, account: true, lsqLeadId: true, linkedinCheckStatus: true },
+      select: { id: true, name: true, account: true, lsqLeadId: true, linkedinCheckStatus: true, email: true, unsubscribedAt: true, registeredAt: true },
     });
+    const notReachable = await excludedContactIds(campaignId, approvedContacts);
 
     const existingSends = await db.cadenceSend.findMany({
       where: { campaignId, stepKey: STEP_KEY, ...(contactIds ? {contactId:{in:contactIds}} : {}) },
@@ -200,7 +202,7 @@ export async function dispatchAutomatedLinkedInAction(
 
     // Filter to candidates not yet sent, skipping those explicitly flagged mismatch or not_found
     const candidates = approvedContacts.filter(
-      (c) => !alreadyHandled.has(c.id) && c.linkedinCheckStatus !== 'mismatch' && c.linkedinCheckStatus !== 'not_found'
+      (c) => !alreadyHandled.has(c.id) && !notReachable.has(c.id) && c.linkedinCheckStatus !== 'mismatch' && c.linkedinCheckStatus !== 'not_found'
     );
 
     if (candidates.length === 0) {
@@ -409,6 +411,10 @@ export async function getLinkedInToolQueueAction(
       resolveStepTemplate(campaignId, STEP_KEY),
     ]);
 
+    // Nobody the webinar must send nothing to is offered to the LinkedIn tool.
+    const notReachable = await excludedContactIds(campaignId, approvedContacts);
+    const reachableContacts = approvedContacts.filter((c) => !notReachable.has(c.id));
+
     const personalizedByContact = new Map(personalizedLinkedIn.map((p) => [p.contactId, p.body]));
     const sendStatusByContact = new Map(sends.map((s) => [s.contactId, { status: s.status as 'sent' | 'skipped', sentAt: s.sentAt }]));
 
@@ -419,7 +425,7 @@ export async function getLinkedInToolQueueAction(
     let totalSkipped = 0;
     let totalVerified = 0;
 
-    const participants: LinkedInToolParticipant[] = approvedContacts.map((c) => {
+    const participants: LinkedInToolParticipant[] = reachableContacts.map((c) => {
       const personalizedBody = personalizedByContact.get(c.id);
       const effectiveContactLink = buildInviteLink({ campaign, contact: c, channel: 'linkedin', appOrigin: origin });
 

@@ -240,6 +240,19 @@ export async function updateCampaignSchedule(campaignId: string, dateTimeLocal: 
   return writeWebinarSchedule(validCampaignId, dateTimeLocal);
 }
 
+/**
+ * Empties the webinar's audience ahead of a replacing import. Scores, approvals and personalized copy go with the
+ * contacts they belong to. Someone who has already registered is a real sign-up, not an imported row, so they stay.
+ */
+async function clearAudience(campaignId: string): Promise<ReplacedAudience> {
+  const { count: removed } = await db.contact.deleteMany({ where: { campaignId, registeredAt: null } });
+  const keptRegistered = await db.contact.count({ where: { campaignId } });
+  return { removed, keptRegistered };
+}
+
+const replacedLine = (r: ReplacedAudience) =>
+  `Replaced the previous audience: ${r.removed.toLocaleString()} ${r.removed === 1 ? 'contact' : 'contacts'} removed${r.keptRegistered ? `, ${r.keptRegistered.toLocaleString()} kept because they had already registered` : ''}`;
+
 async function upsertContacts(campaignId: string, rows: (ReturnType<typeof classifyContact> & { lsqLeadId?: string })[]) {
   if (rows.length === 0) return;
 
@@ -369,11 +382,28 @@ export interface LsqImportCursor {
   reverseCount: number;
   /** The list's size according to LeadSquared (the list's own count, or a clearly-total RecordCount). */
   expectedTotal: number | null;
+  /** What the first slice of a replacing import took out, carried so the last slice can report it. */
+  replaced?: ReplacedAudience;
+}
+
+/**
+ * What an import does to the contacts the webinar already holds. 'replace' makes the new file or list the whole
+ * audience; 'add' merges it into what is there (matched by email). Imports are only possible before launch, so
+ * replacing never touches anything already sent.
+ */
+export type ImportMode = 'replace' | 'add';
+
+/** How many people a replacing import took out, and how many it kept because they had already registered. */
+export interface ReplacedAudience {
+  removed: number;
+  keptRegistered: number;
 }
 
 export interface CsvImportResult {
   ok: boolean;
   error?: string;
+  /** Set when the import replaced an earlier audience. */
+  replaced?: ReplacedAudience;
   rowCount?: number;
   dupes?: number;
   withEmail?: number;
@@ -501,6 +531,7 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
     );
   }
 
+  const replaced = formData.get('mode') === 'replace' ? await clearAudience(campaignId) : undefined;
   await upsertContacts(campaignId, classified);
 
   const withEmail = classified.filter((c) => !c.missingInfo).length;
@@ -510,6 +541,7 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
   const mapped = columnMap.map(({ role, header }) => `${role} → ${header}`).join(', ');
 
   const logLines = [
+    ...(replaced ? [replacedLine(replaced)] : []),
     `Read ${file.name} — ${headersRaw.length} columns, ${rows.length - 1} data rows${skippedBlank ? ` (${skippedBlank} blank skipped)` : ''}`,
     `Mapped columns: ${mapped || 'none matched'}`,
     `${dupes} duplicate ${dupes === 1 ? 'row' : 'rows'} merged by email/company match`,
@@ -537,7 +569,7 @@ export async function importCsvAction(campaignId: string, formData: FormData): P
   });
 
   revalidateCampaign(campaignId);
-  return { ok: true, rowCount: rows.length - 1, imported: classified.length, skippedBlank, issues, dupes, withEmail, headers: headersRaw, columnMap, logLines };
+  return { ok: true, rowCount: rows.length - 1, imported: classified.length, skippedBlank, issues, dupes, withEmail, headers: headersRaw, columnMap, logLines, replaced };
 }
 
 export interface FetchLsqListsResponse {
@@ -633,7 +665,7 @@ const importSliceMs = () => (Number(process.env.LSQ_IMPORT_SLICE_MS) > 0 ? Numbe
  * {@link LSQ_IMPORT_SLICE_MS}, stores what it read, and returns a cursor. The caller keeps calling with that
  * cursor until `done`; stopping part-way leaves a valid partial import that can be resumed by importing again.
  */
-export async function importFromLsqListAction(campaignId: string, listId: string, listName: string, cursor?: LsqImportCursor): Promise<CsvImportResult> {
+export async function importFromLsqListAction(campaignId: string, listId: string, listName: string, cursor?: LsqImportCursor, mode: ImportMode = 'add'): Promise<CsvImportResult> {
   await requireOperatorSession();
   const lockedMessage = await setupLockError(campaignId);
   if (lockedMessage) return { ok: false, error: lockedMessage };
@@ -673,11 +705,20 @@ export async function importFromLsqListAction(campaignId: string, listId: string
       read = { leads: [], cursor: null, reportedTotal: null, pages: 0 };
     }
     const classified = read.leads.map(rawLeadToContact);
+    // The old audience goes only once the first page of the new list has been read, so a list that cannot be read
+    // leaves the webinar as it was. The later pages of the same import add to this one.
+    // A list that comes back empty replaces nothing: that is far more likely a list that could not be read than a
+    // wish to empty the webinar.
+    const wantsReplace = !cursor && mode === 'replace';
+    const keptBecauseEmpty = wantsReplace && classified.length === 0 && !read.cursor;
+    const replaced = wantsReplace && !keptBecauseEmpty ? await clearAudience(campaignId) : undefined;
     await upsertContacts(campaignId, classified);
 
     const expectedTotal = read.reportedTotal !== null ? Math.max(state.expectedTotal ?? 0, read.reportedTotal) : state.expectedTotal;
+    const carriedReplaced = state.replaced ?? replaced;
     const next: LsqImportCursor = {
       ...state,
+      ...(carriedReplaced ? { replaced: carriedReplaced } : {}),
       expectedTotal,
       forwardCount: state.forwardCount + (state.phase === 'forward' ? read.leads.length : 0),
       reverseCount: state.reverseCount + (state.phase === 'reverse' ? read.leads.length : 0),
@@ -706,13 +747,15 @@ export async function importFromLsqListAction(campaignId: string, listId: string
 
     const distinct = expectedTotal !== null ? Math.min(seen, expectedTotal) : seen;
     const stillShort = expectedTotal !== null ? Math.max(0, expectedTotal - seen) : 0;
+    const emptyWarning = keptBecauseEmpty ? `"${listName}" has no contacts, so the contacts already imported were kept.` : undefined;
     const warning =
-      stillShort > Math.max(50, Math.round((expectedTotal ?? 0) * 0.02))
+      emptyWarning ?? (stillShort > Math.max(50, Math.round((expectedTotal ?? 0) * 0.02))
         ? `LeadSquared returned ${distinct.toLocaleString()} of the ${expectedTotal!.toLocaleString()} leads LeadSquared reports for "${listName}". Its API stopped returning pages after that, or the count it shows is out of date. If leads are missing, split the list in LeadSquared into smaller lists and import them one at a time.`
-        : undefined;
+        : undefined);
 
     const withEmail = await db.contact.count({ where: { campaignId, email: { not: null } } });
     const logLines = [
+      ...(next.replaced ? [replacedLine(next.replaced)] : []),
       `Bound campaign to LeadSquared list "${listName}" (${listId})`,
       `Fetched ${distinct.toLocaleString()} contacts from LeadSquared list "${listName}"${next.phase === 'reverse' ? ' (read from both ends of the list)' : ''}`,
       ...(warning ? [warning] : []),
@@ -745,7 +788,7 @@ export async function importFromLsqListAction(campaignId: string, listId: string
     await db.activityLogEntry.createMany({ data: logLines.map((text) => ({ campaignId, text, dot: syncError || warning ? 'var(--warning-700)' : 'var(--accent-500)' })) });
 
     revalidateCampaign(campaignId);
-    return { ok: true, done: true, rowCount: distinct, withEmail, logLines, warning };
+    return { ok: true, done: true, rowCount: distinct, withEmail, logLines, warning, replaced: next.replaced };
   } catch (err) {
     return { ok: false, error: String(err instanceof Error ? err.message : err) };
   }

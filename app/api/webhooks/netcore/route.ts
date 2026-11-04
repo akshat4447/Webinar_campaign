@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { resolveIntegrationField } from '@/lib/integrationConfig';
 import { verifyRegistrationToken } from '@/lib/registration';
 import { registerContact } from '@/lib/registerContact';
+import { registrationModeOf } from '@/lib/inviteLink';
 import { addEmailToSuppression } from '@/lib/netcore';
 
 function timingSafeEqualStrings(a: string, b: string): boolean {
@@ -27,6 +28,8 @@ interface NetcoreWebhookEvent {
   MESSAGEID?: string;
   TAGS?: string[] | string;
 }
+
+const clickRegistrationEnabled = () => (process.env.NETCORE_CLICK_REGISTRATION ?? '').trim().toLowerCase() === 'true';
 
 export async function POST(req: Request) {
   const configuredSecret = (await resolveIntegrationField('netcore', 'webhookSecret')) || process.env.NETCORE_WEBHOOK_SECRET;
@@ -72,13 +75,22 @@ export async function POST(req: Request) {
 
     if (!recipientEmail && !targetUrl) continue;
 
-    // 1. Click event on webinar registration link -> Dual instant registration
+    // 1. Click event on webinar registration link -> Dual instant registration. Off unless NETCORE_CLICK_REGISTRATION=true: mail
+    //    scanners (a company's link protection, a mail client's prefetch) click every link in a message, and Netcore reports those clicks
+    //    like a person's, so registering on a click would register people who never asked to be.
     if (eventType === 'click') {
+      if (!clickRegistrationEnabled()) continue;
       const match = targetUrl.match(/\/r\/([a-zA-Z0-9_\-\.]+)/);
       if (match && match[1]) {
         const token = match[1];
         const verified = verifyRegistrationToken(token);
-        if (verified.ok) {
+        // A webinar with its own landing page registers people through that page's form. A click on Studio's short link only takes
+        // them there, and mail scanners click links too, so a click alone must never register anyone for one.
+        const campaign = verified.ok
+          ? await db.campaign.findUnique({ where: { id: verified.payload.campaignId }, select: { registrationMode: true, registrationLink: true, oneClickSignup: true } })
+          : null;
+        const registersOnClick = !campaign || registrationModeOf(campaign) !== 'external';
+        if (verified.ok && registersOnClick) {
           const regRes = await registerContact(verified.payload.campaignId, verified.payload.contactId, 'netcore_click');
           if (regRes.ok && !regRes.alreadyRegistered) {
             registeredCount++;

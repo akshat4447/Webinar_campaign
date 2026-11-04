@@ -27,6 +27,8 @@
     "test:ui": "tsx scripts/test-ui.ts",
     "test:wizard": "tsx scripts/test-wizard-journeys.ts",
     "test:lsq-import": "tsx scripts/test-lsq-large-import.ts",
+    "test:import-lists": "tsx scripts/test-import-lists.ts",
+    "test:suppression-lists": "tsx scripts/test-suppression-lists.ts",
     "test:apollo": "tsx scripts/test-apollo-enrichment.ts",
     "test:login": "tsx scripts/test-login.ts",
     "test:zoom": "tsx scripts/test-zoom-details.ts",

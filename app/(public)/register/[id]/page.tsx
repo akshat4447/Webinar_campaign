@@ -1,7 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 import { db } from '@/lib/db';
-import { appOrigin } from '@/lib/appOrigin';
 import { verifyRegistrationToken } from '@/lib/registration';
 import { registrationModeOf, buildPublicLandingUrl } from '@/lib/inviteLink';
 import { registrationAvailability, CLOSED_COPY } from '@/lib/registrationAvailability';
@@ -45,7 +44,7 @@ export default async function RegisterPage({ params, searchParams }: Props) {
 
   // Webinars that use the operator's own landing page send people there instead — one front door per webinar.
   if (registrationModeOf(campaign) === 'external' && campaign.registrationLink) {
-    const url = buildPublicLandingUrl({ landingPageUrl: campaign.registrationLink, campaign, channel, appOrigin: appOrigin() });
+    const url = buildPublicLandingUrl({ landingPageUrl: campaign.registrationLink, campaign, channel });
     if (url) redirect(url);
   }
 

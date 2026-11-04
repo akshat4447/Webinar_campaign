@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildInviteLink, hostedFormUrl, publicRegistrationUrl, registrationModeOf } from './inviteLink';
+import { buildInviteLink, hostedFormUrl, publicRegistrationAddress, publicRegistrationUrl, registrationModeOf } from './inviteLink';
 import { verifyRegistrationToken } from './registration';
 
 const ORIGIN = 'https://studio.example.com';
@@ -100,6 +100,80 @@ describe('buildInviteLink — external landing page', () => {
     const a = new URL(buildInviteLink({ campaign: ext, contact, appOrigin: ORIGIN })).searchParams.get('token');
     const b = new URL(buildInviteLink({ campaign: ext, contact: { ...contact, id: 'ct2' }, appOrigin: ORIGIN })).searchParams.get('token');
     expect(a).not.toBe(b);
+  });
+});
+
+describe('buildInviteLink — which address the message shows', () => {
+  const free = { ...base, registrationMode: 'external', registrationLink: 'https://my-landing-page.framer.app/' };
+  const own = { ...base, registrationMode: 'external', registrationLink: 'https://webinar.leadsquared.com/ai' };
+  const STUDIO = 'https://studio.leadsquared.com';
+  const TUNNEL = 'https://old-tunnel-name.trycloudflare.com';
+
+  it('a page on a free builder address gets Studio\'s own short link when Studio is on a better address', () => {
+    for (const channel of ['email', 'whatsapp', 'linkedin', 'sms']) {
+      const link = buildInviteLink({ campaign: free, contact, channel, appOrigin: STUDIO });
+      const u = new URL(link);
+      expect(u.origin, channel).toBe(STUDIO);
+      expect(u.pathname.startsWith('/r/'), channel).toBe(true);
+      expect(u.searchParams.get('source'), channel).toBe(channel);
+      expect(link).not.toContain('framer.app');
+      expect(verifyRegistrationToken(u.pathname.slice(3)), channel).toMatchObject({ ok: true, payload: { campaignId: 'camp1', contactId: 'ct1' } });
+    }
+  });
+
+  it('a page on the operator\'s own domain keeps the direct link, even when Studio is also on its own domain', () => {
+    const u = new URL(buildInviteLink({ campaign: own, contact, channel: 'email', appOrigin: STUDIO }));
+    expect(u.origin + u.pathname).toBe('https://webinar.leadsquared.com/ai');
+    expect(u.searchParams.get('token')).toBeTruthy();
+  });
+
+  it('keeps the direct link when Studio has nothing better to offer, and never puts a tunnel or local address in the message', () => {
+    for (const studio of [TUNNEL, 'http://localhost:3000', 'https://127.0.0.1:3101', 'https://other.framer.app', 'https://studio.onrender.com', '']) {
+      const link = buildInviteLink({ campaign: free, contact, channel: 'email', appOrigin: studio });
+      expect(new URL(link).hostname, studio).toBe('my-landing-page.framer.app');
+      expect(link, studio).not.toMatch(/trycloudflare|localhost|127\.0\.0\.1|onrender|apiOrigin/);
+    }
+  });
+
+  it('never leaks Studio\'s address into a direct link as a parameter', () => {
+    const link = buildInviteLink({ campaign: own, contact, channel: 'email', appOrigin: STUDIO });
+    expect(new URL(link).searchParams.has('apiOrigin')).toBe(false);
+    expect(link).not.toContain('studio.leadsquared.com');
+  });
+
+  it('does not change zoom mode, whose links already point at Studio', () => {
+    const link = buildInviteLink({ campaign: { ...base, registrationMode: 'zoom' }, contact, channel: 'email', appOrigin: STUDIO });
+    expect(new URL(link).origin).toBe(STUDIO);
+  });
+
+  it('a registered contact still gets the join link, whatever the addresses are', () => {
+    const registered = { ...contact, registeredAt: new Date(), zoomJoinUrl: 'https://zoom.us/w/1?tk=PERSONAL' };
+    expect(buildInviteLink({ campaign: free, contact: registered, channel: 'email', appOrigin: STUDIO })).toBe('https://zoom.us/w/1?tk=PERSONAL');
+  });
+
+  it('an external webinar with no landing page yet behaves as zoom mode instead of building a broken link', () => {
+    const link = buildInviteLink({ campaign: { ...base, registrationMode: 'external', registrationLink: null }, contact, channel: 'email', appOrigin: STUDIO });
+    expect(new URL(link).origin).toBe(STUDIO);
+  });
+});
+
+describe('publicRegistrationAddress (the {{registrationLink}} placeholder)', () => {
+  const free = { ...base, registrationMode: 'external', registrationLink: 'https://my-landing-page.framer.app/' };
+  const own = { ...base, registrationMode: 'external', registrationLink: 'https://webinar.leadsquared.com/ai' };
+  it('is Studio\'s own /register link, which redirects to the landing page, when that is the better address', () => {
+    const a = publicRegistrationAddress({ campaign: free, channel: 'email', appOrigin: 'https://studio.leadsquared.com' });
+    expect(a).toBe('https://studio.leadsquared.com/register/camp1?c=email');
+    expect(a).not.toContain('framer.app');
+  });
+  it('is the landing page itself when it is on the operator\'s own domain, or Studio has nothing better, and never a tunnel', () => {
+    expect(publicRegistrationAddress({ campaign: own, appOrigin: 'https://studio.leadsquared.com' })).toBe('https://webinar.leadsquared.com/ai');
+    for (const studio of ['https://x.trycloudflare.com', 'http://localhost:3000', '']) {
+      expect(publicRegistrationAddress({ campaign: free, appOrigin: studio }), studio).toBe('https://my-landing-page.framer.app/');
+    }
+  });
+  it('is empty when there is no landing page, so the caller falls back to the person\'s own link', () => {
+    expect(publicRegistrationAddress({ campaign: { ...base, registrationMode: 'zoom' }, appOrigin: 'https://studio.leadsquared.com' })).toBe('');
+    expect(publicRegistrationAddress({ campaign: { ...base, registrationMode: 'external', registrationLink: '  ' }, appOrigin: 'https://studio.leadsquared.com' })).toBe('');
   });
 });
 
