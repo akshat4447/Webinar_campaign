@@ -53,8 +53,8 @@
     "prisma": "^7.10.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "undici": "^8.11.2",
-    "zod": "^4.4.3"
+    "undici": "^8.12.3",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
@@ -76,10 +76,13 @@
     "deepmerge-ts": "8.0.2",
     "mysql2": "3.24.5",
     "source-map-js": "1.2.2",
-    "fast-uri": "4.2.1",
+    "fast-uri": "4.2.3",
     "js-yaml": "5.4.3",
     "@next/eslint-plugin-next": {
       "fast-glob": "$fast-glob"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.4"
     }
   }
 }
