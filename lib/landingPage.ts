@@ -16,7 +16,6 @@ export interface BuildLandingUrlOptions {
     title?: string | null;
   };
   channel?: string;
-  apiOrigin?: string;
   /**
    * Copy the contact's name/email/phone/company/title into the URL (for landing-page forms that
    * pre-fill from the query string). Pass false to keep personal data OUT of the URL — the signed
@@ -36,7 +35,6 @@ export function buildLandingPageUrl({
   campaign,
   contact,
   channel = 'email',
-  apiOrigin,
   prefill = true,
   registrationToken,
 }: BuildLandingUrlOptions): string {
@@ -77,9 +75,8 @@ export function buildLandingPageUrl({
     parsed.searchParams.set('utm_medium', 'outreach');
     parsed.searchParams.set('utm_campaign', campaignSlug);
 
-    if (apiOrigin) {
-      parsed.searchParams.set('apiOrigin', apiOrigin.replace(/\/$/, ''));
-    }
+    // Studio's own address is deliberately not put in the link: the pasted script has it built in and never reads it from a
+    // link, and a web address inside another web address is what mail filters read as phishing (and a tunnel address, as spam).
 
     return parsed.toString();
   } catch {
@@ -164,14 +161,14 @@ export function buildChannelTrackingLinks(
   };
 
   return {
-    email: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'email', apiOrigin }),
-    whatsapp: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'whatsapp', apiOrigin }),
-    sms: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'sms', apiOrigin }),
-    linkedin: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'linkedin', apiOrigin }),
-    linkedin_event: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'linkedin_event', apiOrigin }),
-    sdr_sales: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'sdr_sales', apiOrigin }),
-    third_parties: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'third_parties', apiOrigin }),
-    website: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'website', apiOrigin }),
+    email: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'email' }),
+    whatsapp: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'whatsapp' }),
+    sms: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'sms' }),
+    linkedin: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'linkedin' }),
+    linkedin_event: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'linkedin_event' }),
+    sdr_sales: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'sdr_sales' }),
+    third_parties: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'third_parties' }),
+    website: buildLandingPageUrl({ landingPageUrl, campaign, contact, channel: 'website' }),
   };
 }
 
@@ -295,6 +292,12 @@ ${platformHeader}
   };
 
   var origin = config.apiOrigin ? config.apiOrigin.replace(/\\/$/, '') : window.location.origin;
+
+  // Pasted twice, or run again by a page builder, the same copy would listen twice and register twice: only the first one runs.
+  var installKey = origin + '|' + config.campaignId;
+  window.__webinarStudioInstalled = window.__webinarStudioInstalled || {};
+  if (window.__webinarStudioInstalled[installKey]) return;
+  window.__webinarStudioInstalled[installKey] = true;
 
   // The LeadSquared lead field that records the channel, and the hand-off to the thank-you page.
   var ATTRIBUTION_FIELD = ${literal(ATTRIBUTION_FIELD_SCHEMA_NAME)};
@@ -589,19 +592,38 @@ ${platformHeader}
         .then(function(r) {
           // A form that keeps the visitor on this page gets the calendar pop-up right away; one that sends them
           // to a thank-you page shows it there instead.
-          if (r.body && r.body.ok) { showRegisteredPopup(config.campaignId, r.body.token); }
-          else if (r.status === 409) { clearSharedCookie(REG_COOKIE); showNotice('Registration for this webinar is closed.'); }
-          else { hasSubmitted = false; }
+          if (r.body && r.body.ok) { announce('registered'); showRegisteredPopup(config.campaignId, r.body.token); }
+          else if (r.status === 409) { clearSharedCookie(REG_COOKIE); announce('closed'); showNotice('Registration for this webinar is closed.'); }
+          else {
+            // Not registered. Said out loud, so a visitor is never left on a form that looks as if it worked, and free to try again.
+            hasSubmitted = false;
+            announce('failed');
+            showNotice(r.status === 429 ? 'Too many attempts. Please wait a moment and try again.' : 'We could not complete your registration. Please try again.');
+          }
         })
-        .catch(function() { hasSubmitted = false; });
+        .catch(function() {
+          hasSubmitted = false;
+          announce('failed');
+          showNotice('We could not complete your registration. Please check your connection and try again.');
+        });
     } else if (navigator.sendBeacon) {
       navigator.sendBeacon(endpoint, new Blob([payload], { type: 'application/json' }));
     }
   }
 
+  // Lets the page react to the outcome (for example a form that wants to stop showing "Reserving..."): window event "webinar-studio",
+  // detail.status is "registered", "closed" or "failed". Nothing depends on anyone listening.
+  function announce(status) {
+    try { window.dispatchEvent(new CustomEvent('webinar-studio', { detail: { status: status } })); } catch (e) {}
+  }
+
   function showNotice(text) {
+    var old = document.getElementById('webinar-reg-notice');
+    if (old) old.remove();
     var n = document.createElement('div');
+    n.id = 'webinar-reg-notice';
     n.setAttribute('role', 'status');
+    setTimeout(function() { if (n.parentNode) n.remove(); }, 10000);
     n.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#172738;color:#fff;padding:12px 20px;border-radius:12px;z-index:2147483000;font-family:system-ui,-apple-system,sans-serif;font-size:14px;';
     n.textContent = text;
     document.body.appendChild(n);
@@ -609,6 +631,8 @@ ${platformHeader}
 
   // ---- The calendar pop-up: shown on the thank-you page (or on the form page when it does not navigate away).
   var popupRequested = false;
+  var popupCampaign = '';
+  var popupToken = '';
 
   function makeEl(tag, css, text) {
     var node = document.createElement(tag);
@@ -627,6 +651,8 @@ ${platformHeader}
   function showRegisteredPopup(campaignId, token) {
     if (popupRequested || !/^[A-Za-z0-9_-]{8,64}$/.test(String(campaignId || ''))) return;
     popupRequested = true;
+    popupCampaign = campaignId;
+    popupToken = token || '';
     clearSharedCookie(REG_COOKIE);
     if (!window.fetch) { renderPopup(null); return; }
     var url = origin + '/api/landing/event?c=' + encodeURIComponent(campaignId) + (token ? '&t=' + encodeURIComponent(token) : '');
@@ -661,23 +687,29 @@ ${platformHeader}
         when = new Date(data.event.start).toLocaleString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
       } catch (e) {}
       if (when) box.appendChild(makeEl('p', 'margin:4px 0 0;font-size:14px;color:#52606d;', when));
-      if (!data.event.personal) box.appendChild(makeEl('p', 'margin:8px 0 0;font-size:13px;color:#52606d;', 'Your joining details will be sent by email.'));
+      var joinNote = null;
+      if (!data.event.personal) {
+        joinNote = makeEl('p', 'margin:8px 0 0;font-size:13px;color:#52606d;', 'Your joining details will be sent by email.');
+        box.appendChild(joinNote);
+      }
       var cal = data.calendar || {};
       box.appendChild(makeEl('p', 'margin:16px 0 8px;font-size:13px;font-weight:600;', 'Add it to your calendar'));
       var grid = makeEl('div', 'display:grid;grid-template-columns:1fr 1fr;gap:8px;');
       var btn = 'display:block;text-align:center;text-decoration:none;background:#1463ff;color:#fff;border-radius:10px;padding:10px 12px;font-size:14px;font-weight:600;' + font;
       var items = [
-        { label: 'Google Calendar', href: cal.google, blank: true },
-        { label: 'Outlook', href: cal.outlookLive, blank: true },
-        { label: 'Microsoft 365', href: cal.outlookOffice, blank: true },
-        { label: 'Apple (.ics)', href: cal.ics ? icsHref(cal.ics) : '', download: 'webinar.ics' }
+        { key: 'google', label: 'Google Calendar', href: cal.google, blank: true },
+        { key: 'outlookLive', label: 'Outlook', href: cal.outlookLive, blank: true },
+        { key: 'outlookOffice', label: 'Microsoft 365', href: cal.outlookOffice, blank: true },
+        { key: 'ics', label: 'Apple (.ics)', href: cal.ics ? icsHref(cal.ics) : '', download: 'webinar.ics' }
       ];
+      var calLinks = {};
       for (var i = 0; i < items.length; i++) {
         if (!items[i].href) continue;
         var link = makeEl('a', btn, items[i].label);
         link.href = items[i].href;
         if (items[i].blank) { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
         if (items[i].download) link.setAttribute('download', items[i].download);
+        calLinks[items[i].key] = link;
         grid.appendChild(link);
       }
       box.appendChild(grid);
@@ -698,6 +730,41 @@ ${platformHeader}
     document.addEventListener('keydown', onKey);
     document.body.appendChild(overlay);
     try { close.focus(); } catch (e) {}
+    if (data && data.event && !data.event.personal && popupToken) watchForJoinLink(calLinks, joinNote);
+  }
+
+  // The Zoom registration is made a few seconds after the visitor registers, so the joining link is usually not known yet when this
+  // pop-up opens. While it stays open, ask again for a short while, and put the link into the calendar buttons as soon as it exists:
+  // an event added a moment later then carries the real link instead of "Joining details will be sent to you by email".
+  var JOIN_POLL_MS = 2500;
+  var JOIN_POLL_MAX = 12;
+  function watchForJoinLink(links, note) {
+    if (!window.fetch || !popupToken) return;
+    var tries = 0;
+    function later() {
+      if (tries >= JOIN_POLL_MAX) return;
+      tries++;
+      setTimeout(ask, JOIN_POLL_MS);
+    }
+    function ask() {
+      if (!document.getElementById('webinar-reg-popup')) return;
+      fetch(origin + '/api/landing/event?c=' + encodeURIComponent(popupCampaign) + '&t=' + encodeURIComponent(popupToken))
+        .then(function(res) { return res.json().catch(function() { return null; }); })
+        .then(function(d) {
+          if (d && d.ok && d.event && d.event.personal && d.calendar) {
+            var c = d.calendar;
+            if (links.google && c.google) links.google.href = c.google;
+            if (links.outlookLive && c.outlookLive) links.outlookLive.href = c.outlookLive;
+            if (links.outlookOffice && c.outlookOffice) links.outlookOffice.href = c.outlookOffice;
+            if (links.ics && c.ics) links.ics.href = icsHref(c.ics);
+            if (note) note.textContent = 'Your joining link has been added to the calendar buttons below.';
+            return;
+          }
+          later();
+        })
+        .catch(later);
+    }
+    later();
   }
 
   // The thank-you page: the visitor just registered on another page and the script remembered it.

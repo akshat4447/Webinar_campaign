@@ -47,6 +47,8 @@ jobs:
       - run: npm run test:workspace
       - run: npm run test:wizard
       - run: npm run test:lsq-import
+      - run: npm run test:import-lists
+      - run: npm run test:suppression-lists
       - run: npm run test:apollo
       - run: npm run test:load
         env:

@@ -1,5 +1,5 @@
 import { getAttendee } from '@/lib/attendee';
-import { buildCalendarUrls } from '@/lib/calendar';
+import { buildCalendarUrls, JOIN_DETAILS_PENDING } from '@/lib/calendar';
 import { parseLegacyWebinarDate } from '@/lib/campaignDate';
 import { AttendeeCountdown } from './AttendeeCountdown';
 import { Badge } from '@/components/ui/Badge';
@@ -46,7 +46,7 @@ export default async function RegistrationResultPage(props: PageProps<'/r/result
     : (campaign?.date ? parseLegacyWebinarDate(campaign.date) : null);
   const eventWhen = campaign && startTime ? `${formatLsqDateTime(startTime, campaign.timezone)} ${timeZoneLabel(startTime, campaign.timezone)}` : campaign?.date || 'Date to be announced';
   const endTime = startTime ? new Date(startTime.getTime() + (campaign?.durationMinutes ?? 60) * 60 * 1000) : null;
-  const location = joinUrl || 'Joining details will be provided by the organizer';
+  const location = joinUrl || JOIN_DETAILS_PENDING;
 
   // Calendar URLs
   const calUrls = campaign && startTime

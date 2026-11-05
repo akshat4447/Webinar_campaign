@@ -53,6 +53,12 @@ export function LeadImportCard({
   const [destSaving, setDestSaving] = useState(false);
   const [confirmingLsq, setConfirmingLsq] = useState(false);
   const hasExisting = existingContactCount > 0;
+  // A new file or list is the whole audience by default. Ticking this keeps what is already imported and merges the
+  // new contacts into it, which is the only way two lists end up in one webinar.
+  const [addToExisting, setAddToExisting] = useState(false);
+  const importMode = addToExisting ? 'add' : 'replace';
+  // Only replacing scored work is worth a second look: a plain imported list is one click to fetch again.
+  const needsReplaceConfirm = hasExisting && !addToExisting && existingScoredCount > 0;
 
   async function loadLists(isRefresh = false) {
     if (isRefresh) setRefreshingLists(true);
@@ -91,7 +97,7 @@ export function LeadImportCard({
   }
 
   function requestFile(file: File) {
-    if (hasExisting) {
+    if (needsReplaceConfirm) {
       setPendingFile(file);
       setConfirmingCsv(true);
       return;
@@ -158,6 +164,7 @@ export function LeadImportCard({
     try {
       const fd = new FormData();
       fd.set('file', file);
+      fd.set('mode', importMode);
       const res = await importCsvAction(campaignId, fd);
       setResult(res);
       router.refresh();
@@ -170,7 +177,7 @@ export function LeadImportCard({
 
   function requestFetchList() {
     if (!selectedListId) return;
-    if (hasExisting) {
+    if (needsReplaceConfirm) {
       setConfirmingLsq(true);
       return;
     }
@@ -188,10 +195,10 @@ export function LeadImportCard({
       const name = list?.ListName ?? selectedListId;
       // A long list is read in slices; each call returns where to carry on, so the page shows real progress and
       // no single request has to outlast the server's time limit.
-      let res = await importFromLsqListAction(campaignId, selectedListId, name);
+      let res = await importFromLsqListAction(campaignId, selectedListId, name, undefined, importMode);
       while (res.ok && res.done === false && res.cursor) {
         setFetchProgress({ fetched: res.rowCount ?? 0, total: res.cursor.expectedTotal });
-        res = await importFromLsqListAction(campaignId, selectedListId, name, res.cursor);
+        res = await importFromLsqListAction(campaignId, selectedListId, name, res.cursor, importMode);
       }
       setResult(res);
       router.refresh();
@@ -232,6 +239,20 @@ export function LeadImportCard({
       </div>
 
       <div className="lsq-card__body lsq-stack lsq-stack--lg">
+        {hasExisting && (
+          <div className="lsq-stack lsq-stack--sm">
+            <label className="lsq-cluster">
+              <input type="checkbox" checked={addToExisting} disabled={busy} onChange={(e) => setAddToExisting(e.target.checked)} />
+              <span>Keep the {existingContactCount.toLocaleString()} contact{existingContactCount === 1 ? '' : 's'} already imported and add these to them</span>
+            </label>
+            <p className="lsq-hint">
+              {addToExisting
+                ? 'The new contacts are merged in by email, so anyone in both lists appears once.'
+                : `Importing replaces the ${existingContactCount.toLocaleString()} contact${existingContactCount === 1 ? '' : 's'} already imported, so only the file or list you pick is used.`}
+            </p>
+          </div>
+        )}
+
         {mode === 'csv' && (
           <>
             <input
@@ -286,12 +307,18 @@ export function LeadImportCard({
                 </p>
                 <p className="lsq-hint">
                   {result?.ok
-                    ? 'Choose another file to replace the imported contacts.'
+                    ? addToExisting
+                      ? 'Choose another file to add more contacts.'
+                      : 'Choose another file to replace the imported contacts.'
                     : 'Columns for name, email, company and title are detected automatically.'}
                 </p>
               </div>
               {result?.ok && <Badge color="success" text="Parsed" />}
             </div>
+
+            {result?.ok && result.replaced && (
+              <p className="lsq-hint" role="status">{replacedNote(result.replaced)}</p>
+            )}
 
             {result && !result.ok && (
               <div className="lsq-banner lsq-banner--error" role="alert">
@@ -582,6 +609,7 @@ export function LeadImportCard({
                 </span>
                 <p className="lsq-banner__body">
                   {result.ok ? `${(result.rowCount ?? 0).toLocaleString()} contacts fetched from LeadSquared` : result.error}
+                  {result.ok && result.replaced ? ` ${replacedNote(result.replaced)}` : ''}
                   {result.ok && result.warning ? ` ${result.warning}` : ''}
                 </p>
               </div>
@@ -629,14 +657,20 @@ export function LeadImportCard({
   );
 }
 
+/** What a replacing import reported, in a sentence. */
+function replacedNote(r: { removed: number; keptRegistered: number }): string {
+  const removed = `Replaced the ${r.removed.toLocaleString()} contact${r.removed === 1 ? '' : 's'} imported before.`;
+  return r.keptRegistered ? `${removed} ${r.keptRegistered.toLocaleString()} who had already registered were kept.` : removed;
+}
+
 function reimportWarning(contactCount: number, scoredCount: number): string {
-  const parts = [`This campaign already has ${contactCount} imported contact${contactCount === 1 ? '' : 's'}. Importing again replaces all of them,`];
+  const parts = [`This campaign already has ${contactCount} imported contact${contactCount === 1 ? '' : 's'}. Importing replaces all of them,`];
   parts.push(
     scoredCount > 0
       ? `including ${scoredCount} that ${scoredCount === 1 ? 'has' : 'have'} already been scored, along with any approvals and personalized copy tied to them.`
       : 'along with any approvals or personalized copy tied to them.'
   );
-  return parts.join(' ') + " This can't be undone.";
+  return parts.join(' ') + " People who have already registered are kept. This can't be undone.";
 }
 
 function mappingDrawer(result: CsvImportResult | null): DrawerContent | null {

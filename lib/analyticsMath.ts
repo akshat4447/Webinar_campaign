@@ -49,8 +49,11 @@ export function countDelta(current: number, previous: number | null): number | n
 }
 
 /**
- * The Prisma `where` for "campaigns active in this range." A campaign with a
- * real `scheduledAt` is filtered on that. A campaign with none is only
+ * The Prisma `where` for "campaigns active in this range": scheduled in it, or
+ * created in it. A campaign with a real `scheduledAt` counts by either — a
+ * webinar set up and launched this week for next week is the one the operator
+ * is working on, and leaving it out showed an empty dashboard beside a live
+ * campaign. A campaign with no `scheduledAt` is only
  * included via its `createdAt` when it's still a draft — a fresh, unscheduled
  * draft showing up under "recent activity" is right. A completed or live
  * campaign with no `scheduledAt` has no reliable date at all (older data
@@ -63,7 +66,11 @@ export function campaignRangeWhere(from: Date | null, to: Date | null) {
   if (!from) return {};
   const inRange = { gte: from, ...(to ? { lt: to } : {}) };
   return {
-    OR: [{ scheduledAt: inRange }, { AND: [{ scheduledAt: null }, { status: 'draft' }, { createdAt: inRange }] }],
+    OR: [
+      { scheduledAt: inRange },
+      { AND: [{ scheduledAt: { not: null } }, { createdAt: inRange }] },
+      { AND: [{ scheduledAt: null }, { status: 'draft' }, { createdAt: inRange }] },
+    ],
   };
 }
 

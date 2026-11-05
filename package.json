@@ -27,6 +27,8 @@
     "test:ui": "tsx scripts/test-ui.ts",
     "test:wizard": "tsx scripts/test-wizard-journeys.ts",
     "test:lsq-import": "tsx scripts/test-lsq-large-import.ts",
+    "test:import-lists": "tsx scripts/test-import-lists.ts",
+    "test:suppression-lists": "tsx scripts/test-suppression-lists.ts",
     "test:apollo": "tsx scripts/test-apollo-enrichment.ts",
     "test:login": "tsx scripts/test-login.ts",
     "test:zoom": "tsx scripts/test-zoom-details.ts",
@@ -35,7 +37,8 @@
     "test:recovery": "tsx scripts/test-recovery.ts",
     "verify:providers": "tsx scripts/verify-providers.ts",
     "test:load": "tsx scripts/test-load.ts",
-    "check:tooling": "node scripts/check-tooling.cjs"
+    "check:tooling": "node scripts/check-tooling.cjs",
+    "framer:component": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/framer-component.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
@@ -50,8 +53,8 @@
     "prisma": "^7.10.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "undici": "^8.11.2",
-    "zod": "^4.4.3"
+    "undici": "^8.12.3",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
@@ -73,10 +76,13 @@
     "deepmerge-ts": "8.0.2",
     "mysql2": "3.24.5",
     "source-map-js": "1.2.2",
-    "fast-uri": "4.2.1",
+    "fast-uri": "4.2.3",
     "js-yaml": "5.4.3",
     "@next/eslint-plugin-next": {
       "fast-glob": "$fast-glob"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.4"
     }
   }
 }

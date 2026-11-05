@@ -141,12 +141,14 @@ export default async function PersonalizePage({ params, searchParams }: { params
   const stepKeys = stepParam && rawKeys.includes(stepParam) ? rawKeys : rawKeys;
   const resolvedByKey = await resolveStepTemplates(id, stepKeys);
   const templates = stepKeys.map((key) => ({ key, resolved: resolvedByKey.get(key) ?? null }));
+  // A step is named as the Cadence tab names it: a step the operator added and pointed at the invite template is still their step.
+  const stepTitle = new Map(cadenceSteps.map((s) => [s.key, s.title.trim()]));
 
   const available = templates
     .filter((t) => t.resolved && !t.resolved.hidden)
     .map((t) => ({
       key: t.key,
-      label: t.resolved!.label,
+      label: stepTitle.get(t.key) || t.resolved!.label,
       channel: t.resolved!.channel,
       hasSubject: t.resolved!.hasSubject,
       subject: t.resolved!.subject,

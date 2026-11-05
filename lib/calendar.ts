@@ -108,6 +108,12 @@ export function resolveCalendarDates(
 }
 
 /**
+ * What a calendar entry says in place of the joining link while it is not known yet: the person's Zoom link is made a few
+ * seconds after they register, and a visitor who has not registered has none. One wording, used by every calendar Studio builds.
+ */
+export const JOIN_DETAILS_PENDING = 'Joining details will be sent to you by email';
+
+/**
  * Compiles description with speaker roster and location/join URL.
  */
 export function buildCalendarFullDescription(event: CalendarEventInput): string {
@@ -127,7 +133,7 @@ export function buildCalendarFullDescription(event: CalendarEventInput): string 
     parts.push(`\nFeatured Speaker(s):\n${speakerSummary}`);
   }
 
-  const location = event.location?.trim() || 'Online Webinar';
+  const location = event.location?.trim() || JOIN_DETAILS_PENDING;
   parts.push(`\nJoin URL: ${location}`);
 
   return parts.join('\n');
@@ -144,7 +150,7 @@ export function buildGoogleCalendarUrl(event: CalendarEventInput): string {
     event.durationMinutes
   );
   const title = event.title || 'Webinar Session';
-  const location = event.location?.trim() || 'Online Webinar';
+  const location = event.location?.trim() || JOIN_DETAILS_PENDING;
   const details = buildCalendarFullDescription(event);
 
   const datesParam = `${formatCalendarUtcDate(start)}/${formatCalendarUtcDate(end)}`;
@@ -174,7 +180,7 @@ export function buildOutlookCalendarUrl(
     event.durationMinutes
   );
   const title = event.title || 'Webinar Session';
-  const location = event.location?.trim() || 'Online Webinar';
+  const location = event.location?.trim() || JOIN_DETAILS_PENDING;
   const details = buildCalendarFullDescription(event);
 
   const baseUrl =
@@ -236,7 +242,7 @@ export function generateIcsFeed(
   const now = new Date();
 
   const title = event.title || 'Webinar Session';
-  const location = event.location?.trim() || 'Online Webinar';
+  const location = event.location?.trim() || JOIN_DETAILS_PENDING;
   const description = buildCalendarFullDescription(event);
 
   const uid = options?.uid || `webinar-${event.campaignId || Date.now()}@webinar-studio`;

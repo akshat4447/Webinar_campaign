@@ -574,5 +574,9 @@ import { addReliabilityMocks, withTxDefaults } from '../test-support/reliability
 import { db as reliabilityDb } from '@/lib/db';
 
 vi.mock('@/lib/sendQuota', () => ({ quotaDay: (date: Date) => date.toISOString().slice(0,10), reserveSendQuota: vi.fn(async () => true), releaseSendQuota: vi.fn() }));
-vi.mock('@/lib/lsqExclusions', () => ({ refreshLsqExclusions: vi.fn() }));
+vi.mock('@/lib/lsqExclusions', async (orig) => ({
+  ...(await orig<typeof import('@/lib/lsqExclusions')>()),
+  refreshLsqExclusions: vi.fn(),
+  loadSuppressionListMembers: vi.fn(async () => ({ emails: new Set<string>(), leadIds: new Set<string>() })),
+}));
 vi.mock('@/lib/launchReadiness', () => ({ assertLaunchReady: vi.fn() }));

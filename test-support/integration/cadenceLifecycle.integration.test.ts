@@ -9,7 +9,11 @@ vi.mock('@/lib/launchReadiness', () => ({
   getLaunchReadiness: vi.fn(async () => readiness.result),
   assertLaunchReady: vi.fn(async () => { if (!readiness.result.ok) throw new Error(`Launch blocked: ${readiness.result.problems.join(' ')}`); }),
 }));
-vi.mock('@/lib/lsqExclusions', () => ({ refreshLsqExclusions: vi.fn(async () => undefined) }));
+vi.mock('@/lib/lsqExclusions', async (orig) => ({
+  ...(await orig<typeof import('@/lib/lsqExclusions')>()),
+  refreshLsqExclusions: vi.fn(async () => undefined),
+  loadSuppressionListMembers: vi.fn(async () => ({ emails: new Set<string>(), leadIds: new Set<string>() })),
+}));
 vi.mock('@/lib/cadence', async (orig) => ({ ...(await orig<typeof import('@/lib/cadence')>()), processDueSends: vi.fn(async () => ({ processed: 0, sent: 0, failed: 0, remaining: 0, dailyLimitReached: false, outsideSendWindow: false })) }));
 
 type Db = typeof import('@/lib/db')['db'];

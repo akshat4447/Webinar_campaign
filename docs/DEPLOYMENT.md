@@ -92,3 +92,23 @@ Do not enable two hosting deployments against the same production database and o
 After deployment verify health, callback origins, signature-verified webhooks, SMS/WhatsApp activity types and fields, and downstream CRM automation. A successful LeadSquared activity proves CRM handoff; it does not prove handset delivery. WhatsApp requires recorded recipient opt-in.
 
 Monitor worker errors, stale leases, queued/unknown delivery outcomes, database connections, quotas and provider rejections. For uncertain delivery, inspect provider evidence and use the outcome-confirmation UI; automatic replay is intentionally blocked. Keep encrypted backups and keys separately protected. `npm run test:recovery` rehearses restoration without modifying source data and requires database create/drop privileges plus `pg_dump` and `pg_restore`.
+
+## After deploying: the landing page and its script
+
+A landing page built in a page builder holds Studio's address and the webinar it is set up for inside the published page, and a
+copy saved on a component placed on the page overrides whatever default the component's code declares. So when Studio's address or
+the webinar changes (a new domain, a closed tunnel, a deleted webinar), the page keeps sending registrations to the old one, and
+the visitor sees a form that looks as if it worked.
+
+- Paste the script Studio shows on the webinar's Registration screen once, in the page builder's site-wide custom code, and keep the
+  form component free of any address or webinar id of its own. The script is then the only place either is stored.
+- After publishing, press **Check Page** on the Registration screen. It reads the page and the script files the page loads, and
+  compares the address and webinar the page is set up for with this Studio. A page whose address no longer answers is a failure
+  that names the old address; one that points at a different address that does answer, or at another webinar, is a warning.
+- A registration for a webinar that does not exist is refused with a visible message, and the server log gets a line starting
+  `[landing]` that names the webinar and the page it came from.
+- When Studio's address changes, copy the script again and publish; nothing else on the page needs touching.
+- **Framer in one file:** `npm run framer:component -- <webinar id> --out UniversalWebinarLanding.tsx` writes the whole landing
+  component with Studio's script built in, using this app's `APP_ORIGIN` and the webinar's Zoom event. Paste it over the component in
+  Framer and publish, and generate it again whenever the address or the webinar changes. Keep the output outside the repository:
+  it imports Framer's own packages, which only exist inside Framer.

@@ -15,6 +15,7 @@ import { userInfo } from 'node:os';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { TEST_LOGIN_ENV } from './testSignIn';
 import { chromium, expect } from '@playwright/test';
+import { build } from 'esbuild';
 
 const PORT = 3107;
 const SITE_PORT = 3108;
@@ -75,6 +76,34 @@ async function main() {
     const { generateUniversalEmbedScript } = await import('@/lib/landingPage');
     const { mintRegistrationToken } = await import('@/lib/registration');
     const script = generateUniversalEmbedScript({ apiOrigin: ORIGIN, campaignId, platform: 'framer', landingUrl: LANDING });
+    // The Framer component Studio generates, built the way a page builder builds it (React, with stand-ins for Framer's own packages),
+    // once for this Studio and once for an address that does not answer.
+    const { generateFramerComponent } = await import('@/lib/framerComponent');
+    const bundles = new Map<string, string>();
+    const bundleComponent = async (apiOrigin: string): Promise<string> => {
+      const source = generateFramerComponent({ apiOrigin, campaignId, zoomId: '81234567891', landingUrl: LANDING });
+      const stubs: Record<string, string> = {
+        framer: `export const addPropertyControls = () => {}; export const ControlType = { String: 's', Color: 'c' }; export const RenderTarget = { canvas: 'CANVAS', current: () => 'PREVIEW' };`,
+        'framer-motion': `import React from 'react'; const make = (tag) => React.forwardRef(({ initial, animate, transition, whileHover, whileTap, ...rest }, ref) => React.createElement(tag, { ...rest, ref })); export const motion = { div: make('div'), button: make('button') };`,
+        'webinar-component': source,
+      };
+      const out = await build({
+        stdin: {
+          contents: `import React from 'react'; import { createRoot } from 'react-dom/client'; import Landing from 'webinar-component';
+            createRoot(document.getElementById('root')).render(React.createElement(Landing, { accentColor: '#2563eb', backgroundColor: '#f8fafc', cardBgColor: '#ffffff', badgeText: 'Live', headline: 'Test webinar', subheadline: 'Sub', dateText: 'Thu', timeText: '10:00', speakerName: 'Sam', speakerRole: 'Host', keyPoint1: 'One', keyPoint2: 'Two', keyPoint3: 'Three', googleFormBackupUrl: 'https://forms.gle/backup' }));`,
+          resolveDir: process.cwd(), loader: 'tsx',
+        },
+        bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'transform', define: { 'process.env.NODE_ENV': '"production"' },
+        plugins: [{ name: 'stubs', setup(b) {
+          b.onResolve({ filter: /^(framer|framer-motion|webinar-component)$/ }, (a) => ({ path: a.path, namespace: 'stub' }));
+          b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: stubs[a.path], loader: a.path === 'webinar-component' ? 'tsx' : 'js', resolveDir: process.cwd() }));
+        } }],
+      });
+      return out.outputFiles[0].text;
+    };
+    bundles.set('/bundle/good.js', await bundleComponent(ORIGIN));
+    bundles.set('/bundle/dead.js', await bundleComponent('http://127.0.0.1:9'));
+    const deadScript = generateUniversalEmbedScript({ apiOrigin: 'http://127.0.0.1:9', campaignId, platform: 'framer', landingUrl: LANDING });
     const TRACKER = `http://www.test-site.example:${SITE_PORT}/t/FormTracker.aspx`;
     const formHtml = (extra = '') => `<form id="reg" ${extra} method="post" enctype="multipart/form-data" action="${TRACKER}">
         <input type="hidden" name="MXHRedirectUrl" value="${THANKS}">
@@ -107,6 +136,14 @@ async function main() {
           return shell(inlineForm(`document.getElementById('status').textContent = 'Thanks, you are in.';`));
         case '/webinar/spa-redirect':
           return shell(`<div id="app">${inlineForm(`window.__marker = 'same-document'; history.pushState(null, '', '/webinar/spa-thanks'); document.getElementById('app').innerHTML = '<h1>Thanks, you are in.</h1>';`)}</div>`);
+        case '/webinar/unreachable': // the script points at an address that no longer answers (a tunnel that closed): the form stays on the page
+          return `<!doctype html><html><head><meta charset="utf-8"><title>Unreachable</title></head><body>${inlineForm(`document.getElementById('status').textContent = 'Reserving...';`)}${deadScript}</body></html>`;
+        case '/webinar/twice': // the same copy of the script pasted twice
+          return `<!doctype html><html><head><meta charset="utf-8"><title>Twice</title></head><body>${inlineForm(`document.getElementById('status').textContent = 'Thanks, you are in.';`)}${script}${script}</body></html>`;
+        case '/webinar/component': // the generated Framer component, pointed at this Studio
+          return `<!doctype html><html><head><meta charset="utf-8"><title>Component</title></head><body><div id="root"></div><script src="/bundle/good.js"></script></body></html>`;
+        case '/webinar/component-dead': // the same component, built for an address that does not answer
+          return `<!doctype html><html><head><meta charset="utf-8"><title>Component</title></head><body><div id="root"></div><script src="/bundle/dead.js"></script></body></html>`;
         case '/blog': // an unrelated newsletter box on the same site
           return shell(`<form method="post" action="/newsletter"><input type="email" name="email" required placeholder="Newsletter email"><button type="submit">Subscribe</button></form>`, 'Blog');
         default:
@@ -131,6 +168,11 @@ async function main() {
       if (req.method === 'POST') {
         req.resume();
         req.on('end', () => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('subscribed'); });
+        return;
+      }
+      if (url.pathname.startsWith('/bundle/')) {
+        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
+        res.end(bundles.get(url.pathname) ?? '');
         return;
       }
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -291,6 +333,99 @@ async function main() {
     expect((await db.query(`SELECT 1 FROM "Contact" WHERE email='reader.newsletter@example.com'`)).rowCount).toBe(0);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     checks.push('12. A newsletter form on another page of the same site is left alone: no contact is created and no pop-up opens');
+
+    // ---- 13. the address the script sends to no longer answers: the visitor is told, and can try again
+    await page.goto(`${SITE}/webinar/unreachable?campaignId=${campaignId}&source=email&utm_source=email`);
+    await filled('nobody.unreachable@example.com');
+    await page.getByRole('button', { name: 'Submit' }).click();
+    await expect(page.getByRole('status').filter({ hasText: /could not complete your registration/i })).toBeVisible({ timeout: 20_000 });
+    await expect(popup).toHaveCount(0);
+    expect((await db.query(`SELECT 1 FROM "Contact" WHERE email='nobody.unreachable@example.com'`)).rowCount).toBe(0);
+    let retried = 0;
+    page.on('request', (r) => { if (r.url().includes('/api/landing/submit')) retried++; });
+    await page.getByRole('button', { name: 'Submit' }).click();
+    await expect.poll(() => retried, { timeout: 10_000 }).toBeGreaterThan(0);
+    checks.push('13. When the address the script sends to does not answer, the visitor is told the registration did not go through, nothing is recorded, and they can try again');
+
+    // ---- 14. the same copy of the script pasted twice sends one registration, not two
+    const submits: string[] = [];
+    const onRequest = (r: { url(): string }) => { if (r.url().includes('/api/landing/submit')) submits.push(r.url()); };
+    page.on('request', onRequest);
+    await page.goto(`${SITE}/webinar/twice?campaignId=${campaignId}&source=whatsapp&utm_source=whatsapp`);
+    await filled('twice.pasted@example.com');
+    await page.getByRole('button', { name: 'Submit' }).click();
+    await expect(popup).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(1500);
+    page.off('request', onRequest);
+    expect(submits).toHaveLength(1);
+    await registered('twice.pasted@example.com', 'whatsapp');
+    await page.keyboard.press('Escape');
+    checks.push('14. The same copy of the script pasted twice sends one registration, not two');
+
+    // ---- 15. the complete component Studio generates, pasted as one file: an invitee fills it in and presses the button
+    const componentContactId = `cnt${randomBytes(8).toString('hex')}`;
+    await db.query(
+      `INSERT INTO "Contact" (id, "campaignId", name, email, account, vertical, title, function, seniority, approved, score)
+       VALUES ($1, $2, 'Casey Component', 'casey.component@example.com', 'Acme', 'Test', 'VP', 'Ops', 'VP', true, 70)`,
+      [componentContactId, campaignId]
+    );
+    const componentToken = mintRegistrationToken(campaignId, componentContactId);
+    await page.goto(`${SITE}/webinar/component?campaignId=${campaignId}&source=email&utm_source=email&token=${encodeURIComponent(componentToken)}`);
+    await expect(page.getByRole('button', { name: /Register for Webinar/ })).toBeVisible();
+    await page.locator('input[name="FirstName"]').fill('Casey');
+    await page.locator('input[name="EmailAddress"]').fill('casey.component@example.com');
+    await page.locator('input[name="Phone"]').fill('+919876543210');
+    await page.getByRole('button', { name: /Register for Webinar/ }).click();
+    await expect(popup).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Register for Webinar/ })).toBeEnabled();
+    await registered('casey.component@example.com', 'email');
+    await expect(page).toHaveURL(/\/webinar\/component/);
+    await page.keyboard.press('Escape');
+    checks.push('15. The complete component Studio generates, pasted as one file with nothing else added, registers an invitee as themselves, credited to email, and shows the calendar pop-up');
+
+    // ---- 16. the same component built for an address that does not answer: the visitor is told, in the form itself
+    await page.goto(`${SITE}/webinar/component-dead?campaignId=${campaignId}&source=email&utm_source=email`);
+    await page.locator('input[name="FirstName"]').fill('Dana');
+    await page.locator('input[name="EmailAddress"]').fill('dana.dead@example.com');
+    await page.locator('input[name="Phone"]').fill('+919876543210');
+    await page.getByRole('button', { name: /Register for Webinar/ }).click();
+    await expect(page.getByRole('alert')).toContainText(/could not complete your registration/i, { timeout: 20_000 });
+    await expect(page.getByRole('link', { name: 'backup form' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Register for Webinar/ })).toBeEnabled();
+    await expect(popup).toHaveCount(0);
+    expect((await db.query(`SELECT 1 FROM "Contact" WHERE email='dana.dead@example.com'`)).rowCount).toBe(0);
+    checks.push('16. The same component built for an address that does not answer tells the visitor in the form, offers the backup form, records nothing, and lets them try again');
+
+    // ---- 17. the joining link is made a few seconds after registering: the pop-up's calendar buttons pick it up
+    // A webinar with a Zoom event gives each person their own link, made when they register. (Without one, everybody gets the shared room.)
+    await db.query(`UPDATE "Campaign" SET "zoomMeetingId"='81234567891' WHERE id=$1`, [campaignId]);
+    const lateContactId = `cnt${randomBytes(8).toString('hex')}`;
+    await db.query(
+      `INSERT INTO "Contact" (id, "campaignId", name, email, account, vertical, title, function, seniority, approved, score)
+       VALUES ($1, $2, 'Lee Late', 'late.link@example.com', 'Acme', 'Test', 'VP', 'Ops', 'VP', true, 60)`,
+      [lateContactId, campaignId]
+    );
+    const lateToken = mintRegistrationToken(campaignId, lateContactId);
+    await page.goto(`${SITE}/webinar/inline?campaignId=${campaignId}&source=email&utm_source=email&token=${encodeURIComponent(lateToken)}`);
+    await filled('late.link@example.com');
+    await page.getByRole('button', { name: 'Submit' }).click();
+    await expect(popup).toBeVisible({ timeout: 20_000 });
+    const google = popup.getByRole('link', { name: 'Google Calendar' });
+    const detailsOfGoogle = async () => new URL((await google.getAttribute('href')) as string).searchParams.get('details') ?? '';
+    // At first: the wording, in the description, with the speakers block and the Join URL line
+    await expect.poll(detailsOfGoogle).toContain('Join URL: Joining details will be sent to you by email');
+    expect(new URL((await google.getAttribute('href')) as string).searchParams.get('location')).toBe('Joining details will be sent to you by email');
+    await expect(popup).toContainText('Your joining details will be sent by email.');
+    // Zoom issues the link; the same buttons now carry it
+    await db.query(`UPDATE "Contact" SET "zoomJoinUrl"='https://zoom.example/w/late-link-xyz' WHERE id=$1`, [lateContactId]);
+    await expect.poll(detailsOfGoogle, { timeout: 30_000 }).toContain('Join URL: https://zoom.example/w/late-link-xyz');
+    expect(await detailsOfGoogle()).not.toContain('Joining details will be sent to you by email');
+    await expect(popup).toContainText('Your joining link has been added to the calendar buttons below.');
+    const outlook = new URL((await popup.getByRole('link', { name: 'Microsoft 365' }).getAttribute('href')) as string).searchParams;
+    expect(outlook.get('location')).toBe('https://zoom.example/w/late-link-xyz');
+    await page.keyboard.press('Escape');
+    checks.push('17. The calendar buttons say "Join URL: Joining details will be sent to you by email" at first, and carry the real joining link once Zoom has made it, without the visitor doing anything');
 
     expect(errors, 'Browser runtime errors').toEqual([]);
     await writeFile(`${OUT}/results.json`, JSON.stringify({ checks }, null, 2));

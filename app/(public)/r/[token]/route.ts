@@ -46,7 +46,6 @@ export async function GET(request: Request, ctx: RouteContext<'/r/[token]'>) {
         campaign: { id: campaign.id, name: campaign.name, zoomMeetingId: campaign.zoomMeetingId },
         contact,
         channel: source === 'one_click' ? 'email' : source,
-        apiOrigin: origin,
         prefill: Boolean(campaign.landingPrefill),
       });
       if (target) return NextResponse.redirect(target);

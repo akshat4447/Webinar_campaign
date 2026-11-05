@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAttendee } from '@/lib/attendee';
-import { generateIcsFeed } from '@/lib/calendar';
+import { generateIcsFeed, JOIN_DETAILS_PENDING } from '@/lib/calendar';
 import { parseLegacyWebinarDate } from '@/lib/campaignDate';
 
 export async function GET(request: Request, ctx: RouteContext<'/api/calendar/[campaignId]'>) {
@@ -22,7 +22,7 @@ export async function GET(request: Request, ctx: RouteContext<'/api/calendar/[ca
   if (!startTime) return new NextResponse('This webinar is not scheduled.', { status: 409 });
   const endTime = new Date(startTime.getTime() + (campaign.durationMinutes || 60) * 60 * 1000);
 
-  const location = attendee.joinUrl || 'Join details will be provided by the organizer';
+  const location = attendee.joinUrl || JOIN_DETAILS_PENDING;
 
   const icsContent = generateIcsFeed({
     title: campaign.name,

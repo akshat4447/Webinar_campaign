@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Icon } from '@/components/ui/Icon';
@@ -47,6 +47,13 @@ export function LeadSquaredListSyncCard({
   const [newListName, setNewListName] = useState('');
   const [newListDesc, setNewListDesc] = useState('');
 
+  // What the server holds, as one string; null until the first load. A selection that differs is saved on its own, so a list picked
+  // here can never be silently lost by moving on before pressing Save.
+  const savedRef = useRef<string | null>(null);
+  const pendingRef = useRef<{ suppressionListId: string; exclusionListIds: string[] } | null>(null);
+  const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const selectionKey = (suppressionListId: string, exclusionListIds: string[]) => JSON.stringify([suppressionListId || '', [...exclusionListIds].sort()]);
+
   async function reloadConfig() {
     setRefreshing(true);
     setFetchError(null);
@@ -54,8 +61,12 @@ export function LeadSquaredListSyncCard({
       const res = await getLeadSquaredSuppressionConfigAction(campaignId);
       if (res.ok) {
         setLists(res.lists);
-        setSelectedSuppressionListId(res.suppressionListId || '');
-        setSelectedExclusionListIds(res.exclusionListIds || []);
+        // A change made while this was loading is still waiting to be saved: it is not overwritten by what the server held a moment ago.
+        if (!pendingRef.current) {
+          setSelectedSuppressionListId(res.suppressionListId || '');
+          setSelectedExclusionListIds(res.exclusionListIds || []);
+          savedRef.current = selectionKey(res.suppressionListId || '', res.exclusionListIds || []);
+        }
         setRegisteredCount(res.registeredCount);
         setSyncedCount(res.syncedToSuppressionCount);
         if (res.error) {
@@ -83,6 +94,7 @@ export function LeadSquaredListSyncCard({
           setLists(res.lists);
           setSelectedSuppressionListId(res.suppressionListId || '');
           setSelectedExclusionListIds(res.exclusionListIds || []);
+          savedRef.current = selectionKey(res.suppressionListId || '', res.exclusionListIds || []);
           setRegisteredCount(res.registeredCount);
           setSyncedCount(res.syncedToSuppressionCount);
           if (res.error) setFetchError(res.error);
@@ -108,6 +120,44 @@ export function LeadSquaredListSyncCard({
     };
   }, [campaignId]);
 
+  // Writes one after another, newest last, so a quick second change can never be overwritten by an older one finishing late.
+  function persistSelection(suppressionListId: string, exclusionListIds: string[]): Promise<void> {
+    writeQueueRef.current = writeQueueRef.current.then(async () => {
+      try {
+        const res = await updateCampaignSuppressionListsAction(campaignId, suppressionListId || null, exclusionListIds);
+        if (res.ok) {
+          savedRef.current = selectionKey(suppressionListId, exclusionListIds);
+          if (pendingRef.current && selectionKey(pendingRef.current.suppressionListId, pendingRef.current.exclusionListIds) === savedRef.current) pendingRef.current = null;
+          onChanged?.();
+        } else {
+          showToast(res.error || 'Could not save the LeadSquared lists');
+        }
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Could not save the LeadSquared lists');
+      }
+    });
+    return writeQueueRef.current;
+  }
+
+  useEffect(() => {
+    if (savedRef.current === null) return; // not loaded yet
+    const key = selectionKey(selectedSuppressionListId, selectedExclusionListIds);
+    if (key === savedRef.current) {
+      pendingRef.current = null;
+      return;
+    }
+    pendingRef.current = { suppressionListId: selectedSuppressionListId, exclusionListIds: selectedExclusionListIds };
+    const timer = setTimeout(() => { void persistSelection(selectedSuppressionListId, selectedExclusionListIds); }, 700);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- persistSelection only reads refs and stable props
+  }, [selectedSuppressionListId, selectedExclusionListIds]);
+
+  // Leaving the page within the short wait saves what was picked instead of dropping it.
+  useEffect(() => () => {
+    const pending = pendingRef.current;
+    if (pending) void updateCampaignSuppressionListsAction(campaignId, pending.suppressionListId || null, pending.exclusionListIds);
+  }, [campaignId]);
+
   async function handleSaveSettings() {
     setSaving(true);
     try {
@@ -117,6 +167,7 @@ export function LeadSquaredListSyncCard({
         selectedExclusionListIds
       );
       if (res.ok) {
+        pendingRef.current = null;
         showToast('LeadSquared suppression and exclusion lists updated.');
         onChanged?.();
         reloadConfig();

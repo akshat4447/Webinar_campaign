@@ -31,7 +31,6 @@ describe('lib/landingPage', () => {
       campaign,
       contact,
       channel: 'email',
-      apiOrigin: 'https://webinar.studio.io',
     });
 
     const parsed = new URL(url);
@@ -49,7 +48,9 @@ describe('lib/landingPage', () => {
     expect(parsed.searchParams.get('utm_source')).toBe('email');
     expect(parsed.searchParams.get('utm_medium')).toBe('outreach');
     expect(parsed.searchParams.get('utm_campaign')).toBe('opd-to-ipd-funnel-webinar');
-    expect(parsed.searchParams.get('apiOrigin')).toBe('https://webinar.studio.io');
+    // Studio's address stays out of the link: the script has it built in, and an address inside an address reads as phishing to mail filters.
+    expect(parsed.searchParams.has('apiOrigin')).toBe(false);
+    expect(url).not.toContain('studio.io');
 
     // Token must be verifiable
     const token = parsed.searchParams.get('token');

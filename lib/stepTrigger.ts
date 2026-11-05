@@ -38,6 +38,19 @@ export function isPreRegistrationOutreach(stepKey: string): boolean {
   return PRE_REGISTRATION_OUTREACH_KEYS.has(stepKey);
 }
 
+/**
+ * Whether a step is outreach that invites someone to register, as opposed to a reminder, a confirmation or a follow-up.
+ * A step the operator added themselves is judged by its group and trigger, not only by the name of a built-in step, so it is
+ * treated the same everywhere: cancelled when the person registers, and counted as an invite on the Overview.
+ */
+export function isOutreachStep(step: { key: string; group?: string | null; trigger?: string | null }): boolean {
+  if (PRE_REGISTRATION_OUTREACH_KEYS.has(step.key)) return true;
+  const group = step.group?.toLowerCase() ?? '';
+  if (step.group === 'Pre-registration' || group.includes('outreach') || group.includes('invite')) return true;
+  if (step.trigger === 'launch' && !isPreWebinarReminder(step.key) && !group.includes('reminder')) return true;
+  return false;
+}
+
 export function isStepTrigger(value: string): value is StepTrigger {
   return (STEP_TRIGGERS as string[]).includes(value);
 }

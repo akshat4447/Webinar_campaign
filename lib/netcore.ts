@@ -1,5 +1,6 @@
 import { DeliveryRejectedError } from '@/lib/deliveryGuard';
 import { db } from './db';
+import { textToEmailHtml } from './emailHtml';
 import { resolveIntegrationField } from './integrationConfig';
 import type { EmailSuppression } from './generated/prisma/client';
 
@@ -23,6 +24,25 @@ export interface NetcoreSendResult {
 const NETCORE_API_URL = 'https://emailapi.netcorecloud.net/v5/mail/send';
 
 
+/**
+ * Tracking flags sent with each message. Open and click tracking are left out unless NETCORE_OPEN_TRACKING /
+ * NETCORE_CLICK_TRACKING says "true" or "false", so Netcore applies the sending domain's own setting. Forcing click
+ * tracking on rewrites every link through a shared tracking address, which mail filters often hold back, and it overrides a
+ * domain whose owner switched it off. The unsubscribe link stays on.
+ */
+export function netcoreTrackingSettings(env: Record<string, string | undefined> = process.env): Record<string, boolean> {
+  const flag = (raw: string | undefined): boolean | undefined => {
+    const v = (raw ?? '').trim().toLowerCase();
+    return v === 'true' ? true : v === 'false' ? false : undefined;
+  };
+  const settings: Record<string, boolean> = { unsubscribe_track: true };
+  const open = flag(env.NETCORE_OPEN_TRACKING);
+  const click = flag(env.NETCORE_CLICK_TRACKING);
+  if (open !== undefined) settings.open_track = open;
+  if (click !== undefined) settings.click_track = click;
+  return settings;
+}
+
 export async function sendNetcoreEmail(params: NetcoreSendParams): Promise<NetcoreSendResult> {
   const apiKey = (await resolveIntegrationField('netcore', 'apiKey')) || process.env.NETCORE_API_KEY;
   const fromEmail = (await resolveIntegrationField('netcore', 'fromEmail')) || process.env.NETCORE_FROM_EMAIL;
@@ -44,7 +64,7 @@ export async function sendNetcoreEmail(params: NetcoreSendParams): Promise<Netco
     params.html && params.html.trim().length > 0
       ? params.html
       : params.text
-        ? `<div style="font-family: sans-serif; white-space: pre-wrap; line-height: 1.6;">${params.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')}</div>`
+        ? textToEmailHtml(params.text)
         : '<p></p>';
 
   const payload = {
@@ -70,11 +90,7 @@ export async function sendNetcoreEmail(params: NetcoreSendParams): Promise<Netco
         attributes: params.attributes || {},
       },
     ],
-    settings: {
-      open_track: true,
-      click_track: true,
-      unsubscribe_track: true,
-    },
+    settings: netcoreTrackingSettings(),
     tags: params.tags || ['webinar_campaign'],
   };
 

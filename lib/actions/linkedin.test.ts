@@ -6,6 +6,11 @@ import {
 } from './linkedin';
 import { db } from '@/lib/db';
 
+vi.mock('@/lib/sendEligibility', async (orig) => ({
+  ...(await orig<typeof import('@/lib/sendEligibility')>()),
+  excludedContactIds: vi.fn(async () => new Set<string>()),
+}));
+
 vi.mock('@/lib/db', () => ({
   db: {
     contact: {

@@ -24,14 +24,25 @@ vi.mock('@/lib/db', () => ({
     cadenceSend: {
       findMany: vi.fn(),
     },
+    cadenceStep: {
+      findMany: vi.fn(),
+    },
   },
 }));
 
 import { db } from '@/lib/db';
 
 describe('registrationChannels', () => {
+  // How many people were sent each built-in invite step, as the cadence's own records would say it. No step rows: the built-in names apply.
+  const sentByStepKey = (counts: Record<string, number>) =>
+    vi.mocked(db.cadenceSend.findMany).mockImplementation((async (args: { where: { stepKey: { in: string[] } } }) =>
+      Array.from({ length: args.where.stepKey.in.reduce((n, k) => n + (counts[k] || 0), 0) }, (_, i) => ({ contactId: `c${i}` }))) as never);
+
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.$queryRaw).mockReset();
+    vi.mocked(db.cadenceStep.findMany).mockResolvedValue([] as never);
+    sentByStepKey({});
   });
 
   describe('CHANNEL_DEFINITIONS & selections', () => {
@@ -156,7 +167,8 @@ describe('registrationChannels', () => {
 
 
       vi.mocked(db.campaign.findUnique).mockResolvedValue(mockCampaign as unknown as never);
-      vi.mocked(db.$queryRaw).mockResolvedValueOnce(mockContacts.map(c=>({...c,channel:resolveContactRegistrationChannel(c,new Map()),channelCount:c.registrationSource==='email_campaign'?2:1}))).mockResolvedValueOnce([{stepKey:'invite',count:4},{stepKey:'waInvite',count:1},{stepKey:'smsInvite',count:1},{stepKey:'linkedin',count:1}]);
+      vi.mocked(db.$queryRaw).mockResolvedValueOnce(mockContacts.map(c=>({...c,channel:resolveContactRegistrationChannel(c,new Map()),channelCount:c.registrationSource==='email_campaign'?2:1})));
+      sentByStepKey({ invite: 4, waInvite: 1, smsInvite: 1, linkedin: 1 });
 
       const result = await getCampaignRegistrationChannels('camp_123');
 
@@ -203,7 +215,7 @@ describe('registrationChannels', () => {
       ];
 
       vi.mocked(db.campaign.findUnique).mockResolvedValue(mockCampaign as unknown as never);
-      vi.mocked(db.$queryRaw).mockResolvedValueOnce(mockContacts.map(c=>({...c,channel:'website',channelCount:1}))).mockResolvedValueOnce([]);
+      vi.mocked(db.$queryRaw).mockResolvedValueOnce(mockContacts.map(c=>({...c,channel:'website',channelCount:1})));
 
       const result = await getCampaignRegistrationChannels('camp_framer', 'http://localhost:3000');
 
@@ -240,7 +252,7 @@ describe('registrationChannels', () => {
       ];
 
       vi.mocked(db.campaign.findUnique).mockResolvedValue(mockCampaign as unknown as never);
-      vi.mocked(db.$queryRaw).mockResolvedValueOnce(mockContacts.map(c=>({...c,channel:'website',channelCount:1}))).mockResolvedValueOnce([]);
+      vi.mocked(db.$queryRaw).mockResolvedValueOnce(mockContacts.map(c=>({...c,channel:'website',channelCount:1})));
 
       const result = await getCampaignRegistrationChannels('camp_zoom', 'https://studio.example.com');
 
@@ -255,7 +267,7 @@ describe('registrationChannels', () => {
 
 it('always lists the channels Studio sends on, even for a webinar saved before SMS was one of them',async()=>{
  vi.mocked(db.campaign.findUnique).mockResolvedValue({id:'old',name:'Old',registrationLink:null,registrationMode:'zoom',oneClickSignup:true,zoomMeetingId:null,zoomLink:null,registrations:0,status:'live',selectedChannels:'email_campaign,whatsapp,linkedin,sdr_sales,third_parties,linkedin_event,website'} as unknown as never);
- vi.mocked(db.$queryRaw).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+ vi.mocked(db.$queryRaw).mockResolvedValueOnce([]);
  const result=await getCampaignRegistrationChannels('old','https://studio.example.com');
  expect(result.channels.map(c=>c.key)).toEqual(['email_campaign','sms','whatsapp','linkedin','sdr_sales','third_parties','linkedin_event','website']);
 });

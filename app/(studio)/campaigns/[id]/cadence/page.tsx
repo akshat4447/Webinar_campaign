@@ -11,9 +11,9 @@ import { normalizeLinkedInSlug, peopleSearchUrl } from '@/lib/linkedinUrl';
 import { validateRenderedMessage } from '@/lib/messageValidation';
 import { formatSpeakersSummary } from '@/lib/speakers';
 import { isCampaignCompleted } from '@/lib/campaignLifecycle';
-import { buildLandingPageUrl } from '@/lib/landingPageServer';
+import { buildInviteLink } from '@/lib/inviteLink';
+import { excludedContactIds } from '@/lib/sendEligibility';
 import { compareCadenceSteps } from '@/lib/stepSchedule';
-import { registrationUrl } from '@/lib/registration';
 import { appOrigin } from '@/lib/appOrigin';
 import type { VerificationStatus } from '@/lib/apolloVerify';
 
@@ -134,19 +134,12 @@ export default async function SchedulePage({ params, searchParams }: { params: P
   // when one is on file (from the CSV's LinkedIn column or pasted in the queue);
   // `url` stays a name+company people-search so the flow still works without one.
   const baseLink = campaign.registrationLink ?? '';
-  const linkedinQueue = approvedContacts.map((c) => {
+  // Nobody the webinar must send nothing to (unsubscribed, suppressed, on an exclusion list, or already on the suppression list) is queued.
+  const notReachable = await excludedContactIds(id, approvedContacts);
+  const linkedinQueue = approvedContacts.filter((c) => !notReachable.has(c.id)).map((c) => {
     const personalizedBody = personalizedByContact.get(c.id);
-    const effectiveContactLink = campaign.registrationLink
-      ? buildLandingPageUrl({
-          landingPageUrl: campaign.registrationLink,
-          campaign,
-          contact: c,
-          channel: 'linkedin',
-          apiOrigin: appOrigin(),
-        })
-      : campaign.oneClickSignup
-        ? registrationUrl(appOrigin(), campaign.id, c.id, 'linkedin')
-        : campaign.zoomLink || baseLink;
+    // The one shared rule for which link a person gets (lib/inviteLink.ts), the same one the LinkedIn send itself uses.
+    const effectiveContactLink = buildInviteLink({ campaign, contact: c, channel: 'linkedin', appOrigin: appOrigin() }) || campaign.zoomLink || baseLink;
 
     // LinkedIn sends are human-reviewed (copy/paste, or a labeled bot
     // assisted runner) rather than auto-sent like email, so this doesn't silently

@@ -1,6 +1,7 @@
 /**
- * Which cadence step keys count as an "invite" (the initial pre-registration
- * touch) versus a reminder/follow-up. Shared by the dashboard KPI
+ * Which built-in cadence step keys count as an "invite" (the initial pre-registration
+ * touch) versus a reminder/follow-up; lib/inviteSends.ts adds each campaign's own
+ * outreach steps. Shared by the dashboard KPI
  * (lib/analytics.ts) and the per-campaign card stat (lib/campaignCardStats.ts)
  * so "Invites sent" means the same sends in both places — the card used to sum
  * every sent step (invites + reminders + follow-ups) under that label while

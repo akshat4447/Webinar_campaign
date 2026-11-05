@@ -192,3 +192,110 @@ describe('verifyLandingPage follows the form\'s redirect to look for the script'
     expect(check(r, 'reachable')?.status).toBe('pass');
   });
 });
+
+describe('verifyLandingPage reads the script files the page loads (a Framer component\'s script is not in the page itself)', () => {
+  const OLD = 'https://93.184.216.40';          // an address nothing answers on
+  const OTHER_LIVE = 'https://93.184.216.41';   // a different Studio that does answer
+  const THIS_WEBINAR = 'cmwcurrentwebinar0000001';
+  const OLD_WEBINAR = 'cmwoldwebinar0000000001';
+  const SCRIPT_TEXT = 'fetch(origin + "/api/landing/submit", {method:"POST"})';
+  const res = (b: string, status = 200) => new Response(b, { status, headers: { 'content-type': 'text/html' } });
+  const pageHtml = '<title>W</title><form><input type="email"></form><script type="module" src="/framer.CT.mjs"></script>';
+  const bundle = (props: string) => `${SCRIPT_TEXT}; ue(Ga,{${props}})`;
+
+  async function check_(props: string, opts: { live?: string[]; expected?: Parameters<typeof verifyLandingPage>[3] } = {}) {
+    const live = new Set(opts.live ?? []);
+    const fetchImpl = vi.fn(async (u: string | URL | Request) => {
+      const url = String(u);
+      if (url.endsWith('/api/health')) {
+        if ([...live].some((o) => url.startsWith(o))) return res('{"ok":true}');
+        throw new Error('ECONNREFUSED');
+      }
+      if (url.endsWith('/framer.CT.mjs')) return res(bundle(props));
+      return res(pageHtml);
+    });
+    return verifyLandingPage('https://93.184.216.34/w', APP, fetchImpl as unknown as typeof fetch, opts.expected ?? { campaignId: THIS_WEBINAR });
+  }
+
+  it('recognises a script that is only inside the bundle, so such a page is no longer reported as having none', async () => {
+    const r = await check_(`apiOrigin:\`${APP}\`,campaignId:\`${THIS_WEBINAR}\``);
+    expect(check(r, 'snippet')?.status).toBe('pass');
+    expect(check(r, 'snippet-webinar')).toBeUndefined();
+  });
+
+  it('FAILS, naming the old address, when the page sends registrations to an address that no longer answers', async () => {
+    const r = await check_(`apiOrigin:\`${OLD}\`,campaignId:\`${THIS_WEBINAR}\``);
+    const c = check(r, 'snippet');
+    expect(c?.status).toBe('fail');
+    expect(c?.detail).toContain(OLD);
+    expect(c?.detail).toMatch(/does not answer/);
+    expect(c?.detail).toContain(APP);
+    expect(c?.fix).toMatch(/Copy the script again/);
+    expect(r.overall).toBe('fail');
+  });
+
+  it('treats an address whose name no longer exists as dead too, which is what a closed tunnel looks like', async () => {
+    const fetchImpl = vi.fn(async (u: string | URL | Request) => (String(u).endsWith('.mjs') ? res(bundle('apiOrigin:`https://closed-tunnel-name.invalid`')) : res(pageHtml)));
+    const r = await verifyLandingPage('https://93.184.216.34/w', APP, fetchImpl as unknown as typeof fetch);
+    expect(check(r, 'snippet')?.status).toBe('fail');
+    expect(check(r, 'snippet')?.detail).toMatch(/does not answer/);
+    expect(fetchImpl.mock.calls.some(([u]) => String(u).includes('closed-tunnel-name.invalid'))).toBe(false); // nothing to connect to
+  });
+
+  it('only warns when the other address does answer, since it may be a deliberate second name for a Studio', async () => {
+    const r = await check_(`apiOrigin:\`${OTHER_LIVE}\``, { live: [OTHER_LIVE] });
+    expect(check(r, 'snippet')?.status).toBe('warn');
+    expect(check(r, 'snippet')?.detail).not.toMatch(/does not answer/);
+  });
+
+  it('warns when the right address is there but an old one is left beside it', async () => {
+    const r = await check_(`apiOrigin:\`${APP}\`,x:1,apiOrigin:\`${OLD}\``);
+    expect(check(r, 'snippet')?.status).toBe('warn');
+    expect(check(r, 'snippet')?.detail).toContain(OLD);
+  });
+
+  it('warns that the script is set up for another webinar, and says nothing when it is this one', async () => {
+    const stale = await check_(`apiOrigin:\`${APP}\`,campaignId:\`${OLD_WEBINAR}\``);
+    expect(check(stale, 'snippet')?.status).toBe('pass');
+    expect(check(stale, 'snippet-webinar')?.status).toBe('warn');
+    expect(check(stale, 'snippet-webinar')?.detail).toContain(OLD_WEBINAR);
+    const same = await check_(`apiOrigin:\`${APP}\`,campaignId:\`${THIS_WEBINAR}\``);
+    expect(check(same, 'snippet-webinar')).toBeUndefined();
+  });
+
+  it('says the address could not be read, instead of guessing, when the script is there but its address is not', async () => {
+    const r = await check_('x:1');
+    expect(check(r, 'snippet')?.status).toBe('warn');
+    expect(check(r, 'snippet')?.detail).toMatch(/could not be read/);
+  });
+
+  it('still reports the page when a script file cannot be fetched', async () => {
+    const fetchImpl = vi.fn(async (u: string | URL | Request) => (String(u).endsWith('.mjs') ? res('gone', 500) : res(pageHtml)));
+    const r = await verifyLandingPage('https://93.184.216.34/w', APP, fetchImpl as unknown as typeof fetch);
+    expect(check(r, 'reachable')?.status).toBe('pass');
+    expect(check(r, 'snippet')?.status).toBe('fail'); // no script anywhere it could be read
+  });
+
+  it('does not probe an address on a private network', async () => {
+    const asked: string[] = [];
+    const fetchImpl = vi.fn(async (u: string | URL | Request) => {
+      asked.push(String(u));
+      return String(u).endsWith('.mjs') ? res(bundle('apiOrigin:`http://10.0.0.5:3000`')) : res(pageHtml);
+    });
+    const r = await verifyLandingPage('https://93.184.216.34/w', APP, fetchImpl as unknown as typeof fetch);
+    expect(asked.some((u) => u.startsWith('http://10.0.0.5'))).toBe(false);
+    expect(check(r, 'snippet')?.status).toBe('warn'); // different address, not proven dead
+  });
+
+  it('finds the script on the thank-you page when it is only in that page\'s bundle', async () => {
+    const landing = `<title>L</title>${FORM({ MXHRedirectUrl: 'https://93.184.216.35/thanks' })}`;
+    const fetchImpl = vi.fn(async (u: string | URL | Request) => {
+      const url = String(u);
+      if (url.endsWith('/t.mjs')) return res(bundle(`apiOrigin:\`${APP}\``));
+      if (url.includes('/thanks')) return res('<p>Thanks</p><script src="/t.mjs"></script>');
+      return res(landing);
+    });
+    const r = await verifyLandingPage('https://93.184.216.34/w', APP, fetchImpl as unknown as typeof fetch, EXPECTED);
+    expect(check(r, 'thankyou')?.status).toBe('pass');
+  });
+});
