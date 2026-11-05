@@ -144,7 +144,7 @@ export default async function IntegrationsPage(props: PageProps<'/integrations'>
           <div className="lsq-card lsq-stat">
             <p className="lsq-stat__label">Errors</p>
             <p className={`lsq-stat__value${errorCount > 0 ? ' lsq-stat__note--down' : ''}`}>{errorCount.toLocaleString()}</p>
-            <p className="lsq-stat__note">Last test failed</p>
+            <p className="lsq-stat__note">{errorCount > 0 ? 'Last test failed' : 'No failed tests'}</p>
           </div>
         </section>
 

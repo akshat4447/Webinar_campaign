@@ -80,7 +80,7 @@ export function ScoringHeader({
             </span>
             <div>
               <h2 className="lsq-ov-aud-head__title" id="aud-scoring">Scored By Claude</h2>
-              <p className="lsq-ov-aud-head__sub" title={criteria}>Approval threshold: {threshold} · {criteria.slice(0, 160)}{criteria.length > 160 ? '…' : ''}</p>
+              <p className="lsq-ov-aud-head__sub" title={criteria}>Approval threshold: {threshold}{criteria ? ` · ${criteria.slice(0, 160)}${criteria.length > 160 ? '…' : ''}` : ''}</p>
             </div>
           </div>
           {!completed && (

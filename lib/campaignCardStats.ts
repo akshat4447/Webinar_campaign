@@ -1,7 +1,7 @@
 import { db } from '@/lib/db';
 import type { Campaign } from '@/lib/generated/prisma/client';
 import { formatAttendanceRate } from '@/lib/attendanceRate';
-import { INVITE_STEP_KEYS } from '@/lib/cadenceStepKinds';
+import { inviteSendWhere } from '@/lib/inviteSends';
 
 /** Only the scalar fields these card/KPI helpers actually read — callers
  *  (the webinar list) fetch campaigns with a `select` for exactly this
@@ -22,7 +22,7 @@ const DASH = '—';
 
 export interface CampaignCardCounts {
   contacts: number;
-  /** Sent cadence steps whose stepKey is one of INVITE_STEP_KEYS — matches
+  /** Contacts sent an invite step (lib/inviteSends.ts) — matches
    *  the dashboard's "Invites sent" KPI (lib/analytics.ts). This used to
    *  count every sent step (invites + reminders + follow-ups), so a campaign
    *  with reminder steps configured showed a higher "Invites sent" on its own
@@ -49,11 +49,12 @@ export async function getCampaignCardCounts(campaignIds: string[]): Promise<Map<
   if (campaignIds.length === 0) return byId;
 
   const scope = { campaignId: { in: campaignIds } };
+  const inviteWhere = await inviteSendWhere(campaignIds);
   const [contacts, invitesSent, scored, approved, attended, registered] = await Promise.all([
     db.contact.groupBy({ by: ['campaignId'], where: scope, _count: { _all: true } }),
     db.cadenceSend.groupBy({
       by: ['campaignId', 'contactId'],
-      where: { ...scope, status: 'sent', stepKey: { in: INVITE_STEP_KEYS } },
+      where: { ...scope, status: 'sent', ...inviteWhere },
       _count: { _all: true },
     }),
     db.contact.groupBy({ by: ['campaignId'], where: { ...scope, score: { not: null } }, _count: { _all: true } }),

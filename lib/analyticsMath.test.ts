@@ -78,19 +78,20 @@ describe('campaignRangeWhere', () => {
     expect(campaignRangeWhere(null, null)).toEqual({});
   });
 
-  it('filters on scheduledAt, or createdAt but only for a still-unscheduled draft', () => {
+  it('filters on scheduledAt, or createdAt for a scheduled campaign or a still-unscheduled draft', () => {
     const from = new Date('2026-08-06');
     const where = campaignRangeWhere(from, null) as { OR: unknown[] };
     expect(where.OR).toEqual([
       { scheduledAt: { gte: from } },
+      { AND: [{ scheduledAt: { not: null } }, { createdAt: { gte: from } }] },
       { AND: [{ scheduledAt: null }, { status: 'draft' }, { createdAt: { gte: from } }] },
     ]);
   });
 
   it('never matches a null-scheduledAt campaign by createdAt unless it is a draft', () => {
     const from = new Date('2026-08-06');
-    const where = campaignRangeWhere(from, null) as { OR: [unknown, { AND: [unknown, { status: string }, unknown] }] };
-    expect(where.OR[1].AND[1].status).toBe('draft');
+    const where = campaignRangeWhere(from, null) as { OR: [unknown, unknown, { AND: [unknown, { status: string }, unknown] }] };
+    expect(where.OR[2].AND[1].status).toBe('draft');
   });
 });
 

@@ -2,7 +2,7 @@ import { db } from '@/lib/db';
 import { getPersonaLearning, type PersonaLearningRow } from '@/lib/personaLearning';
 import { parseLegacyWebinarDate } from '@/lib/campaignDate';
 import { formatAttendanceRate } from '@/lib/attendanceRate';
-import { INVITE_STEP_KEYS } from '@/lib/cadenceStepKinds';
+import { inviteSendWhere } from '@/lib/inviteSends';
 import {
   bucketDatedCounts,
   campaignRangeWhere,
@@ -36,12 +36,13 @@ export interface DashboardKpi {
 
 export async function getDashboardKpis(range: DashboardRange, now = new Date()): Promise<DashboardKpi[]> {
   const { start, prevStart, prevEnd } = windowsFor(range, now);
+  const inviteWhere = await inviteSendWhere();
 
   async function periodStats(from: Date | null, to: Date | null) {
     const registeredWhere = from ? { registeredAt: { gte: from, ...(to ? { lt: to } : {}) } } : { registeredAt: { not: null } };
     const contactWhere = from ? { createdAt: { gte: from, ...(to ? { lt: to } : {}) } } : {};
     const sentWhere = from ? { status: 'sent', sentAt: { gte: from, ...(to ? { lt: to } : {}) } } : { status: 'sent' };
-    const invitedWhere = { ...sentWhere, stepKey: { in: INVITE_STEP_KEYS } };
+    const invitedWhere = { ...sentWhere, ...inviteWhere };
     const campaignWhere = campaignRangeWhere(from, to);
 
     const [registrations, delivered, invited, scoredContacts, approvedContacts, attendedContacts, campaigns, demoAgg] = await Promise.all([
