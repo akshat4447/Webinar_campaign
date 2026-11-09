@@ -45,6 +45,20 @@ For the existing free installation, `.github/workflows/render-worker.yml` provid
 
 This public repository uses standard Ubuntu runners, whose Actions execution is [free](https://docs.github.com/en/billing/concepts/product-billing/github-actions). GitHub's [scheduled workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule) may be delayed/dropped during high load and are disabled after 60 days of repository inactivity. This is a best-effort free trigger, not a punctual-delivery guarantee. Watch Actions failures and the application's worker heartbeat; the database expiry remains unchanged.
 
+### Replace an expired free database
+
+When the free database expires, the service cannot apply migrations on wake-up, so it never serves: pages and `/api/health` stop responding, and every Render worker run fails after three minutes. Upgrading the database to a paid plan before Render deletes it keeps the data. Replacing it with a new free database loses all data and keeps the app on a 30-day clock:
+
+1. Set the GitHub repository variable `RENDER_WORKER_ENABLED=false` so the trigger stops failing while you work.
+2. In Render, open `webinar-studio-db` → **Settings** → **Delete Database**. A workspace can hold only one free database, so the expired one must go first.
+3. Recreate it: open the Blueprint and choose **Manual Sync**, which creates `webinar-studio-db` from `render.yaml` and wires `DATABASE_URL` again. Without the Blueprint, choose **New → Postgres** with name `webinar-studio-db`, database `webinar_studio`, user `webinar_studio`, PostgreSQL 16, the **same region as the web service**, plan **Free**, then set the service's `DATABASE_URL` to the new **Internal Database URL**.
+4. On `webinar-studio`, choose **Manual Deploy → Deploy latest commit**. Startup applies every migration to the empty database. Keep all other environment values; `CRON_SECRET` must still match the GitHub secret `RENDER_CRON_SECRET`.
+5. Check that `/api/health` returns `{"ok":true}`, then sign in with the unchanged operator login.
+6. On **Integrations**, enter the provider keys again and reconnect Zoom; they were stored in the deleted database.
+7. Recreate the webinars. Each new webinar has a new ID, so regenerate the landing-page component (`npm run framer:component`) and run **Check Page** on every landing page.
+8. Set `RENDER_WORKER_ENABLED=true` and run the Render worker workflow once by hand; it should pass in about a minute.
+9. Note the new expiry date, 30 days after creation, and back up or upgrade before it.
+
 For ongoing production, upgrade the web and database plans and commit matching paid plan values to the Blueprint so future syncs preserve them. Move migrations to `preDeployCommand`, use `startCommand: npm start`, and deliberately enable one scheduler owner after provider verification. Retain the existing database and keys.
 
 ## Production Render: `render.production.yaml`
