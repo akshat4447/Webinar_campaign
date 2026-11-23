@@ -47,7 +47,7 @@ This public repository uses standard Ubuntu runners, whose Actions execution is 
 
 ### Replace an expired free database
 
-When the free database expires, the service cannot apply migrations on wake-up, so it never serves: pages and `/api/health` stop responding, and every Render worker run fails after three minutes. Upgrading the database to a paid plan before Render deletes it keeps the data. Replacing it with a new free database loses all data and keeps the app on a 30-day clock:
+When the free database expires, the service cannot apply migrations on wake-up, so it never serves: pages and `/api/health` stop responding, and every Render worker run fails after three minutes. The service logs show `Error: P1001: Can't reach database server at dpg-…:5432` after `prisma migrate deploy`, followed by `Instance … restarted`, in a loop. The same error after a replacement means `DATABASE_URL` still names the old database's host. Upgrading the database to a paid plan before Render deletes it keeps the data. Replacing it with a new free database loses all data and keeps the app on a 30-day clock:
 
 1. Set the GitHub repository variable `RENDER_WORKER_ENABLED=false` so the trigger stops failing while you work.
 2. In Render, open `webinar-studio-db` → **Settings** → **Delete Database**. A workspace can hold only one free database, so the expired one must go first.
