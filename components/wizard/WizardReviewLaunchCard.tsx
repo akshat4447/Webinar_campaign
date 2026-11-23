@@ -310,6 +310,9 @@ export function WizardReviewLaunchCard({
     },
   ];
   const attention = checklist.filter((c) => c.state !== 'done').length;
+  // The server's own checks (messages, providers, dates) can block launch even when every checklist row is done, so the
+  // badge and footer count them too rather than saying "All clear" over a disabled Launch button.
+  const blockers = launchReadiness && !launchReadiness.ok ? launchReadiness.problems : [];
 
   return (
     <div className="lsq-stack lsq-stack--lg">
@@ -393,11 +396,23 @@ export function WizardReviewLaunchCard({
               <h3 className="lsq-card__title" id="wiz-readiness">Launch Readiness</h3>
               <p className="lsq-card__sub">Checked against what is saved for this webinar.</p>
             </div>
-            <Badge color={attention === 0 ? 'success' : 'warning'} text={attention === 0 ? 'All clear' : `${attention} to review`} />
+            <Badge
+              color={blockers.length > 0 ? 'error' : attention === 0 ? 'success' : 'warning'}
+              text={blockers.length > 0 ? `${blockers.length} to fix` : attention === 0 ? 'All clear' : `${attention} to review`}
+            />
           </div>
           <div className="lsq-card__body">
             {!launchReadiness && <p role="status">Verifying backend launch checks…</p>}
-            {launchReadiness && !launchReadiness.ok && <ul className="lsq-wiz-issues" aria-label="Launch blockers">{launchReadiness.problems.map(problem=><li key={problem}>{problem}</li>)}</ul>}
+            {blockers.length > 0 && (
+              <ul className="lsq-wiz-issues" aria-label="Launch blockers">
+                {blockers.map((problem) => (
+                  <li key={problem}>
+                    <Badge color="error" text="Fix" />
+                    <span>{problem}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
             <ul className="lsq-checklist">
               {checklist.map((c) => (
                 <li key={c.id} className="lsq-checklist__item" data-state={c.state}>
@@ -483,7 +498,11 @@ export function WizardReviewLaunchCard({
           </div>
           <div className="lsq-card__footer">
             <p className="lsq-hint lsq-grow">
-              {attention > 0 ? `${attention} ${plural(attention, 'item needs', 'items need')} review. Fix blocking checks before launch.` : 'Every check passed.'}
+              {blockers.length > 0
+                ? `Launch is blocked: fix ${blockers.length === 1 ? 'the issue' : `the ${blockers.length} issues`} marked Fix above.`
+                : attention > 0
+                  ? `${attention} ${plural(attention, 'item needs', 'items need')} review. Fix blocking checks before launch.`
+                  : 'Every check passed.'}
             </p>
             <Button size="lg" icon={<Icon name="send" size={16} />} disabled={launching || approving || !registrationReadiness?.ready || !launchReadiness?.ok || enabledSteps.length === 0} loading={launching} onClick={() => setConfirming(true)}>
               {launching ? 'Launching' : 'Launch Webinar'}

@@ -3,6 +3,7 @@ import { cadenceStepsData } from '@/lib/demo-data';
 import { STEP_DEFAULTS, STEP_DEFAULT_INSTRUCTIONS } from '@/lib/stepSchedule';
 import { defaultTriggerFor } from '@/lib/stepTrigger';
 import { normalizeChannel, DEFAULT_ENABLED_CHANNELS } from '@/lib/channels';
+import { ensureTemplateLibrary } from '@/lib/templateLibrary';
 
 /**
  * Give a new campaign its baseline cadence.
@@ -18,6 +19,7 @@ import { normalizeChannel, DEFAULT_ENABLED_CHANNELS } from '@/lib/channels';
  * Idempotent via @@unique([campaignId, key]), so calling it twice is a no-op.
  */
 export async function provisionCampaignDefaults(campaignId: string) {
+  await ensureTemplateLibrary();
   // One lookup for the whole library, rather than a query per step.
   const library = await db.messageTemplate.findMany({
     where: { campaignId: null },

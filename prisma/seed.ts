@@ -4,6 +4,7 @@
 import '../lib/loadEnv';
 
 import { db } from '../lib/db';
+import { ensureTemplateLibrary } from '../lib/templateLibrary';
 import {
   campaigns as demoCampaigns,
   contactsDemo,
@@ -56,25 +57,7 @@ async function main() {
   const primary = demoCampaigns[0].id; // c1 — the "live" campaign, seeded with full detail
 
   // Seed shared MessageTemplate library so steps can resolve templates
-  for (const t of templatesData) {
-    const ch = t.channel.toLowerCase();
-    const channel = ch.includes('whatsapp') ? 'whatsapp' : ch.includes('sms') ? 'sms' : ch.includes('linkedin') ? 'linkedin' : 'email';
-    const existingLib = await db.messageTemplate.findFirst({ where: { campaignId: null, key: t.id } });
-    if (!existingLib) {
-      await db.messageTemplate.create({
-        data: {
-          campaignId: null,
-          key: t.id,
-          name: t.label,
-          channel,
-          hasSubject: t.hasSubject,
-          subject: t.subject,
-          body: t.body,
-          status: channel === 'linkedin' ? 'assisted' : 'ready',
-        },
-      });
-    }
-  }
+  await ensureTemplateLibrary();
 
   const existingContacts = await db.contact.count({ where: { campaignId: primary } });
   if (existingContacts === 0) {
