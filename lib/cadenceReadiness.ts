@@ -34,7 +34,7 @@ function templatesReadinessFrom(pairs: Awaited<ReturnType<typeof stepsWithTempla
   const problems: string[] = [];
   for (const { step, template } of pairs) {
     if (!template || template.hidden) {
-      problems.push(`Step "${step.title || step.key}" (${step.channel}): No valid template assigned`);
+      problems.push(`Step "${step.title || step.key}" (${step.channel}): No valid template assigned. Choose or write its message in Messaging and Channels.`);
       continue;
     }
     const v = validateTemplateContentForChannel(template.subject, template.body, template.hasSubject, KNOWN_MERGE_VARS, template.channel);

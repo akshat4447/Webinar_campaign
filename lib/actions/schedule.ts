@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { assertSetupEditable, assertStepUnsent } from '@/lib/setupLock';
 import { plainError } from '@/lib/plainError';
 import { writeWebinarSchedule } from '@/lib/webinarSchedule';
+import { ensureTemplateLibrary } from '@/lib/templateLibrary';
 
 const campaignIdSchema = z.string().min(1);
 const stepKeySchema = z.string().min(1);
@@ -341,6 +342,7 @@ export async function addCadenceStepAction(campaignId: string, group: string, ch
       : 'launch';
   const anchor = trigger === 'launch' ? 'launch' : 'webinar';
 
+  await ensureTemplateLibrary();
   const step = await db.cadenceStep.create({
     data: {
       campaignId: validCampaignId,

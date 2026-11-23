@@ -37,7 +37,12 @@ jobs:
             if (result.ok !== true) throw new Error('Worker reported a failure.');
             console.log(JSON.stringify({ ok: true, skipped: Boolean(result.skipped), processed: result.processed ?? 0, sent: result.sent ?? 0, failed: result.failed ?? 0 }));
           } catch (error) {
-            console.error(error instanceof Error ? error.message : 'Worker request failed.');
+            // A timeout means the site never answered, which on the free plan usually means the service cannot start
+            // (most often an expired free database), so say where to look instead of only "aborted due to timeout".
+            const message = error instanceof Error && error.name === 'TimeoutError'
+              ? 'Webinar Studio did not respond within 3 minutes. The Render service is probably failing to start: check its logs and /api/health, and whether the free database has expired (see docs/DEPLOYMENT.md, "Replace an expired free database").'
+              : error instanceof Error ? error.message : 'Worker request failed.';
+            console.log(`::error title=Render worker::${message}`);
             process.exitCode = 1;
           }
           NODE

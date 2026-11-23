@@ -46,6 +46,7 @@ import { after } from 'next/server';
 import { applyMessagingPatch } from '@/lib/wizardMessagingPersist';
 import { landingLinkError } from '@/lib/wizardValidation';
 import { wallClockToDate, safeTimeZone } from '@/lib/dateFormat';
+import { ensureTemplateLibrary } from '@/lib/templateLibrary';
 export type { WizardFieldMapping };
 
 export interface AudiencePreflightValidation {
@@ -609,6 +610,7 @@ export async function addWizardCadenceStepAction(
       : 'launch';
   const anchor = data.anchor || (trigger === 'launch' ? 'launch' : 'webinar');
 
+  await ensureTemplateLibrary();
   const defaultTemplate = await db.messageTemplate.findFirst({
     where: { OR: [{ campaignId: null }, { campaignId }], channel: routable },
     select: { id: true },
